@@ -1,0 +1,13 @@
+# One-click deploy on Render: New > Blueprint > point at this repo.
+# The free plan sleeps after 15 idle minutes and forgets live rooms when it does; fine for a test night.
+services:
+  - type: web
+    name: room-blend
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: TRUST_PROXY
+        value: "1"
+      - key: SPOTIFY_CLIENT_ID
+        sync: false   # optional; leave empty and hosts bring their own Spotify app

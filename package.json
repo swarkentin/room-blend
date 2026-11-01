@@ -1,0 +1,15 @@
+{
+  "name": "room-blend",
+  "version": "0.1.0",
+  "description": "Music that blends the tastes of everyone in the room.",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/engine.test.js && node test/tags.test.js && node test/api.test.js && node test/presence.test.js",
+    "test:browser": "node test/e2e.test.js && node test/e2e.test.js own && node test/e2e-sources.test.js && node test/e2e-join.test.js && node test/e2e-genres.test.js && node test/e2e-sync.test.js && node test/e2e-presence.test.js && node test/e2e-played.test.js && node test/e2e-youtube.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,19 @@
+# fly launch --copy-config   (Fly asks for a card; small apps cost a few dollars a month)
+app = "room-blend"
+primary_region = "iad"
+[build]
+[env]
+  TRUST_PROXY = "1"
+  DATA_DIR = "/data"
+[mounts]
+  source = "rb_data"
+  destination = "/data"
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  min_machines_running = 1
+  [[http_service.checks]]
+    path = "/healthz"
+    interval = "30s"
+    timeout = "5s"
