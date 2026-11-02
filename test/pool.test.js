@@ -44,6 +44,13 @@ ok('a genre is searched by its own name, then compound names; those shared with 
   assert.ok(!JSON.stringify(r.guestView(a.id)).includes('svc:')); 
 }
 
+// ---- aliases must request every genre they represent ----
+{
+  const r = mk(); add(r, 'Ana', ['phonk', '90s', 'techno', 'metal']);
+  assert.deepStrictEqual(r.wantGenres(), ['trap', 'hip hop', 'alternative', 'grunge', 'pop', 'r&b', 'dance pop', 'techno', 'metal']);
+  ok('provider requests every canonical genre represented by a guest\'s picks');
+}
+
 // ---- thin genres fall back to the built-in list; holidays always keep their famous songs ----
 {
   const r = mk(); add(r, 'Ana', ['jazz']); add(r, 'Bo', ['christmas']);
