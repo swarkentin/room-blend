@@ -10,7 +10,7 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
 
 (async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rb-picks-'));
-  const srv = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: Object.assign({}, process.env, { PORT, DATA_DIR: tmp }), stdio: ['ignore', 'ignore', 'inherit'] });
+  const srv = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: Object.assign({}, process.env, { PORT, DATA_DIR: tmp, MUSICBRAINZ_SEARCH_DISABLED: '1' }), stdio: ['ignore', 'ignore', 'inherit'] });
   await until(() => new Promise((r) => http.get(APP, () => r(true)).on('error', () => r(false))), 8000, 'server up');
   const browser = await chromium.launch(); const errors = [];
   const page = async (vp) => { const c = await browser.newContext({ viewport: vp || { width: 400, height: 850 } }); const p = await c.newPage(); p.on('pageerror', (e) => errors.push(e.message)); p.on('console', (m) => { if (m.type() === 'error' && !/fonts|ERR_|Failed to load resource/.test(m.text())) errors.push(m.text()); }); await p.route(/^https:\/\//, (r) => r.abort()); return p; };
@@ -24,6 +24,9 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
     assert.ok(await g.locator('#gv-picks h2').isVisible()); assert.strictEqual(await g.textContent('#gv-picks h2'), 'Artists and songs you want to hear'); assert.ok(await g.locator('#gv-picks #gv-q').isVisible()); ok('after joining, the guest page shows "Artists and songs you want to hear" with its search open, no tap needed');
 
     await g.fill('#gv-picks #gv-q', 'quee');
+    assert.match(await g.textContent('#gv-picks #gv-picks-msg'), /Searching the room and MusicBrainz/);
+    assert.strictEqual(await g.getAttribute('#gv-picks #gv-results', 'aria-busy'), 'true');
+    ok('search immediately shows progress while room and MusicBrainz results load');
     await g.waitForSelector('#gv-picks #gv-results .rrow');
     const rows = await g.locator('#gv-picks #gv-results .rrow').allTextContents(); assert.ok(rows.some((t) => /Queen/.test(t) && /songs? here/.test(t))); ok('typing part of a name lists matching artists with how many songs the room has');
     await g.locator('#gv-picks #gv-results .rrow', { hasText: 'Queen' }).first().getByRole('button', { name: /Add artist/ }).click();
@@ -57,7 +60,10 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
       await g.fill('#gv-picks #gv-q', name);
       await g.waitForFunction(() => document.querySelector('#gv-picks #gv-results').children.length > 0, null, { timeout: 15000 });
       const b = g.locator('#gv-picks #gv-results .rrow button:has-text("Add artist")').first();
-      if (await b.count() && await b.isEnabled()) { await b.click(); await g.waitForTimeout(250); }
+      if (await b.count() && await b.isEnabled()) {
+        const saved = g.waitForResponse((r) => r.url().includes('/api/rooms/' + code + '/guests/') && r.request().method() === 'PATCH');
+        await b.click(); await saved;
+      }
     }
     assert.strictEqual(await g.locator('#gv-picks #gv-chosen .chip').count(), 6, 'one song plus exactly five artists'); assert.ok(!/Fleetwood/.test(await g.textContent('#gv-picks #gv-chosen'))); assert.ok(await g.locator('#gv-picks #gv-results .rrow button:has-text("Add artist")').first().isDisabled()); ok('the guest cannot go past five artists: the sixth cannot be added');
 

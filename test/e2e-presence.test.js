@@ -10,7 +10,7 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
 
 (async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rb-pres-'));
-  const srv = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: Object.assign({}, process.env, { PORT, DATA_DIR: tmp, TRUST_PROXY: '1', BEAT_MS: '400', DISCONNECT_GRACE_MS: '2000', DOZE_DEFAULT_MIN: '0.1', IDLE_ASK_S: '10', IDLE_ANSWER_MS: '4000' }), stdio: ['ignore', 'ignore', 'inherit'] });
+  const srv = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: Object.assign({}, process.env, { PORT, DATA_DIR: tmp, TRUST_PROXY: '1', BEAT_MS: '400', DISCONNECT_GRACE_MS: '500', DOZE_DEFAULT_MIN: '0.05', IDLE_ASK_S: '8', IDLE_ANSWER_MS: '1000' }), stdio: ['ignore', 'ignore', 'inherit'] });
   await until(() => new Promise((r) => http.get(APP, () => r(true)).on('error', () => r(false))), 8000, 'server up');
   const browser = await chromium.launch(); const errors = [];
   const HOME = { 'x-forwarded-for': '203.0.113.5' }, ELSEWHERE = { 'x-forwarded-for': '198.51.100.7' };
@@ -19,8 +19,9 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     const [, host] = await mk(HOME, { width: 1200, height: 900 });
     await host.goto(APP); await host.click('#start-room'); await host.waitForURL(/\/host\/[A-Z0-9]{5}$/);
     const code = host.url().split('/').pop();
-    await host.fill('#room-name', 'Pres'); await host.waitForTimeout(500);
-    await host.evaluate(() => fetch('/api/rooms/' + location.pathname.split('/').pop() + '/host/opts', { method: 'POST' }).catch(() => {}));
+    await host.evaluate(() => fetch('/api/rooms/' + location.pathname.split('/').pop() + '/host/opts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settle: 0 }),
+    }));
 
     // ---- a guest on the same Wi-Fi, then off it ----
     const [gc, g] = await mk(HOME);
@@ -43,8 +44,8 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     await g.click('#gv-here');
     await until(async () => (await g.getAttribute('#gv-ask', 'hidden')) !== null, 5000, 'prompt gone');
     ok('tapping "I\'m still here" clears it');
-    await new Promise((r) => setTimeout(r, 11000)); // leave the page alone: ask, then no answer
-    await until(async () => /Quiet|Away/.test(await host.textContent('#guests')) || /did not answer/.test(await g.textContent('#gv-me')), 16000, 'idle away');
+    await until(async () => (await g.getAttribute('#gv-ask', 'hidden')) === null, 12000, 'next still here prompt');
+    await until(async () => /Quiet|Away/.test(await host.textContent('#guests')) || /did not answer/.test(await g.textContent('#gv-me')), 5000, 'idle away');
     ok('with no answer the guest is set to sit out');
     await g.click('#gv-me');
     await until(async () => /In the blend/.test(await host.textContent('#guests')), 8000, 'back after touch');
@@ -56,13 +57,14 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     await l.click('#gv-picker [data-g="blues"]'); await l.click('#gv-submit'); await l.waitForSelector('#gv-title');
     await until(async () => /Lee[\s\S]*In the blend/.test(await host.textContent('#guests')), 12000, 'Lee counts');
     ok('a guest on mobile data, never on the host\'s Wi-Fi, counts in the blend and is not marked away');
+    const hiddenBeat = l.waitForResponse((r) => r.url().includes('/here') && r.request().method() === 'POST');
     await l.evaluate(() => { Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true }); document.dispatchEvent(new Event('visibilitychange')); });
-    await new Promise((r) => setTimeout(r, 400));
+    await hiddenBeat;
     await l.close(); // the locked phone drops its connection
     await until(async () => /Phone locked, still counted/.test(await host.textContent('#guests')), 8000, 'dozing shown');
-    await new Promise((r) => setTimeout(r, 2800)); // longer than the 2 s short grace
+    await new Promise((r) => setTimeout(r, 700)); // longer than the test's short disconnect grace
     assert.ok(/Lee/.test(await host.textContent('#guests')) && /Phone locked/.test(await host.textContent('#guests'))); ok('a locked phone is still counted after the short grace has passed');
-    await until(async () => !/Lee/.test(await host.textContent('#guests')), 12000, 'lease runs out');
+    await until(async () => !/Lee/.test(await host.textContent('#guests')), 5000, 'lease runs out');
     ok('when the doze lease runs out the guest is dropped');
     const l2 = await lc.newPage(); l2.on('pageerror', (e) => errors.push(e.message)); await l2.goto(APP + '/' + code); // the phone is unlocked and the page opened again
     await until(async () => /Lee/.test(await host.textContent('#guests')), 15000, 'Lee rejoins');

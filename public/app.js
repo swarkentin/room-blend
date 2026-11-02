@@ -547,7 +547,7 @@
     var regKey = 'rb-guest-' + code;
     var reg = null; try { reg = JSON.parse(lsGet(regKey) || 'null'); } catch (e) { reg = null; }
     var params = new URLSearchParams(location.search);
-    var es = null, st = null;
+    var es = null, st = null, findOpen = Object.create(null);
 
     app.replaceChildren(h('div', { class: 'wrap guest-wrap' }, [
       h('header', { class: 'top' }, [h('div', null, [h('h1', { id: 'gv-title-h', text: 'Room ' + code }), h('p', { id: 'g-sub', text: 'Pick genres, or name artists and songs you like. The room\'s music shifts to fit everyone who is here.' })])]),
@@ -668,20 +668,34 @@
       var input = h('input', { type: 'search', class: 'genre-search', id: 'gv-q', maxlength: '60', placeholder: 'Search by artist, song or album', autocomplete: 'off', 'aria-label': 'Search for an artist, song or album' });
       var results = h('div', { id: 'gv-results', 'aria-live': 'polite' });
       var chosen = h('div', { class: 'chips', id: 'gv-chosen' });
-      var msg = h('p', { class: 'hint', id: 'gv-picks-msg', role: 'status' });
+      var msg = h('p', { class: 'hint search-status', id: 'gv-picks-msg', role: 'status' });
       var timer = null, seq = 0, last = null;
       input.addEventListener('input', function () {
-        clearTimeout(timer); last = null; results.replaceChildren(); msg.textContent = '';
-        timer = setTimeout(run, 400);
-      });
-      async function run() {
+        clearTimeout(timer);
         var q = input.value.trim(), mine = ++seq;
-        if (q.length < 2) { last = null; results.replaceChildren(); msg.textContent = ''; return; }
-        msg.textContent = 'Searching the room and MusicBrainz…';
+        last = null; results.replaceChildren(); results.setAttribute('aria-busy', 'false');
+        msg.classList.remove('is-loading'); msg.textContent = '';
+        if (q.length < 2) return;
+        results.setAttribute('aria-busy', 'true');
+        msg.classList.add('is-loading');
+        msg.textContent = 'Searching the room and MusicBrainz. This may take a few seconds.';
+        timer = setTimeout(function () { run(mine); }, 250);
+      });
+      async function run(mine) {
+        var q = input.value.trim();
+        if (q.length < 2 || mine !== seq) return;
         var r;
         try { r = await http('GET', '/api/rooms/' + code + '/search?q=' + encodeURIComponent(q), null, reg ? auth() : {}); }
-        catch (e) { if (mine === seq) msg.textContent = 'Search is not available right now.'; return; }
+        catch (e) {
+          if (mine === seq) {
+            results.setAttribute('aria-busy', 'false');
+            msg.classList.remove('is-loading'); msg.textContent = 'Search is not available right now.';
+          }
+          return;
+        }
         if (mine !== seq) return; // a newer search is already on its way
+        results.setAttribute('aria-busy', 'false');
+        msg.classList.remove('is-loading');
         if (!r.ok) { msg.textContent = 'Search is not available right now.'; return; }
         last = r.data; draw();
       }
@@ -806,12 +820,17 @@
       if (st) renderPlayed(st);
     }
     function findLinks(t) {
-      var q = encodeURIComponent(t.title + ' ' + t.artist);
-      return h('details', { class: 'find' }, [h('summary', { text: 'Find it' }), h('span', { class: 'findlinks' }, [
+      var q = encodeURIComponent(t.title + ' ' + t.artist), key = songKey(t), details;
+      details = h('details', {
+        class: 'find',
+        open: findOpen[key] ? 'open' : null,
+        ontoggle: function () { findOpen[key] = details.open; },
+      }, [h('summary', { text: 'Find it', onclick: function () { findOpen[key] = !details.open; } }), h('span', { class: 'findlinks' }, [
         h('a', { href: 'https://open.spotify.com/search/' + q, target: '_blank', rel: 'noopener', text: 'Spotify' }),
         h('a', { href: 'https://music.apple.com/search?term=' + q, target: '_blank', rel: 'noopener', text: 'Apple Music' }),
         h('a', { href: 'https://music.youtube.com/search?q=' + q, target: '_blank', rel: 'noopener', text: 'YouTube Music' }),
       ])]);
+      return details;
     }
     // Adds the first genre of the song that is not already in my picks. At four picks the last (least weight) makes room.
     function widen(t) {

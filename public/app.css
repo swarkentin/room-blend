@@ -308,5 +308,9 @@ a.btn.primary { color: var(--on-primary, #fff); }
 .rrow .rname span { color: var(--muted); font-size: 13px; }
 .picker .genre-search { margin: 8px 0; }
 .picker .chips { margin-top: 0; }
+.picker .search-status { display: flex; align-items: center; gap: 7px; min-height: 1.2em; }
+.picker .search-status.is-loading::before { content: ''; width: 12px; height: 12px; flex: 0 0 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: search-spin .8s linear infinite; }
+@keyframes search-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .picker .search-status.is-loading::before { animation: none; border-right-color: currentColor; border-top-color: transparent; } }
 .gnamed { margin-top: 6px; }
 #gv-picks .hint { margin: 0 0 8px; }
