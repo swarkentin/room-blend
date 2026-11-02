@@ -18,13 +18,16 @@ const until = async (fn, ms = 8000) => { const t0 = Date.now(); for (;;) { const
     host.on('pageerror', (e) => errors.push(e.message));
     await host.goto(APP); await host.click('#start-room'); await host.waitForURL(/\/host\/[A-Z0-9]{5}$/);
     const code = host.url().split('/').pop();
-    // host "add someone by hand" picker: 58 genres plus an "All ..." chip for each of the 7 multi-genre groups
-    assert.strictEqual(await host.locator('#picker .chip').count(), 58 + 7); ok('the picker offers 58 genres and 7 "All ..." buttons');
-    assert.strictEqual(await host.locator('#picker .chipgroup').count(), 9); ok('genres are shown in 9 groups');
+    // host "add someone by hand" picker: canonical genres, aliases, and broad family buttons
+    assert.strictEqual(await host.locator('#picker .chip').count(), 58 + 16 + 7); ok('the picker offers canonical genres, eras, styles, and 7 "All ..." buttons');
+    assert.strictEqual(await host.locator('#picker .chipgroup').count(), 11); ok('genres are shown in 11 groups');
     const gc = await browser.newContext({ viewport: { width: 420, height: 850 } }), g = await gc.newPage();
     g.on('pageerror', (e) => errors.push(e.message));
     await g.goto(APP + '/' + code); await g.waitForSelector('#gv-picker .chip');
     assert.strictEqual(await g.locator('#gv-picker .chip-all').count(), 7); ok('a guest sees the same grouped picker on a phone');
+    await g.locator('#gv-picker .genre-search').fill('phonk');
+    assert.strictEqual(await g.locator('#gv-picker [data-g="phonk"]').isVisible(), true); ok('search finds a less common style without scrolling through every genre');
+    await g.locator('#gv-picker .genre-search').fill('');
     await g.click('#gv-picker [data-g="any:rock"]'); await g.click('#gv-picker [data-g="jazz"]');
     assert.strictEqual(await g.getAttribute('#gv-picker [data-g="any:rock"]', 'aria-pressed'), 'true'); ok('"All rock" can be picked beside a specific genre');
     await g.click('#gv-submit'); await g.waitForSelector('#gv-title');

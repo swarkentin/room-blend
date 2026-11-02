@@ -34,6 +34,12 @@
   function gl(g) { return /^any:/.test(g) ? 'all ' + g.slice(4).replace(/-/g, ' ') : g; }
   function tagList(genres) { return genres.map(function (g) { return h('span', { class: 'tag', text: gl(g) }); }); }
   function chipPicker(container, picked, onChange) {
+    var groups = (C.genreGroups || [['Genres', C.genres]]).slice();
+    (C.genreAliasGroups || []).forEach(function (grp) { groups.push(grp); });
+    var aliasNames = C.genreAliases || {};
+    var search = h('input', { type: 'search', class: 'genre-search', placeholder: 'Search genres, eras, or styles', 'aria-label': 'Search genres, eras, or styles' });
+    var status = h('p', { class: 'hint genre-search-status', role: 'status', 'aria-live': 'polite' });
+    container.appendChild(h('div', { class: 'genre-search-box' }, [search, status]));
     function sync() {
       Array.prototype.forEach.call(container.querySelectorAll('button'), function (c) {
         var g = c.getAttribute('data-g'), on = picked.indexOf(g) >= 0;
@@ -41,17 +47,32 @@
       });
       if (onChange) onChange();
     }
-    var groups = C.genreGroups || [['Genres', C.genres]];
     function chip(g, label) {
       return h('button', { class: 'chip', type: 'button', 'data-g': g, 'aria-pressed': 'false', text: label || g, onclick: function () {
         var i = picked.indexOf(g); if (i >= 0) picked.splice(i, 1); else if (picked.length < 4) picked.push(g); sync();
       } });
     }
     groups.forEach(function (grp) {
-      var all = grp[1].length > 1 && grp[0] !== 'Holiday' ? chip('any:' + grp[0].toLowerCase().replace(/\s+/g, '-'), 'All ' + grp[0].toLowerCase()) : null;
+      var isAliasGroup = grp === (C.genreAliasGroups || []).filter(function (x) { return x[0] === grp[0]; })[0];
+      var all = !isAliasGroup && grp[1].length > 1 && grp[0] !== 'Holiday' ? chip('any:' + grp[0].toLowerCase().replace(/\s+/g, '-'), 'All ' + grp[0].toLowerCase()) : null;
       if (all) all.classList.add('chip-all');
-      container.appendChild(h('div', { class: 'chipgroup' }, [h('div', { class: 'chipgroup-name', text: grp[0] }), h('div', { class: 'chips' }, (all ? [all] : []).concat(grp[1].map(function (g) { return chip(g); }))), grp[0] === 'Holiday' ? h('div', { class: 'hint', text: 'Holiday songs play only while someone in the room has picked that holiday.' }) : null].filter(Boolean)));
+      var buttons = (all ? [all] : []).concat(grp[1].map(function (g) { return chip(g); }));
+      container.appendChild(h('div', { class: 'chipgroup', 'data-genre-group': grp[0] }, [h('div', { class: 'chipgroup-name', text: grp[0] }), h('div', { class: 'chips' }, buttons), grp[0] === 'Holiday' ? h('div', { class: 'hint', text: 'Holiday songs play only while someone in the room has picked that holiday.' }) : null].filter(Boolean)));
     });
+    function filter() {
+      var q = search.value.trim().toLowerCase(), shown = 0;
+      Array.prototype.forEach.call(container.querySelectorAll('.chipgroup'), function (group) {
+        var matches = 0;
+        Array.prototype.forEach.call(group.querySelectorAll('button'), function (button) {
+          var g = button.getAttribute('data-g'), text = (button.textContent + ' ' + (aliasNames[g] || []).join(' ')).toLowerCase();
+          var visible = !q || text.indexOf(q) >= 0;
+          button.hidden = !visible; if (visible) matches++;
+        });
+        group.hidden = !!q && !matches; if (matches) shown += matches;
+      });
+      status.textContent = q ? (shown ? shown + ' matching genres' : 'No matching genres') : '';
+    }
+    search.addEventListener('input', filter);
     sync();
     return sync;
   }
@@ -342,7 +363,7 @@
       (st.guests || []).forEach(function (g) {
         (g.genres || []).forEach(function (p) {
           var grp = /^any:/.test(p) ? (C.genreGroups || []).filter(function (x) { return 'any:' + x[0].toLowerCase().replace(/\s+/g, '-') === p; })[0] : null;
-          (grp ? grp[1] : [p]).forEach(add);
+           (grp ? grp[1] : (C.genreAliases && C.genreAliases[p]) || [p]).forEach(add);
         });
       });
       return out;

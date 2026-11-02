@@ -9,6 +9,10 @@ const prim = (q) => q.map((x) => x.track.genres[0]);
 
 assert.ok(tracks.length >= 4500); assert.strictEqual(E.GENRES.length, 58); ok('catalogue has ' + tracks.length + ' tracks, 58 genres');
 assert.strictEqual(new Set(E.GENRES).size, 58);
+for (const [pick, expected] of [['80s', 'synth pop'], ['90s', 'hip hop'], ['rap', 'hip hop'], ['phonk', 'trap'], ['korean pop', 'k-pop']]) {
+  assert.ok(E.isPick(pick)); assert.ok(E.expandPick(pick).includes(expected));
+}
+assert.ok(!E.GENRES.includes('80s') && !E.GENRES.includes('rap')); ok('era and style aliases expand to canonical genres');
 assert.ok(tracks.every((t) => t.genres.length && t.genres.every((g) => E.GENRES.includes(g))), 'every track uses known genres');
 assert.strictEqual(new Set(tracks.map((t) => t.id)).size, tracks.length);
 ok('every track tag is a known genre; ids are unique');
@@ -53,6 +57,14 @@ ok('metal + classical rotates evenly (' + ca + '/' + cb + ')');
 
 r = E.buildQueue([person('a', ['jazz'])], { catalog, n: 8, seed: 3 });
 assert.ok(r.queue.length === 8 && new Set(r.queue.map((x) => x.track.id)).size === 8); ok('solo guest gets 8 distinct songs');
+
+r = E.buildQueue([person('a', ['rock', 'jazz'])], { catalog, n: 8, seed: 3 });
+const soloCounts = Object.fromEntries(['rock', 'jazz'].map((g) => [g, prim(r.queue).filter((x) => x === g).length]));
+assert.ok(Math.max(...Object.values(soloCounts)) - Math.min(...Object.values(soloCounts)) <= 1, 'solo genres are balanced: ' + JSON.stringify(soloCounts)); ok('solo guest queue distributes songs across selected genres');
+
+r = E.buildQueue([person('a', ['rock', 'jazz']), person('b', ['rock', 'jazz'])], { catalog, n: 8, seed: 3 });
+const sharedCounts = Object.fromEntries(['rock', 'jazz'].map((g) => [g, prim(r.queue).filter((x) => x === g).length]));
+assert.ok(Math.max(...Object.values(sharedCounts)) - Math.min(...Object.values(sharedCounts)) <= 1, 'multi-user genres are balanced: ' + JSON.stringify(sharedCounts)); ok('multi-user queue distributes songs across each user\'s selected genres');
 
 const keep = E.buildQueue([person('a', ['rock']), person('b', ['blues'])], { catalog, n: 6, seed: 4 });
 const kept = E.buildQueue([person('a', ['rock']), person('b', ['blues'])], { catalog, n: 6, seed: 5, keep: keep.queue.slice(0, 3) });

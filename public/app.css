@@ -249,6 +249,9 @@ a.btn.primary { color: var(--on-primary, #fff); }
 .chipgroup + .chipgroup { margin-top: 6px; }
 .chipgroup-name { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted, #777); margin-top: 4px; }
 .chipgroup .chips { margin-top: 4px; }
+.genre-search-box { margin: 8px 0 12px; }
+.genre-search { width: 100%; box-sizing: border-box; padding: 9px 11px; border: 1px solid var(--line, rgba(127,127,127,.35)); border-radius: 9px; background: transparent; color: inherit; font: inherit; }
+.genre-search-status { min-height: 1.2em; margin: 4px 2px 0; }
 .chip-all { font-weight: 600; border-style: dashed; }
 .ask { background: var(--chip, rgba(127,127,127,.12)); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 12px 0; }
 .ask p { margin: 0 0 8px; font-weight: 600; }
