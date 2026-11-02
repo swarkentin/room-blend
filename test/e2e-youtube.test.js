@@ -13,8 +13,8 @@ const GOOD = 'AIzaFakeKey_0123456789abcdefghijklmnopqrs'; // 39 characters
 let passed = 0; const ok = (s) => { passed++; console.log('  ok  ' + s); };
 const until = async (fn, ms = 10000, what = 'condition') => { const t0 = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) throw new Error('timeout: ' + what); await new Promise((r) => setTimeout(r, 100)); } };
 
-const log = { searches: [], badKey: 0, params: [], plSearches: [], plItems: 0, videoCalls: 0 };
-let quotaOut = false, poolOn = false;
+const log = { searches: [], badKey: 0, params: [], plSearches: [], plItems: 0, videoCalls: 0, rateLimited: 0 };
+let quotaOut = false, poolOn = false, rateLimitVideoSearches = 0;
 // a playlist of song videos for "jazz songs": three good ones, 14 filler songs, and entries that must be filtered out
 const VIDEOS = {}, PLITEMS = [];
 const addVid = (id, title, channel, dur, emb = true) => { VIDEOS[id] = { id, snippet: { title, channelTitle: channel }, contentDetails: { duration: dur }, status: { embeddable: emb, privacyStatus: 'public' } }; PLITEMS.push({ snippet: { title, resourceId: { videoId: id } } }); };
@@ -52,6 +52,11 @@ const yt = http.createServer((req, res) => {
   if (u.pathname === '/youtube/v3/search') {
     if (u.searchParams.get('key') !== GOOD) { log.badKey++; return send(400, 'application/json', JSON.stringify({ error: { code: 400, errors: [{ reason: 'keyInvalid' }] } })); }
     if (quotaOut) return send(403, 'application/json', JSON.stringify({ error: { code: 403, errors: [{ reason: 'quotaExceeded' }] } }));
+    if (u.searchParams.get('type') === 'video' && rateLimitVideoSearches > 0) {
+      rateLimitVideoSearches--; log.rateLimited++;
+      res.writeHead(429, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Retry-After': '2' });
+      return res.end(JSON.stringify({ error: { code: 429, errors: [{ reason: 'userRateLimitExceeded' }] } }));
+    }
     const q = u.searchParams.get('q'); log.searches.push(q);
     if (/Nowhere/.test(q)) return send(200, 'application/json', JSON.stringify({ items: [] }));
     const n = log.searches.length; log.params.push(u.search);
@@ -94,9 +99,14 @@ const yt = http.createServer((req, res) => {
     await host.waitForFunction(() => /Playing through YouTube/.test(document.querySelector('#sp').textContent), null, { timeout: 10000 });
     assert.strictEqual(await host.isVisible('#yt-dock'), true); ok('the player dock is visible while it plays (YouTube requires that)');
 
-    await host.fill('#g-name', 'Maya'); await host.click('#picker [data-g="rock"]'); await host.click('#add-form button[type=submit]');
+    rateLimitVideoSearches = 1;
+    await host.fill('#g-name', 'Maya'); await host.click('#picker [data-g="rock"]');
+    const limitedResponse = host.waitForResponse((r) => r.url().includes('/youtube/v3/search') && r.status() === 429);
+    await host.click('#add-form button[type=submit]'); await limitedResponse;
+    await host.waitForFunction(() => /rate limiting requests/.test(document.querySelector('#sp-status') && document.querySelector('#sp-status').textContent || ''), null, { timeout: 5000 });
     const t1 = await until(async () => { const t = await nowTitle(); return t && t !== 'Nothing yet' ? t : ''; }, 12000, 'first song');
     const id1 = await until(() => host.evaluate(() => window.__ytLog[0]), 8000, 'a video was loaded');
+    assert.strictEqual(log.rateLimited, 1); ok('a YouTube 429 is retried rather than leaving playback stopped');
     assert.ok(/^vid\d+$/.test(id1)); ok('a song was looked up and loaded into the player: ' + t1 + ' -> ' + id1);
     assert.ok(log.searches[0].includes(t1.split(' (')[0])); ok('the search used the song title and artist');
 

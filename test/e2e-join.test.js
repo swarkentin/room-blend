@@ -19,7 +19,8 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
     const host = await page({ width: 1200, height: 900 });
     await host.goto(APP); await host.click('#start-room'); await host.waitForURL(/\/host\/[A-Z0-9]{5}$/);
     const code = host.url().split('/').pop();
-    await host.fill('#room-name', 'Friday Night'); await host.waitForTimeout(700);
+    const renamed = host.waitForResponse((r) => r.url().endsWith('/api/rooms/' + code + '/host/room') && r.request().method() === 'POST');
+    await host.fill('#room-name', 'Friday Night'); await renamed;
     ok('host names the room');
 
     await host.click('#tv-mode');
@@ -74,8 +75,11 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
     assert.ok(!tvText.includes('rock')); ok('the TV shows nothing about individual guests');
 
     // ---- turning discovery off ----
-    await host.uncheck('#disc'); await host.waitForTimeout(500);
-    const g6 = await page(); await g6.goto(APP); await g6.waitForSelector('#join-form'); await g6.waitForTimeout(600);
+    const discoveryUpdated = host.waitForResponse((r) => r.url().endsWith('/api/rooms/' + code + '/host/room') && r.request().method() === 'POST');
+    await host.uncheck('#disc'); await discoveryUpdated;
+    const g6 = await page(), nearbyLoaded = g6.waitForResponse((r) => r.url().endsWith('/api/nearby'));
+    await g6.goto(APP); await nearbyLoaded;
+    await g6.waitForSelector('#join-form');
     assert.ok(await g6.$eval('#nearby', (e) => e.hidden)); ok('with "show to people on this Wi-Fi" off, the room is not listed');
 
     // ---- phone layout ----

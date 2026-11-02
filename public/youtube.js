@@ -12,6 +12,7 @@
   var P = window.Providers, C = window.CONFIG || {}, el = P.el, state = P.state;
   var KEY = 'rb-yt-key', CACHE = 'rb-yt-cache', CACHE_MAX = 3000;
   var on = false, busy = false, note = '', player = null, dock = null, cur = null, waiter = null, rctx = null, cache = null;
+  var apiQueue = Promise.resolve(), apiRetryMs = 1000, playbackAttempt = 0;
 
   function lsGet(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
@@ -31,28 +32,61 @@
     lsSet(CACHE, JSON.stringify(cache));
   }
 
-  // One YouTube Data API call. Returns the parsed JSON, or throws an error written for the host.
-  async function yapi(path, params) {
+  function retryAfterMs(response) {
+    var value = response.headers && response.headers.get('Retry-After');
+    if (!value) return 0;
+    var seconds = Number(value);
+    if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+    var date = Date.parse(value);
+    return Number.isFinite(date) ? Math.max(0, date - Date.now()) : 0;
+  }
+
+  function wait(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
+
+  // Serialize API requests so a rate limit pauses all callers instead of causing a retry storm.
+  function yapi(path, params, isCurrent) {
     var qs = Object.keys(params).map(function (k) { return k + '=' + encodeURIComponent(params[k]); }).join('&');
-    var r;
-    try { r = await fetch(C.ytApiBase + path + '?' + qs + '&key=' + encodeURIComponent(apiKey())); } catch (e) { throw new Error('Could not reach YouTube. Check the internet connection.'); }
-    var j = null; try { j = await r.json(); } catch (e) { /* not json */ }
-    if (r.ok) return j || {};
-    var reason = j && j.error && j.error.errors && j.error.errors[0] && j.error.errors[0].reason || '';
-    if (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded') throw new Error('Today\'s free YouTube allowance is used up. It renews at midnight Pacific time. Songs already found still play.');
-    if (r.status === 400 || reason === 'keyInvalid' || reason === 'API_KEY_INVALID') throw new Error('YouTube did not accept the API key. Check that the YouTube Data API v3 is enabled for it.');
-    if (r.status === 403) throw new Error('YouTube refused the key. It may be restricted to websites, or the YouTube Data API v3 is not enabled for it.');
-    throw new Error('YouTube search failed (' + r.status + ').');
+    var request = apiQueue.then(async function () {
+      while (true) {
+        if (isCurrent && !isCurrent()) { var cancelled = new Error('YouTube request cancelled.'); cancelled.cancelled = true; throw cancelled; }
+        var r;
+        try { r = await fetch(C.ytApiBase + path + '?' + qs + '&key=' + encodeURIComponent(apiKey())); }
+        catch (e) { throw new Error('Could not reach YouTube. Check the internet connection.'); }
+        var j = null; try { j = await r.json(); } catch (e) { /* not json */ }
+        if (isCurrent && !isCurrent()) { var cancelled = new Error('YouTube request cancelled.'); cancelled.cancelled = true; throw cancelled; }
+        if (r.ok) { apiRetryMs = 1000; return j || {}; }
+        var reason = j && j.error && j.error.errors && j.error.errors[0] && j.error.errors[0].reason || '';
+        if (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded') throw new Error('Today\'s free YouTube allowance is used up. It renews at midnight Pacific time. Songs already found still play.');
+        if (r.status === 429 || reason === 'rateLimitExceeded' || reason === 'userRateLimitExceeded') {
+          var delay = Math.min(300000, Math.max(retryAfterMs(r), apiRetryMs));
+          apiRetryMs = Math.min(60000, apiRetryMs * 2);
+          note = 'YouTube is rate limiting requests. Retrying in ' + Math.ceil(delay / 1000) + ' seconds; playback will resume automatically.';
+          if (rctx) rctx.status(note);
+          var remaining = delay;
+          while (remaining > 0) {
+            var slice = Math.min(1000, remaining);
+            await wait(slice); remaining -= slice;
+            if (isCurrent && !isCurrent()) { var cancelled = new Error('YouTube request cancelled.'); cancelled.cancelled = true; throw cancelled; }
+          }
+          continue;
+        }
+        if (r.status === 400 || reason === 'keyInvalid' || reason === 'API_KEY_INVALID') throw new Error('YouTube did not accept the API key. Check that the YouTube Data API v3 is enabled for it.');
+        if (r.status === 403) throw new Error('YouTube refused the key. It may be restricted to websites, or the YouTube Data API v3 is not enabled for it.');
+        throw new Error('YouTube search failed (' + r.status + ').');
+      }
+    });
+    apiQueue = request.then(function () {}, function () {});
+    return request;
   }
 
   // Finds embeddable videos for a song by title and artist (used for songs from the built-in list).
   // Returns a list of video ids, best first (empty when YouTube has nothing).
   // One search costs the same however many results it returns, so we ask for several and keep them as fallbacks.
-  async function search(track) {
+  async function search(track, isCurrent) {
     var ck = (track.title + '|' + track.artist).toLowerCase(), hit = cacheGet(ck);
     if (hit !== undefined) return Array.isArray(hit) ? hit : (hit ? [hit] : []);
     var M = window.Match, q = M.cleanTitle(track.title) + ' ' + M.cleanArtist(track.artist);
-    var j = await yapi('/search', { part: 'snippet', type: 'video', videoEmbeddable: 'true', videoSyndicated: 'true', maxResults: 8, q: q });
+    var j = await yapi('/search', { part: 'snippet', type: 'video', videoEmbeddable: 'true', videoSyndicated: 'true', maxResults: 8, q: q }, isCurrent);
     var items = (j.items || []).filter(function (it) { return it && it.id && it.id.videoId; });
     // Best match first. Videos that clearly are not this song (a different title) go last rather than being dropped.
     var ranked = M.rank(track, items, function (it) { return { title: (it.snippet || {}).title, channel: (it.snippet || {}).channelTitle }; }, M.scoreVideo)
@@ -243,9 +277,11 @@
     ready: function () { return on; },
     lastError: function () { return note; },
     play: async function (track) {
+      var attempt = ++playbackAttempt, isCurrent = function () { return attempt === playbackAttempt && on; };
       var ids;
       if (track.nid) ids = [track.nid]; // found by genre: already a known, embeddable video
-      else { try { ids = await search(track); } catch (e) { note = e.message; return false; } }
+      else { try { ids = await search(track, isCurrent); } catch (e) { if (!e.cancelled) note = e.message; return false; } }
+      if (!isCurrent()) return false;
       if (!ids.length) { note = '"' + track.title + '" was not found on YouTube, so it was skipped.'; return null; }
       var tries = ids.slice(0, 4);
       for (var i = 0; i < tries.length; i++) {
@@ -259,7 +295,7 @@
     },
     pause: function () { try { player.pauseVideo(); } catch (e) { /* ignore */ } },
     resume: function () { try { player.playVideo(); } catch (e) { /* ignore */ } },
-    stop: function () { try { if (player) player.stopVideo(); } catch (e) { /* ignore */ } cur = null; if (dock) dock.hidden = true; },
+    stop: function () { playbackAttempt++; on = false; try { if (player) player.stopVideo(); } catch (e) { /* ignore */ } cur = null; if (dock) dock.hidden = true; },
   };
   P.register(yt);
 })();

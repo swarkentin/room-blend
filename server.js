@@ -9,6 +9,7 @@
 //   MAX_ROOMS            total rooms kept at once (default 2000)
 //   ROOMS_PER_IP_HOUR    new rooms one visitor may start per hour (default 8)
 //   DATA_DIR             where room identities are kept across restarts (default ./data)
+//   MUSICBRAINZ_SEARCH_DISABLED=1 to keep artist/song searches local (offline or test use)
 //   LOG_LEVEL            debug, info (default), warn, error or silent. JSON lines; info to stdout, warn and error to stderr
 //   STATUS_KEY           secret for GET /status?key=... (counts, timings, memory). Without it /status answers only on this machine
 const http = require('node:http');
@@ -332,6 +333,9 @@ async function api(req, res, url) {
     L.count('picks.searches');
     const result = room.search(url.searchParams.get('q') || '');
     if (Engine.normKey(url.searchParams.get('q') || '').length < 2) return sendJson(res, 200, { ...result, albums: [] });
+    if (process.env.MUSICBRAINZ_SEARCH_DISABLED === '1') {
+      return sendJson(res, 200, { ...result, albums: [], lookupUnavailable: true });
+    }
     try {
       const external = await musicBrainz.search(url.searchParams.get('q') || '');
       const artists = new Map(result.artists.map((artist) => [Engine.normKey(artist.name), artist]));

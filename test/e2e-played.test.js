@@ -47,6 +47,13 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     const href = await g.getAttribute('#gv-played .prow:nth-child(1) .findlinks a', 'href');
     assert.ok(/^https:\/\/open\.spotify\.com\/search\//.test(href)); const links = await g.$$eval('#gv-played .prow:nth-child(1) .findlinks a', (as) => as.map((a) => a.textContent));
     assert.deepStrictEqual(links, ['Spotify', 'Apple Music', 'YouTube Music']); ok('Find it links to Spotify, Apple Music and YouTube Music');
+    const findTitle = (await g.textContent('#gv-played .prow:nth-child(1) .qtitle')).trim();
+    await g.click('#gv-played .prow:nth-child(1) .find summary');
+    const afterFind = await next();
+    await until(async () => (await g.textContent('#gv-played .prow:nth-child(1) .qtitle')).startsWith(afterFind), 8000, 'played list refresh after opening Find it');
+    const findRow = g.locator('#gv-played .prow').filter({ hasText: findTitle });
+    assert.strictEqual(await findRow.locator('.find').getAttribute('open'), 'open');
+    assert.ok(await findRow.locator('.findlinks').isVisible()); ok('Find it stays open when the live played-song list refreshes');
 
     // "More like this": adds a genre the song has that the guest does not pick yet
     const picksBefore = (await g.textContent('#gv-me'));
