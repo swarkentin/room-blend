@@ -61,11 +61,13 @@ Not built because it cannot be tested or switched on without a paid Apple Develo
 
 A guest's named artists and songs are matched by plain text (`normKey`, `artistKeys`, `songKey` in `lib/engine.js`), so the same song found through Spotify, YouTube or a file lines up, and "Mark Ronson feat. Bruno Mars" answers to both names. The engine gives a named song a fit of 1.0 for that guest. In rotation it also adds 0.12 for a named song (0.06 for a named artist) to that guest's turn; in a blend it adds a nudge of at most 0.06, and only for songs the room would nearly accept (`U >= tau - 0.1`).
 
+Guests who join without genre picks can optionally enable MusicBrainz artist-tag lookup. It searches exact artist names (including exact aliases), maps positive community tags to Room Blend's genres, and keeps the existing room-catalog guess as a fallback. At most five artist names are looked up; requests are rate-limited and cached in memory. The option is off by default; enabling it sends up to five names from the guest's artist picks and song credits to MusicBrainz. Genre picks always take precedence. MusicBrainz identifies tags as supplementary data under CC BY-NC-SA 3.0; review its [data license](https://musicbrainz.org/doc/MusicBrainz_Database) before commercial deployment.
+
 When a named artist is not in the room's songs, the room lists them in `wantArtists` (at most 3 at a time, with the naming guest's first genre) and the host page calls the provider's optional `artistTracks(name, genre)`. Spotify searches `artist:"<name>"` (two pages of 10); YouTube reads one playlist for "<name> greatest hits" (about 100 quota units, cached for a week). The result is posted to `/host/extras` with `artist`, and the room keeps only songs whose credit includes that artist. Each artist is asked about once per music source. Library sources never ask.
 
 ## Privacy
 
-Sent to the room's server: song titles, artists and genre tags (library sources), guests' picked genres. Not sent: file contents, file paths, passwords, tokens. Spotify and Subsonic credentials stay in the host's browser (Subsonic passwords only in the tab's session storage).
+Sent to the room's server: song titles, artists and genre tags (library sources), guests' picked genres. If a guest opts into MusicBrainz genre lookup, up to five names from their artist and song picks are also sent to MusicBrainz. Not sent: file contents, file paths, passwords, tokens. Spotify and Subsonic credentials stay in the host's browser (Subsonic passwords only in the tab's session storage).
 
 ## Genres
 
