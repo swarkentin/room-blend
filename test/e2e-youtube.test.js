@@ -14,7 +14,7 @@ let passed = 0; const ok = (s) => { passed++; console.log('  ok  ' + s); };
 const until = async (fn, ms = 10000, what = 'condition') => { const t0 = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) throw new Error('timeout: ' + what); await new Promise((r) => setTimeout(r, 100)); } };
 
 const log = { searches: [], badKey: 0, params: [], plSearches: [], plItems: 0, videoCalls: 0, rateLimited: 0, apiRequests: 0, apiAt: [] };
-let quotaOut = false, poolOn = false, rateLimitVideoSearches = 0;
+let quotaOut = false, rateLimitQuotaOut = false, poolOn = false, rateLimitVideoSearches = 0;
 // a playlist of song videos for "jazz songs": three good ones, 14 filler songs, and entries that must be filtered out
 const VIDEOS = {}, PLITEMS = [];
 const addVid = (id, title, channel, dur, emb = true) => { VIDEOS[id] = { id, snippet: { title, channelTitle: channel }, contentDetails: { duration: dur }, status: { embeddable: emb, privacyStatus: 'public' } }; PLITEMS.push({ snippet: { title, resourceId: { videoId: id } } }); };
@@ -44,6 +44,10 @@ const yt = http.createServer((req, res) => {
   if (u.pathname === '/iframe_api') return send(200, 'application/javascript', IFRAME_API);
   if (u.pathname.startsWith('/youtube/v3/')) { log.apiRequests++; log.apiAt.push(Date.now()); }
   if (u.pathname.startsWith('/youtube/v3/') && u.searchParams.get('key') !== GOOD) { log.badKey++; return send(400, 'application/json', JSON.stringify({ error: { code: 400, errors: [{ reason: 'keyInvalid' }] } })); }
+  if (u.pathname.startsWith('/youtube/v3/') && rateLimitQuotaOut) {
+    res.writeHead(429, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Retry-After': '60' });
+    return res.end(JSON.stringify({ error: { code: 429, errors: [{ reason: 'userRateLimitExceeded' }] } }));
+  }
   if (u.pathname.startsWith('/youtube/v3/') && quotaOut) return send(403, 'application/json', JSON.stringify({ error: { code: 403, errors: [{ reason: 'quotaExceeded' }] } }));
   if (u.pathname === '/youtube/v3/search' && u.searchParams.get('type') === 'playlist') {
     const q = u.searchParams.get('q'); log.plSearches.push(q);
@@ -186,10 +190,12 @@ const yt = http.createServer((req, res) => {
 
     // Exhausted quota is persisted for the Pacific day, but cached pools remain usable.
     const beforeQuota = log.apiRequests;
-    quotaOut = true;
-    await host.evaluate(async () => window.Providers.get('youtube').extras('pop', []));
-    await host.waitForFunction(() => /allowance is used up/.test(document.querySelector('#sp').textContent), null, { timeout: 10000 });
-    assert.strictEqual(log.apiRequests, beforeQuota + 1); ok('quota exhaustion is reported after one failed lookup');
+    const quotaStart = Date.now();
+    rateLimitQuotaOut = true;
+    const quotaPlayback = await host.evaluate(async () => window.Providers.get('youtube').play({ title: 'Uncached under quota limit', artist: 'No Cache' }));
+    assert.strictEqual(quotaPlayback, null);
+    await host.waitForFunction(() => /searches are paused until midnight Pacific/.test(document.querySelector('#sp').textContent), null, { timeout: 10000 });
+    assert.ok(Date.now() - quotaStart < 10000 && log.apiRequests <= beforeQuota + 4); ok('a 60-second Retry-After pauses lookups quickly instead of blocking playback');
     assert.strictEqual(await host.evaluate(() => localStorage.getItem('rb-yt-quota-day') !== null), true); ok('quota exhaustion is saved in browser storage');
     const beforeCached = log.apiRequests;
     const cachedJazz = await host.evaluate(async () => window.Providers.get('youtube').extras('jazz', []));
@@ -199,9 +205,11 @@ const yt = http.createServer((req, res) => {
     assert.strictEqual(log.apiRequests, beforeBlocked); ok('uncached lookups stop locally after quota exhaustion');
     const skipped = await host.evaluate(async () => window.Providers.get('youtube').play({ title: 'Uncached after quota', artist: 'No Cache' }));
     assert.strictEqual(skipped, null); assert.strictEqual(log.apiRequests, beforeBlocked); ok('songs needing new lookups are skipped so quota exhaustion cannot stall the queue');
-    quotaOut = false;
+    const cachedVideo = await host.evaluate(async () => window.Providers.get('youtube').play({ title: 'Cached playlist song', artist: 'Dave Brubeck', nid: 'plA1' }));
+    assert.strictEqual(cachedVideo, true); assert.strictEqual(log.apiRequests, beforeBlocked); ok('known playlist video IDs still play while the Search API quota is paused');
+    rateLimitQuotaOut = false;
     await host.reload(); await host.waitForSelector('#sp');
-    assert.ok(/allowance is used up/.test(await host.textContent('#sp'))); ok('the host sees the quota pause after reloading');
+    assert.ok(/searches are paused until midnight Pacific/.test(await host.textContent('#sp'))); ok('the host sees the quota pause after reloading');
     const afterReload = log.apiRequests;
     await host.evaluate(async () => window.Providers.get('youtube').extras('hip hop', []));
     assert.strictEqual(log.apiRequests, afterReload); ok('the quota fuse survives a host-page reload');

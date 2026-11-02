@@ -13,7 +13,7 @@
   var KEY = 'rb-yt-key', CACHE = 'rb-yt-cache', CACHE_MAX = 3000, QUOTA_DAY = 'rb-yt-quota-day', API_NEXT = 'rb-yt-api-next';
   var on = false, busy = false, note = '', player = null, dock = null, cur = null, waiter = null, rctx = null, cache = null;
   var apiQueue = Promise.resolve(), apiRetryMs = 1000, playbackAttempt = 0;
-  var quotaPausedDay = '', API_INTERVAL_MS = 2000, MIN_GENRE_TRACKS = 12;
+  var quotaPausedDay = '', API_INTERVAL_MS = 2000, MAX_RETRY_WAIT_MS = 5000, MIN_GENRE_TRACKS = 12;
 
   function lsGet(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
@@ -59,13 +59,14 @@
   }
   function clearQuotaFuse() { quotaPausedDay = ''; lsDel(QUOTA_DAY); }
   function quotaError() {
-    var e = new Error('Today\'s free YouTube allowance is used up. New lookups are paused until midnight Pacific time; cached songs can still play.');
+    var e = new Error('YouTube searches are paused until midnight Pacific time after the daily quota or repeated rate limits; cached songs can still play.');
     e.quotaExceeded = true;
     return e;
   }
   function pauseForQuota() {
     quotaPausedDay = pacificDay();
     lsSet(QUOTA_DAY, quotaPausedDay);
+    lsDel(API_NEXT);
     note = quotaError().message;
     if (rctx) rctx.status(note);
   }
@@ -114,6 +115,7 @@
   // Serialize API requests so a rate limit pauses all callers instead of causing a retry storm.
   function yapi(path, params, isCurrent) {
     var qs = Object.keys(params).map(function (k) { return k + '=' + encodeURIComponent(params[k]); }).join('&');
+    var rateLimitAttempts = 0, maxRateLimitRetries = 1;
     var request = apiQueue.then(async function () {
       while (true) {
         if (isCurrent && !isCurrent()) throw requestCancelled();
@@ -123,8 +125,17 @@
         if (r.ok) { apiRetryMs = 1000; return j || {}; }
         if (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded') throw quotaError();
         if (r.status === 429 || reason === 'rateLimitExceeded' || reason === 'userRateLimitExceeded') {
-          var delay = Math.min(300000, Math.max(retryAfterMs(r), apiRetryMs));
-          apiRetryMs = Math.min(60000, apiRetryMs * 2);
+          var delay = Math.max(retryAfterMs(r), apiRetryMs);
+          if (rateLimitAttempts >= maxRateLimitRetries || delay > MAX_RETRY_WAIT_MS) {
+            if (r.status === 429 || (r.status === 403 && reason === 'rateLimitExceeded')) { pauseForQuota(); throw quotaError(); }
+            var limited = new Error('YouTube is still rate limiting requests. Skipping this song so playback can continue.');
+            limited.skipTrack = true;
+            note = limited.message;
+            if (rctx) rctx.status(note);
+            throw limited;
+          }
+          rateLimitAttempts++;
+          apiRetryMs = Math.min(MAX_RETRY_WAIT_MS, apiRetryMs * 2);
           note = 'YouTube is rate limiting requests. Retrying in ' + Math.ceil(delay / 1000) + ' seconds; playback will resume automatically.';
           if (rctx) rctx.status(note);
           var remaining = delay;
@@ -347,7 +358,7 @@
       var attempt = ++playbackAttempt, isCurrent = function () { return attempt === playbackAttempt && on; };
       var ids;
       if (track.nid) ids = [track.nid]; // found by genre: already a known, embeddable video
-      else { try { ids = await search(track, isCurrent); } catch (e) { if (!e.cancelled) note = e.message; return e.quotaExceeded ? null : false; } }
+      else { try { ids = await search(track, isCurrent); } catch (e) { if (!e.cancelled) note = e.message; return e.quotaExceeded || e.skipTrack ? null : false; } }
       if (!isCurrent()) return false;
       if (!ids.length) { note = '"' + track.title + '" was not found on YouTube, so it was skipped.'; return null; }
       var tries = ids.slice(0, 4);
