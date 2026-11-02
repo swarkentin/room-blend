@@ -54,6 +54,14 @@ ok('metal + classical rotates evenly (' + ca + '/' + cb + ')');
 r = E.buildQueue([person('a', ['jazz'])], { catalog, n: 8, seed: 3 });
 assert.ok(r.queue.length === 8 && new Set(r.queue.map((x) => x.track.id)).size === 8); ok('solo guest gets 8 distinct songs');
 
+r = E.buildQueue([person('a', ['rock', 'jazz'])], { catalog, n: 8, seed: 3 });
+const soloCounts = Object.fromEntries(['rock', 'jazz'].map((g) => [g, prim(r.queue).filter((x) => x === g).length]));
+assert.ok(Math.max(...Object.values(soloCounts)) - Math.min(...Object.values(soloCounts)) <= 1, 'solo genres are balanced: ' + JSON.stringify(soloCounts)); ok('solo guest queue distributes songs across selected genres');
+
+r = E.buildQueue([person('a', ['rock', 'jazz']), person('b', ['rock', 'jazz'])], { catalog, n: 8, seed: 3 });
+const sharedCounts = Object.fromEntries(['rock', 'jazz'].map((g) => [g, prim(r.queue).filter((x) => x === g).length]));
+assert.ok(Math.max(...Object.values(sharedCounts)) - Math.min(...Object.values(sharedCounts)) <= 1, 'multi-user genres are balanced: ' + JSON.stringify(sharedCounts)); ok('multi-user queue distributes songs across each user\'s selected genres');
+
 const keep = E.buildQueue([person('a', ['rock']), person('b', ['blues'])], { catalog, n: 6, seed: 4 });
 const kept = E.buildQueue([person('a', ['rock']), person('b', ['blues'])], { catalog, n: 6, seed: 5, keep: keep.queue.slice(0, 3) });
 assert.deepStrictEqual(kept.queue.slice(0, 3).map((x) => x.track.id), keep.queue.slice(0, 3).map((x) => x.track.id)); ok('kept songs stay in place');
