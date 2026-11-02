@@ -10,9 +10,10 @@
 (function () {
   'use strict';
   var P = window.Providers, C = window.CONFIG || {}, el = P.el, state = P.state;
-  var KEY = 'rb-yt-key', CACHE = 'rb-yt-cache', CACHE_MAX = 3000;
+  var KEY = 'rb-yt-key', CACHE = 'rb-yt-cache', CACHE_MAX = 3000, QUOTA_DAY = 'rb-yt-quota-day', API_NEXT = 'rb-yt-api-next';
   var on = false, busy = false, note = '', player = null, dock = null, cur = null, waiter = null, rctx = null, cache = null;
   var apiQueue = Promise.resolve(), apiRetryMs = 1000, playbackAttempt = 0;
+  var quotaPausedDay = '', API_INTERVAL_MS = 2000, MIN_GENRE_TRACKS = 12;
 
   function lsGet(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
@@ -43,20 +44,84 @@
 
   function wait(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
 
+  function pacificDay() {
+    var parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+    var date = {};
+    parts.forEach(function (part) { date[part.type] = part.value; });
+    return date.year + '-' + date.month + '-' + date.day;
+  }
+  function quotaPaused() {
+    var today = pacificDay(), stored = lsGet(QUOTA_DAY);
+    if (quotaPausedDay === today || stored === today) { quotaPausedDay = today; return true; }
+    if (stored) lsDel(QUOTA_DAY);
+    quotaPausedDay = '';
+    return false;
+  }
+  function clearQuotaFuse() { quotaPausedDay = ''; lsDel(QUOTA_DAY); }
+  function quotaError() {
+    var e = new Error('Today\'s free YouTube allowance is used up. New lookups are paused until midnight Pacific time; cached songs can still play.');
+    e.quotaExceeded = true;
+    return e;
+  }
+  function pauseForQuota() {
+    quotaPausedDay = pacificDay();
+    lsSet(QUOTA_DAY, quotaPausedDay);
+    note = quotaError().message;
+    if (rctx) rctx.status(note);
+  }
+  function requestCancelled() {
+    var e = new Error('YouTube request cancelled.');
+    e.cancelled = true;
+    return e;
+  }
+  async function requestApi(url, isCurrent) {
+    async function run() {
+      while (true) {
+        if (isCurrent && !isCurrent()) throw requestCancelled();
+        if (quotaPaused()) throw quotaError();
+        var delay = Number(lsGet(API_NEXT)) - Date.now();
+        if (delay > 0) { await wait(Math.min(delay, 1000)); continue; }
+        lsSet(API_NEXT, String(Date.now() + API_INTERVAL_MS));
+        if (quotaPaused()) throw quotaError();
+        var r;
+        try { r = await fetch(url); }
+        catch (e) { throw new Error('Could not reach YouTube. Check the internet connection.'); }
+        var j = null; try { j = await r.json(); } catch (e) { /* not json */ }
+        if (isCurrent && !isCurrent()) throw requestCancelled();
+        var reason = j && j.error && j.error.errors && j.error.errors[0] && j.error.errors[0].reason || '';
+        if (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded') pauseForQuota();
+        if (r.status === 429 || reason === 'rateLimitExceeded' || reason === 'userRateLimitExceeded') {
+          var retryMs = Math.min(300000, Math.max(retryAfterMs(r), apiRetryMs));
+          lsSet(API_NEXT, String(Math.max(Number(lsGet(API_NEXT)) || 0, Date.now() + retryMs)));
+        }
+        return { response: r, json: j, reason: reason };
+      }
+    }
+    if (navigator.locks && navigator.locks.request) return navigator.locks.request('room-blend-youtube-api', { mode: 'exclusive' }, run);
+    return run();
+  }
+
+  window.addEventListener('storage', function (event) {
+    if (event.key === CACHE) cache = null;
+    if (event.key === POOLS) pools = null;
+    if (event.key === KEY && event.newValue !== event.oldValue) { quotaPausedDay = ''; note = ''; }
+    if (event.key === QUOTA_DAY && quotaPaused()) {
+      note = quotaError().message;
+      if (rctx) rctx.status(note);
+    }
+  });
+
   // Serialize API requests so a rate limit pauses all callers instead of causing a retry storm.
   function yapi(path, params, isCurrent) {
     var qs = Object.keys(params).map(function (k) { return k + '=' + encodeURIComponent(params[k]); }).join('&');
     var request = apiQueue.then(async function () {
       while (true) {
-        if (isCurrent && !isCurrent()) { var cancelled = new Error('YouTube request cancelled.'); cancelled.cancelled = true; throw cancelled; }
-        var r;
-        try { r = await fetch(C.ytApiBase + path + '?' + qs + '&key=' + encodeURIComponent(apiKey())); }
-        catch (e) { throw new Error('Could not reach YouTube. Check the internet connection.'); }
-        var j = null; try { j = await r.json(); } catch (e) { /* not json */ }
-        if (isCurrent && !isCurrent()) { var cancelled = new Error('YouTube request cancelled.'); cancelled.cancelled = true; throw cancelled; }
+        if (isCurrent && !isCurrent()) throw requestCancelled();
+        if (quotaPaused()) throw quotaError();
+        var result = await requestApi(C.ytApiBase + path + '?' + qs + '&key=' + encodeURIComponent(apiKey()), isCurrent);
+        var r = result.response, j = result.json, reason = result.reason;
         if (r.ok) { apiRetryMs = 1000; return j || {}; }
-        var reason = j && j.error && j.error.errors && j.error.errors[0] && j.error.errors[0].reason || '';
-        if (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded') throw new Error('Today\'s free YouTube allowance is used up. It renews at midnight Pacific time. Songs already found still play.');
+        if (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded') throw quotaError();
         if (r.status === 429 || reason === 'rateLimitExceeded' || reason === 'userRateLimitExceeded') {
           var delay = Math.min(300000, Math.max(retryAfterMs(r), apiRetryMs));
           apiRetryMs = Math.min(60000, apiRetryMs * 2);
@@ -66,7 +131,7 @@
           while (remaining > 0) {
             var slice = Math.min(1000, remaining);
             await wait(slice); remaining -= slice;
-            if (isCurrent && !isCurrent()) { var cancelled = new Error('YouTube request cancelled.'); cancelled.cancelled = true; throw cancelled; }
+            if (isCurrent && !isCurrent()) throw requestCancelled();
           }
           continue;
         }
@@ -208,7 +273,7 @@
     render: function (ctx) {
       rctx = ctx;
       if (dock) dock.hidden = !on;
-      var box = el('div'), k = apiKey();
+      var box = el('div'), k = apiKey(), quotaNote = quotaPaused() ? quotaError().message : '';
       if (!k) {
         box.appendChild(state('dot-off', 'Needs a free Google API key.', 'No YouTube account or Premium is needed. The key is only used to look songs up, and it stays in this browser.'));
         var input = el('input', { type: 'text', id: 'yt-key', placeholder: 'API key (starts with AIza)', autocomplete: 'off', spellcheck: 'false' });
@@ -223,19 +288,20 @@
         box.appendChild(el('div', { class: 'row' }, [input, el('button', { class: 'btn primary', type: 'button', id: 'yt-save', text: 'Save key', onclick: function () {
           var v = input.value.trim();
           if (!keyLooksRight(v)) { msg.textContent = 'That does not look like an API key. It is 39 letters and numbers.'; return; }
+          if (v !== apiKey()) clearQuotaFuse();
           lsSet(KEY, v); ctx.rerender();
         } })]));
         box.appendChild(msg);
-        box.appendChild(el('p', { class: 'hint', text: 'The free allowance covers about 100 playlist searches a day. Each genre in the room needs about two, and what is found is remembered for a week, so repeat genres cost nothing.' }));
+        box.appendChild(el('p', { class: 'hint', text: 'The free allowance covers about 100 playlist searches a day. Usually one search is enough per genre; a second is used only if the first playlist has fewer than 12 usable songs. Results are remembered here for a week. If the daily quota runs out, new lookups pause until midnight Pacific time; cached songs can still play.' }));
       } else if (!on) {
-        box.appendChild(state('dot-ok', 'Key saved.', note || 'Start the music to play through this browser.'));
+        box.appendChild(state('dot-ok', 'Key saved.', note || quotaNote || 'Start the music to play through this browser.'));
         box.appendChild(el('div', { class: 'row' }, [
           el('button', { class: 'btn primary', type: 'button', id: 'yt-start', text: busy ? 'Starting…' : 'Start the music', disabled: busy ? 'disabled' : false, onclick: function () { yt.start(ctx); } }),
-          el('button', { class: 'btn small', type: 'button', id: 'yt-forget', text: 'Remove key', onclick: function () { lsDel(KEY); ctx.rerender(); } }),
+          el('button', { class: 'btn small', type: 'button', id: 'yt-forget', text: 'Remove key', onclick: function () { clearQuotaFuse(); lsDel(KEY); ctx.rerender(); } }),
         ]));
       } else {
-        box.appendChild(state('dot-ok', 'Playing through YouTube.', note || 'Keep this tab open and the player visible. Free YouTube may play an ad between songs.'));
-        box.appendChild(el('div', { class: 'row' }, [el('button', { class: 'btn small', type: 'button', id: 'yt-forget', text: 'Remove key', onclick: function () { yt.stop(); on = false; lsDel(KEY); ctx.rerender(); } })]));
+        box.appendChild(state('dot-ok', 'Playing through YouTube.', note || quotaNote || 'Keep this tab open and the player visible. Free YouTube may play an ad between songs.'));
+        box.appendChild(el('div', { class: 'row' }, [el('button', { class: 'btn small', type: 'button', id: 'yt-forget', text: 'Remove key', onclick: function () { yt.stop(); on = false; clearQuotaFuse(); lsDel(KEY); ctx.rerender(); } })]));
       }
       return box;
     },
@@ -263,6 +329,7 @@
         for (var i = 0; i < qs.length; i++) {
           var got = await poolQuery(qs[i]);
           got.forEach(function (t) { if (!seen[t.id]) { seen[t.id] = 1; out.push({ title: t.title, artist: t.artist, id: t.id, genres: qs[i].tags }); } });
+          if (out.length >= MIN_GENRE_TRACKS) break;
         }
       } catch (e) { note = e.message; if (rctx) rctx.status(e.message); }
       return out;
@@ -280,7 +347,7 @@
       var attempt = ++playbackAttempt, isCurrent = function () { return attempt === playbackAttempt && on; };
       var ids;
       if (track.nid) ids = [track.nid]; // found by genre: already a known, embeddable video
-      else { try { ids = await search(track, isCurrent); } catch (e) { if (!e.cancelled) note = e.message; return false; } }
+      else { try { ids = await search(track, isCurrent); } catch (e) { if (!e.cancelled) note = e.message; return e.quotaExceeded ? null : false; } }
       if (!isCurrent()) return false;
       if (!ids.length) { note = '"' + track.title + '" was not found on YouTube, so it was skipped.'; return null; }
       var tries = ids.slice(0, 4);

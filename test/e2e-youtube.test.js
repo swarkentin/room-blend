@@ -13,7 +13,7 @@ const GOOD = 'AIzaFakeKey_0123456789abcdefghijklmnopqrs'; // 39 characters
 let passed = 0; const ok = (s) => { passed++; console.log('  ok  ' + s); };
 const until = async (fn, ms = 10000, what = 'condition') => { const t0 = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) throw new Error('timeout: ' + what); await new Promise((r) => setTimeout(r, 100)); } };
 
-const log = { searches: [], badKey: 0, params: [], plSearches: [], plItems: 0, videoCalls: 0, rateLimited: 0 };
+const log = { searches: [], badKey: 0, params: [], plSearches: [], plItems: 0, videoCalls: 0, rateLimited: 0, apiRequests: 0, apiAt: [] };
 let quotaOut = false, poolOn = false, rateLimitVideoSearches = 0;
 // a playlist of song videos for "jazz songs": three good ones, 14 filler songs, and entries that must be filtered out
 const VIDEOS = {}, PLITEMS = [];
@@ -27,6 +27,7 @@ addVid('plA6', 'So What', 'Miles Davis - Topic', 'PT9M22S');
 for (let i = 0; i < 14; i++) addVid('plB' + i, 'Pool Artist ' + i + ' - Pool Tune ' + i + ' (Official Video)', 'Pool Artist ' + i, 'PT3M30S');
 const ZITEMS = [['plZ1', 'Zed Obscure - Zed Song One'], ['plZ2', 'Zed Obscure - Zed Song Two'], ['plZ3', 'Someone Else - Not Zed']].map(([id, title]) => { VIDEOS[id] = { id, snippet: { title, channelTitle: title.split(' - ')[0] }, contentDetails: { duration: 'PT3M10S' }, status: { embeddable: true, privacyStatus: 'public' } }; return { snippet: { title, resourceId: { videoId: id } } }; });
 PLITEMS.push({ snippet: { title: 'Private video', resourceId: { videoId: 'plPriv' } } });
+const SMALLITEMS = PLITEMS.slice(0, 6);
 const IFRAME_API = `
 window.__ytLog = [];
 window.YT = { Player: function (id, opts) {
@@ -41,17 +42,20 @@ const yt = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
   const send = (code, type, body) => { res.writeHead(code, { 'Content-Type': type, 'Access-Control-Allow-Origin': '*' }); res.end(body); };
   if (u.pathname === '/iframe_api') return send(200, 'application/javascript', IFRAME_API);
+  if (u.pathname.startsWith('/youtube/v3/')) { log.apiRequests++; log.apiAt.push(Date.now()); }
   if (u.pathname.startsWith('/youtube/v3/') && u.searchParams.get('key') !== GOOD) { log.badKey++; return send(400, 'application/json', JSON.stringify({ error: { code: 400, errors: [{ reason: 'keyInvalid' }] } })); }
+  if (u.pathname.startsWith('/youtube/v3/') && quotaOut) return send(403, 'application/json', JSON.stringify({ error: { code: 403, errors: [{ reason: 'quotaExceeded' }] } }));
   if (u.pathname === '/youtube/v3/search' && u.searchParams.get('type') === 'playlist') {
     const q = u.searchParams.get('q'); log.plSearches.push(q);
     if (poolOn && q === 'Zed Obscure greatest hits songs') return send(200, 'application/json', JSON.stringify({ items: [{ id: { playlistId: 'PLzed' }, snippet: { title: 'Zed Obscure Greatest Hits' } }] }));
-    return send(200, 'application/json', JSON.stringify({ items: poolOn && q === 'jazz songs' ? [{ id: { playlistId: 'PLjazz' }, snippet: { title: 'Best Jazz Songs' } }] : [] }));
+    if (poolOn && q === 'blues songs') return send(200, 'application/json', JSON.stringify({ items: [{ id: { playlistId: 'PLsmall' }, snippet: { title: 'Blues Songs' } }] }));
+    if (poolOn && (q === 'jazz songs' || q === 'gospel blues songs')) return send(200, 'application/json', JSON.stringify({ items: [{ id: { playlistId: 'PLjazz' }, snippet: { title: 'Best Jazz Songs' } }] }));
+    return send(200, 'application/json', JSON.stringify({ items: [] }));
   }
-  if (u.pathname === '/youtube/v3/playlistItems') { log.plItems++; return send(200, 'application/json', JSON.stringify({ items: u.searchParams.get('playlistId') === 'PLzed' ? ZITEMS : PLITEMS })); }
+  if (u.pathname === '/youtube/v3/playlistItems') { log.plItems++; const id = u.searchParams.get('playlistId'); return send(200, 'application/json', JSON.stringify({ items: id === 'PLzed' ? ZITEMS : id === 'PLsmall' ? SMALLITEMS : PLITEMS })); }
   if (u.pathname === '/youtube/v3/videos') { log.videoCalls++; return send(200, 'application/json', JSON.stringify({ items: u.searchParams.get('id').split(',').map((i) => VIDEOS[i]).filter(Boolean) })); }
   if (u.pathname === '/youtube/v3/search') {
     if (u.searchParams.get('key') !== GOOD) { log.badKey++; return send(400, 'application/json', JSON.stringify({ error: { code: 400, errors: [{ reason: 'keyInvalid' }] } })); }
-    if (quotaOut) return send(403, 'application/json', JSON.stringify({ error: { code: 403, errors: [{ reason: 'quotaExceeded' }] } }));
     if (u.searchParams.get('type') === 'video' && rateLimitVideoSearches > 0) {
       rateLimitVideoSearches--; log.rateLimited++;
       res.writeHead(429, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Retry-After': '2' });
@@ -148,20 +152,13 @@ const yt = http.createServer((req, res) => {
     await until(async () => (await nowTitle()) !== before, 10000, 'skip after embed error');
     ok('a video that cannot be embedded is skipped');
 
-    // quota exhausted: a clear message, and playback does not crash
-    await new Promise((r) => setTimeout(r, 1500));
-    quotaOut = true;
-    await host.evaluate(() => window.__ytOpts.events.onStateChange({ data: 0 }));
-    await host.waitForFunction(() => /allowance is used up/.test(document.querySelector('#sp').textContent), null, { timeout: 10000 });
-    ok('when the free daily allowance is used up, the host is told plainly');
-    quotaOut = false;
-
     // ---- songs by genre: playlists are read, filtered and played by their own id ----
     poolOn = true;
-    const searchesBefore = log.searches.length;
+    const searchesBefore = log.searches.length, poolsBefore = log.plSearches.length;
     await host.fill('#g-name', 'Ben'); await host.click('#picker [data-g="jazz"]'); await host.click('#add-form button[type=submit]');
     await until(() => log.plItems >= 1 && log.videoCalls >= 1, 12000, 'playlist read');
     assert.ok(log.plSearches.includes('jazz songs')); ok('a jazz guest makes the host look for a jazz playlist: ' + log.plSearches.slice(-2).join(' | '));
+    assert.deepStrictEqual(log.plSearches.slice(poolsBefore).filter((q) => q.indexOf('jazz') === 0), ['jazz songs']); ok('a full first playlist avoids the second costly playlist search');
     assert.ok(log.plItems === 1 && log.videoCalls === 1); ok('reading the playlist took one call for its songs and one for their details (about 2 quota units, not 100 per song)');
     const stored = await until(() => host.evaluate(() => { try { return JSON.parse(localStorage.getItem('rb-yt-pools')).jazz; } catch (e) { return null; } }), 8000, 'pool cached');
     const titles = stored.tracks.map((t) => t.artist + ' - ' + t.title);
@@ -173,6 +170,9 @@ const yt = http.createServer((req, res) => {
     for (let i = 0; i < 8 && !(await host.evaluate(() => window.__ytLog.some((v) => /^pl/.test(v)))); i++) { await host.click('#btn-next'); await new Promise((r) => setTimeout(r, 900)); }
     assert.ok(await host.evaluate(() => window.__ytLog.some((v) => /^pl/.test(v)))); ok('a playlist song is loaded straight into the player by its video id: ' + (await host.evaluate(() => window.__ytLog.filter((v) => /^pl/.test(v))[0])));
     assert.ok(!log.searches.slice(searchesBefore).some((q) => /Pool Tune|Take Five|Feeling Good|So What/.test(q))); ok('it needed no title search');
+    const fallbackStart = log.plSearches.length;
+    const fallbackTracks = await host.evaluate(async () => window.Providers.get('youtube').extras('blues', ['gospel']));
+    assert.ok(fallbackTracks.length >= 12); assert.deepStrictEqual(log.plSearches.slice(fallbackStart).filter((q) => /^(blues|gospel blues)/.test(q)), ['blues songs', 'gospel blues songs']); ok('a small first playlist triggers the shared-genre fallback search');
     // ---- an artist a guest names that the room does not have: one playlist search, only that artist's songs kept ----
     const codeNow = host.url().split('/').pop();
     const zoe = await host.evaluate(async (c) => { const r = await fetch('/api/rooms/' + c + '/guests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Zoe', genres: ['jazz'], artists: ['Zed Obscure'] }) }); return r.ok ? r.json() : null; }, codeNow);
@@ -183,6 +183,29 @@ const yt = http.createServer((req, res) => {
     await until(() => host.evaluate(() => /Zed Song/.test([...document.querySelectorAll('#queue .qrow')].map((e) => e.textContent).join(' ') + document.querySelector('#now-title').textContent)), 10000, 'zed in lineup'); ok('Zoe, who named Zed Obscure, has their songs in the lineup');
     const seen = await host.evaluate(async ({ c, z }) => { const f = async (q) => (await fetch('/api/rooms/' + c + '/search?q=' + encodeURIComponent(q), { headers: { 'x-guest-id': z.guestId, 'x-guest-key': z.guestKey } })).json(); return { zed: await f('zed song'), zedArtist: await f('zed obscure'), other: await f('not zed') }; }, { c: codeNow, z: zoe });
     assert.strictEqual(seen.zed.songs.filter((song) => song.source !== 'musicbrainz').length, 2); assert.ok(seen.zedArtist.artists.some((a) => a.name === 'Zed Obscure' && a.songs === 2)); assert.ok(!seen.other.songs.some((x) => x.source !== 'musicbrainz' && /Not Zed/.test(x.title)) && !seen.other.artists.some((a) => a.source !== 'musicbrainz' && /Someone Else/.test(a.name))); ok("the room has Zed Obscure's two songs and not the other artist's song from that playlist")
+
+    // Exhausted quota is persisted for the Pacific day, but cached pools remain usable.
+    const beforeQuota = log.apiRequests;
+    quotaOut = true;
+    await host.evaluate(async () => window.Providers.get('youtube').extras('pop', []));
+    await host.waitForFunction(() => /allowance is used up/.test(document.querySelector('#sp').textContent), null, { timeout: 10000 });
+    assert.strictEqual(log.apiRequests, beforeQuota + 1); ok('quota exhaustion is reported after one failed lookup');
+    assert.strictEqual(await host.evaluate(() => localStorage.getItem('rb-yt-quota-day') !== null), true); ok('quota exhaustion is saved in browser storage');
+    const beforeCached = log.apiRequests;
+    const cachedJazz = await host.evaluate(async () => window.Providers.get('youtube').extras('jazz', []));
+    assert.strictEqual(cachedJazz.length, 17); assert.strictEqual(log.apiRequests, beforeCached); ok('cached genre songs remain available after quota exhaustion');
+    const beforeBlocked = log.apiRequests;
+    await host.evaluate(async () => window.Providers.get('youtube').extras('hip hop', []));
+    assert.strictEqual(log.apiRequests, beforeBlocked); ok('uncached lookups stop locally after quota exhaustion');
+    const skipped = await host.evaluate(async () => window.Providers.get('youtube').play({ title: 'Uncached after quota', artist: 'No Cache' }));
+    assert.strictEqual(skipped, null); assert.strictEqual(log.apiRequests, beforeBlocked); ok('songs needing new lookups are skipped so quota exhaustion cannot stall the queue');
+    quotaOut = false;
+    await host.reload(); await host.waitForSelector('#sp');
+    assert.ok(/allowance is used up/.test(await host.textContent('#sp'))); ok('the host sees the quota pause after reloading');
+    const afterReload = log.apiRequests;
+    await host.evaluate(async () => window.Providers.get('youtube').extras('hip hop', []));
+    assert.strictEqual(log.apiRequests, afterReload); ok('the quota fuse survives a host-page reload');
+    assert.ok(log.apiAt.slice(1).every((at, i) => at - log.apiAt[i] >= 1800)); ok('YouTube Data API requests are paced across the test session');
     poolOn = false;
 
     // switching away hides the player; removing the key forgets it

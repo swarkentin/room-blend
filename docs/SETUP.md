@@ -51,7 +51,7 @@ The host chooses a music source on the host page. Nothing about guests changes.
   2. Credentials, then Create credentials, then API key. Under restrictions choose **Restrict key**, then the YouTube Data API v3 only. Do **not** restrict it to websites: Room Blend sends no referrer, so that would block it.
   3. In Room Blend choose **YouTube**, paste the key, save it, then press **Start the music**.
   4. Keep the tab open and the small YouTube player visible. If a song does not start by itself, press play on that player once.
-  Limits: the free allowance covers about 100 playlist searches a day. Each genre in the room needs about two, and what is found is remembered for a week, so repeat genres cost nothing. Some videos cannot be embedded and are skipped, and free YouTube may play ads between songs.
+  Limits: the free allowance covers about 100 playlist searches a day. Requests are serialized and paced, and Room Blend searches a second playlist for a genre only if the first has fewer than 12 usable songs. Lookups are cached in this browser for a week, including across redeploys at the same site address; the cache is not shared across browsers or devices. If Google reports that the daily quota is exhausted, new lookups pause until midnight Pacific time. Cached songs can still play, and uncached songs are skipped so the queue can continue. Some videos cannot be embedded and are skipped, and free YouTube may play ads between songs.
 - **Spotify** needs your own Spotify app, because one shared app cannot serve many people (see the README for why).
   1. Go to the Spotify developer dashboard and create an app.
   2. Add this redirect URI exactly: `http://127.0.0.1:3000/callback` (use your port if you changed it).
