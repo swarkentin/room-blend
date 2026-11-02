@@ -528,6 +528,8 @@
       var hint = h('p', { class: 'hint', id: 'gv-hint', role: 'status', text: note || '' });
       var named = { artists: reg && reg.artists ? reg.artists.slice() : [], songs: reg && reg.songs ? reg.songs.slice() : [] };
       var np = editing ? null : namedPicker(named, function () { hint.textContent = ''; });
+      var lookupInput = editing ? null : h('input', { type: 'checkbox', id: 'gv-mb-lookup-join', checked: reg && reg.lookupGenres ? 'checked' : null });
+      var lookupChoice = lookupInput ? h('label', { class: 'hint' }, [lookupInput, ' Use MusicBrainz to improve artist genre guesses. Up to five names from your artist and song picks are sent to MusicBrainz.']) : null;
       var importBox = null;
       if (C.clientId && !editing) {
         importBox = h('div', { class: 'import' }, [
@@ -540,6 +542,7 @@
         h('div', null, [h('label', { for: 'gv-name', text: 'Your name (optional)' }), nameIn]),
         importBox,
         np ? h('fieldset', null, [h('legend', { text: 'Artists and songs you want to hear' }), h('p', { class: 'hint', text: 'Optional. Not sure about genres? Start here. Up to 5 of each, and only you can see them.' }), np.el]) : null,
+        lookupChoice,
         h('fieldset', null, [h('legend', { text: 'Favourite genres, up to 4 (first pick counts most)' }), picker]),
         h('div', { class: 'row' }, [h('button', { class: 'btn primary', type: 'submit', id: 'gv-submit', text: editing ? 'Save' : 'Join the room' }), editing ? h('button', { class: 'btn', type: 'button', text: 'Cancel', onclick: function () { showLive(); } }) : null]),
         hint,
@@ -557,10 +560,10 @@
           if (!r.ok) { hint.textContent = 'Could not save. Try again.'; return; }
           reg.name = name; reg.genres = picked.slice(); lsSet(regKey, JSON.stringify(reg)); showLive();
         } else {
-          var j = await http('POST', '/api/rooms/' + code + '/guests', { name: name, genres: picked, artists: named.artists, songs: named.songs, since: (reg && reg.since) || undefined });
+          var j = await http('POST', '/api/rooms/' + code + '/guests', { name: name, genres: picked, artists: named.artists, songs: named.songs, lookupGenres: !!(lookupInput && lookupInput.checked), since: (reg && reg.since) || undefined });
           if (j.status === 404) { return roomGone(); }
           if (!j.ok) { hint.textContent = 'Could not join. Try again.'; return; }
-          reg = { id: j.data.guestId, key: j.data.guestKey, name: name, genres: picked.slice(), artists: named.artists.slice(), songs: named.songs.slice(), since: (reg && reg.since) || j.data.since || Date.now() }; lsSet(regKey, JSON.stringify(reg));
+          reg = { id: j.data.guestId, key: j.data.guestKey, name: name, genres: picked.slice(), artists: named.artists.slice(), songs: named.songs.slice(), lookupGenres: !!(lookupInput && lookupInput.checked), since: (reg && reg.since) || j.data.since || Date.now() }; lsSet(regKey, JSON.stringify(reg));
           history.replaceState(null, '', '/r/' + code); showLive();
         }
       });
@@ -681,12 +684,14 @@
       var meta = h('span', { class: 'meta', id: 'gv-picks-n' });
       var holder = { get artists() { return reg.artists || []; }, set artists(v) { reg.artists = v; }, get songs() { return reg.songs || []; }, set songs(v) { reg.songs = v; } };
       function count() { var n = holder.artists.length + holder.songs.length; meta.textContent = n ? n + ' added' : ''; }
+      var lookupInput = h('input', { type: 'checkbox', id: 'gv-mb-lookup-live', checked: reg.lookupGenres ? 'checked' : null, onchange: function () { reg.lookupGenres = lookupInput.checked; lsSet(regKey, JSON.stringify(reg)); patch({ lookupGenres: reg.lookupGenres }); } });
       var pk = namedPicker(holder, function () { lsSet(regKey, JSON.stringify(reg)); patch({ artists: reg.artists, songs: reg.songs }); count(); }, function () { return !(reg.genres && reg.genres.length); });
-      picksSection.refresh = function () { pk.refresh(); count(); };
+      picksSection.refresh = function () { lookupInput.checked = !!reg.lookupGenres; pk.refresh(); count(); };
       count();
       return h('div', { id: 'gv-picks' }, [
         h('div', { class: 'sec-h' }, [h('h2', { text: 'Artists and songs you want to hear' }), meta]),
         h('p', { class: 'hint', text: 'Songs by these artists play when they fit the room, and on your turn when it rotates. Only you can see them.' }),
+        h('label', { class: 'hint' }, [lookupInput, ' Use MusicBrainz to improve artist genre guesses. Up to five names from your artist and song picks are sent to MusicBrainz.']),
         pk.el,
       ]);
     }
@@ -781,12 +786,20 @@
       (s.next || []).forEach(function (n) { ol.appendChild(h('li', { class: 'nextrow' }, [document.createTextNode(n.title + ' '), h('span', { text: n.artist + (n.mine ? ' (your turn)' : '') })])); });
       if (!s.next || !s.next.length) ol.appendChild(h('li', { class: 'nextrow' }, [h('span', { text: 'Nothing lined up yet.' })]));
       var me = s.me;
+      if (me && reg && typeof me.lookupGenres === 'boolean' && me.lookupGenres !== !!reg.lookupGenres) { reg.lookupGenres = me.lookupGenres; lsSet(regKey, JSON.stringify(reg)); if (picksSection.refresh) picksSection.refresh(); }
       if (me && Array.isArray(me.artists) && reg) { var ch = JSON.stringify([me.artists, me.songs]) !== JSON.stringify([reg.artists || [], reg.songs || []]); if (ch) { reg.artists = me.artists; reg.songs = me.songs; lsSet(regKey, JSON.stringify(reg)); if (picksSection.refresh) picksSection.refresh(); } }
       renderPlayed(s);
       $('gv-ask').hidden = !(me && me.ask && !me.away);
       $('gv-sit').setAttribute('aria-pressed', me && me.sit ? 'true' : 'false');
       $('gv-sit').textContent = me && me.sit ? 'Rejoin the blend' : 'Sit out for now';
-      $('gv-me').textContent = me ? (me.status === 'arriving' ? 'You are in. Your picks count in a few seconds.' : me.away === 'network' ? 'You seem to have left the Wi-Fi, so songs are chosen without you. Open this page when you are back.' : me.away === 'idle' ? 'Songs are chosen without you because you did not answer. Tap anywhere to rejoin the blend.' : me.hostSit ? 'The host has sat you out for now.' : me.sit ? 'You are sitting out, so songs are chosen without you.' : (me.genres.length ? 'Your picks: ' + me.genres.map(gl).join(', ') + '.' : me.inferred && me.inferred.length ? 'Starting you on ' + me.inferred.map(gl).join(', ') + ', guessed from what you named. Change my genres lets you steer it.' : 'The songs you named play as the room\'s music finds them.')) : '';
+      var meMessage = me ? (me.status === 'arriving' ? 'You are in. Your picks count in a few seconds.' : me.away === 'network' ? 'You seem to have left the Wi-Fi, so songs are chosen without you. Open this page when you are back.' : me.away === 'idle' ? 'Songs are chosen without you because you did not answer. Tap anywhere to rejoin the blend.' : me.hostSit ? 'The host has sat you out for now.' : me.sit ? 'You are sitting out, so songs are chosen without you.' : (me.genres.length ? 'Your picks: ' + me.genres.map(gl).join(', ') + '.' : me.inferred && me.inferred.length ? 'Starting you on ' + me.inferred.map(gl).join(', ') + ', guessed from what you named. Change my genres lets you steer it.' : 'The songs you named play as the room\'s music finds them.')) : '';
+      if (me && me.lookupGenres && !me.genres.length) {
+        if (me.genreLookupStatus === 'pending') meMessage += ' Checking MusicBrainz tags…';
+        else if (me.genreLookupStatus === 'no-match') meMessage += ' MusicBrainz had no useful genre tags; the room’s music is used when possible.';
+        else if (me.genreLookupStatus === 'unavailable') meMessage += ' MusicBrainz was unavailable; this guess uses the room’s music.';
+        else if (me.genreLookupStatus === 'partial') meMessage += ' MusicBrainz could not check all names; some artist tags are used.';
+      }
+      $('gv-me').textContent = meMessage;
     }
 
     function connect() {
@@ -798,7 +811,7 @@
         // Server restarted or dropped us: check the room, then rejoin quietly with the same picks.
         var r = await http('GET', '/api/rooms/' + code);
         if (r.status === 404) return roomGone();
-        var j = await http('POST', '/api/rooms/' + code + '/guests', { name: reg.name, genres: reg.genres, since: reg.since, artists: reg.artists, songs: reg.songs });
+        var j = await http('POST', '/api/rooms/' + code + '/guests', { name: reg.name, genres: reg.genres, since: reg.since, artists: reg.artists, songs: reg.songs, lookupGenres: !!reg.lookupGenres });
         if (j.ok) { reg.id = j.data.guestId; reg.key = j.data.guestKey; lsSet(regKey, JSON.stringify(reg)); connect(); }
         else setTimeout(connect, 3000);
       };

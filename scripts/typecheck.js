@@ -4,8 +4,8 @@
 const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const bin = path.join(__dirname, '..', 'node_modules', '.bin', process.platform === 'win32' ? 'tsc.cmd' : 'tsc');
-if (!fs.existsSync(bin)) { console.log('typecheck skipped: run `npm install` to add TypeScript (dev only)'); process.exit(0); }
-const r = spawnSync(bin, ['-p', '.'], { cwd: path.join(__dirname, '..'), stdio: 'inherit' });
+const tsc = path.join(__dirname, '..', 'node_modules', 'typescript', 'bin', 'tsc');
+if (!fs.existsSync(tsc)) { console.log('typecheck skipped: run `npm install` to add TypeScript (dev only)'); process.exit(0); }
+const r = spawnSync(process.execPath, [tsc, '-p', '.'], { cwd: path.join(__dirname, '..'), stdio: 'inherit' });
 if (r.status === 0) console.log('typecheck ok');
 process.exit(r.status === null ? 1 : r.status);

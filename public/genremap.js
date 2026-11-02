@@ -3,8 +3,9 @@
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else root.GenreMap = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+})(globalThis, function () {
   // Order matters: the first matching rule wins, so specific styles come before general ones.
+  /** @type {Array<[string, RegExp]>} */
   var RULES = [
     ['christmas', /christmas|xmas|^holiday|yule/],
     ['halloween', /halloween|spooky/],

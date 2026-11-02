@@ -18,6 +18,7 @@ const crypto = require('node:crypto');
 const Engine = require('./lib/engine');
 const { Room, rid } = require('./lib/room');
 const L = require('./lib/log');
+const { createClient } = require('./lib/musicbrainz');
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
@@ -45,6 +46,8 @@ const CLIENT_CONFIG = {
 
 const rooms = new Map();
 const subs = new Map(); // code -> Set of {res, role, guestId}
+const musicBrainz = createClient();
+const artistLookups = new Set();
 let saveTimer = null;
 
 // ---------- persistence: only room identities, so a restart keeps codes and host keys ----------
@@ -170,6 +173,47 @@ function notify(code) {
   if (notifyTimer) return;
   notifyTimer = setTimeout(() => { notifyTimer = null; const codes = [...pending]; pending.clear(); codes.forEach(push); }, 60);
 }
+
+function enrichGuestGenres(code, room, guest) {
+  const key = `${code}:${guest.id}`;
+  if (artistLookups.has(key) || !guest.lookupGenres || guest.genres.length) return;
+  artistLookups.add(key);
+  const task = (async () => {
+    while (rooms.get(code) === room && room.guests.get(guest.id) === guest && guest.lookupGenres && !guest.genres.length) {
+      const artists = [...new Set([...guest.artists, ...guest.songs.map((song) => song.artist)].map((name) => String(name).trim()).filter(Boolean))].slice(0, 5);
+      if (!artists.length) return;
+      const signature = artists.map(Engine.normKey).join('|');
+      guest.genreLookupStatus = 'pending';
+      notify(code);
+      const found = {};
+      let failed = false;
+      for (const artist of artists) {
+        if (!guest.lookupGenres || guest.genres.length) break;
+        try {
+          found[Engine.normKey(artist)] = await musicBrainz.lookupArtist(artist);
+        } catch (e) {
+          failed = true;
+          L.warn('musicbrainz.lookup_failed', { message: String(e && e.message || e).slice(0, 100) });
+        }
+      }
+      const current = [...new Set([...guest.artists, ...guest.songs.map((song) => song.artist)].map((name) => String(name).trim()).filter(Boolean))].slice(0, 5);
+      const currentSignature = current.map(Engine.normKey).join('|');
+      if (currentSignature !== signature) continue;
+      if (rooms.get(code) !== room || room.guests.get(guest.id) !== guest || !guest.lookupGenres || guest.genres.length) return;
+      guest.artistGenres = found;
+      const hasTags = Object.values(found).some((tags) => tags.length);
+      guest.genreLookupStatus = failed ? (hasTags ? 'partial' : 'unavailable') : hasTags ? 'ready' : 'no-match';
+      room.rebuild(null, false);
+      notify(code);
+      return;
+    }
+  })().catch((e) => {
+    guest.genreLookupStatus = 'unavailable';
+    L.warn('musicbrainz.lookup_failed', { message: String(e && e.message || e).slice(0, 100) });
+    if (rooms.get(code) === room && room.guests.get(guest.id) === guest) notify(code);
+  }).finally(() => artistLookups.delete(key));
+  return task;
+}
 function push(code) {
   const room = rooms.get(code), set = subs.get(code);
   if (!room || !set) return;
@@ -249,9 +293,10 @@ async function api(req, res, url) {
 
   // Guests
   if (parts[2] === 'guests' && parts.length === 3 && m === 'POST') {
-    const g = room.addGuest(body.name, body.genres, { onNet: !!room.netKey && netKeyOf(clientIp(req)) === room.netKey, since: body.since, artists: body.artists, songs: body.songs });
+    const g = room.addGuest(body.name, body.genres, { onNet: !!room.netKey && netKeyOf(clientIp(req)) === room.netKey, since: body.since, artists: body.artists, songs: body.songs, lookupGenres: body.lookupGenres });
     if (!g) return sendJson(res, 400, { error: 'pick a genre, an artist or a song' });
     g.connected = false; g.lostAt = Date.now(); // becomes connected when its event stream opens
+    enrichGuestGenres(code, room, g);
     notify(code);
     return sendJson(res, 200, { guestId: g.id, guestKey: g.key, since: g.sinceAt });
   }
@@ -259,7 +304,7 @@ async function api(req, res, url) {
     const gid = parts[3];
     const g = guestFor();
     if (!g || g.id !== gid) return sendJson(res, 401, { error: 'unknown guest' });
-    if (m === 'PATCH') { room.updateGuest(gid, { name: body.name, genres: body.genres, sit: body.sit, artists: body.artists, songs: body.songs }); notify(code); return sendJson(res, 200, { ok: true }); }
+    if (m === 'PATCH') { room.updateGuest(gid, { name: body.name, genres: body.genres, sit: body.sit, artists: body.artists, songs: body.songs, lookupGenres: body.lookupGenres }); enrichGuestGenres(code, room, g); notify(code); return sendJson(res, 200, { ok: true }); }
     if (m === 'DELETE') { room.removeGuest(gid, 'left'); notify(code); return sendJson(res, 200, { ok: true }); }
   }
   // POST /api/rooms/:code/guests/:id/here  -> "I am still here" (about once a minute from the guest page)
