@@ -7,6 +7,23 @@ const { chromium } = require('playwright');
 const PORT = 4895, APP = 'http://127.0.0.1:' + PORT;
 let passed = 0; const ok = (s) => { passed++; console.log('  ok  ' + s); };
 const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) throw new Error('timeout: ' + what); await new Promise((r) => setTimeout(r, 100)); } };
+const decodeQr = (file) => execFileSync('python3', ['-c', [
+  'import cv2,sys',
+  'im=cv2.imread(sys.argv[1])',
+  "if im is None: raise SystemExit('could not read QR screenshot')",
+  'det=cv2.QRCodeDetector()',
+  'for scale in (1,2,3,4,6):',
+  ' sized=cv2.resize(im,None,fx=scale,fy=scale,interpolation=cv2.INTER_NEAREST)',
+  ' pad=16*scale',
+  ' image=cv2.copyMakeBorder(sized,pad,pad,pad,pad,cv2.BORDER_CONSTANT,value=(255,255,255))',
+  ' gray=cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)',
+  ' for candidate in (image,gray,cv2.threshold(gray,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)[1]):',
+  '  text=det.detectAndDecode(candidate)[0]',
+  '  if text: print(text); raise SystemExit(0)',
+  ' ok,texts,points,straight=det.detectAndDecodeMulti(image)',
+  ' if ok and texts and texts[0]: print(texts[0]); raise SystemExit(0)',
+  "print('')",
+].join('\n'), file]).toString().trim();
 
 (async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rb-join-'));
@@ -30,7 +47,7 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
     assert.ok(await host.locator('#tv-cast-view').isVisible());
     ok('TV / cast view presents the room in the host tab');
     const castQr = path.join(tmp, 'cast-qr.png'); await host.locator('#tv-cast-qr').screenshot({ path: castQr });
-    const castDecoded = execFileSync('python3', ['-c', 'import cv2,sys;im=cv2.imread(sys.argv[1]);im=cv2.resize(im,None,fx=3,fy=3,interpolation=cv2.INTER_NEAREST);print(cv2.QRCodeDetector().detectAndDecode(im)[0])', castQr]).toString().trim();
+    const castDecoded = decodeQr(castQr);
     assert.strictEqual(castDecoded, `${APP}/${code}`); ok('TV / cast view shows a scannable join QR code');
     await host.click('#tv-cast-exit');
     assert.ok(!(await host.locator('body').evaluate((e) => e.classList.contains('tv-cast-mode'))));
@@ -38,7 +55,7 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
 
     // ---- the QR code on screen really decodes to the short join link ----
     const qrPng = path.join(tmp, 'qr.png'); await host.locator('#qr').screenshot({ path: qrPng });
-    const decoded = execFileSync('python3', ['-c', 'import cv2,sys;im=cv2.imread(sys.argv[1]);im=cv2.resize(im,None,fx=3,fy=3,interpolation=cv2.INTER_NEAREST);print(cv2.QRCodeDetector().detectAndDecode(im)[0])', qrPng]).toString().trim();
+    const decoded = decodeQr(qrPng);
     assert.strictEqual(decoded, `${APP}/${code}`); ok('the QR code on the host screen decodes to the short link: ' + decoded);
     assert.ok((await host.textContent('#jl')).endsWith('/' + code)); ok('the link shown is the short one');
 
@@ -70,7 +87,7 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
     await tv.waitForFunction(() => document.querySelector('#tv-title').textContent !== 'Waiting for the first guest', null, { timeout: 12000 });
     const tvText = await tv.textContent('.tv'); assert.ok(tvText.includes(code) && /person|people/.test(tvText)); ok('the TV screen shows the code, headcount and now playing: ' + (await tv.textContent('#tv-title')));
     const tvQr = path.join(tmp, 'tv.png'); await tv.locator('#tv-qr').screenshot({ path: tvQr });
-    const d2 = execFileSync('python3', ['-c', 'import cv2,sys;im=cv2.imread(sys.argv[1]);im=cv2.resize(im,(400,400),interpolation=cv2.INTER_NEAREST);print(cv2.QRCodeDetector().detectAndDecode(im)[0])', tvQr]).toString().trim();
+    const d2 = decodeQr(tvQr);
     assert.strictEqual(d2, `${APP}/${code}`); ok('the TV QR code decodes too');
     assert.ok(!tvText.includes('rock')); ok('the TV shows nothing about individual guests');
 
