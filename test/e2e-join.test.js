@@ -22,6 +22,19 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
     await host.fill('#room-name', 'Friday Night'); await host.waitForTimeout(700);
     ok('host names the room');
 
+    await host.click('#tv-mode');
+    assert.ok(await host.locator('body').evaluate((e) => e.classList.contains('tv-cast-mode')));
+    assert.strictEqual(await host.textContent('#tv-cast-code'), code);
+    assert.strictEqual((await host.textContent('#tv-cast-room')).trim(), 'Friday Night');
+    assert.ok(await host.locator('#tv-cast-view').isVisible());
+    ok('TV / cast view presents the room in the host tab');
+    const castQr = path.join(tmp, 'cast-qr.png'); await host.locator('#tv-cast-qr').screenshot({ path: castQr });
+    const castDecoded = execFileSync('python3', ['-c', 'import cv2,sys;im=cv2.imread(sys.argv[1]);im=cv2.resize(im,None,fx=3,fy=3,interpolation=cv2.INTER_NEAREST);print(cv2.QRCodeDetector().detectAndDecode(im)[0])', castQr]).toString().trim();
+    assert.strictEqual(castDecoded, `${APP}/${code}`); ok('TV / cast view shows a scannable join QR code');
+    await host.click('#tv-cast-exit');
+    assert.ok(!(await host.locator('body').evaluate((e) => e.classList.contains('tv-cast-mode'))));
+    assert.match(host.url(), /\/host\/[A-Z0-9]{5}$/); ok('exiting TV view returns to the host controls without navigating away');
+
     // ---- the QR code on screen really decodes to the short join link ----
     const qrPng = path.join(tmp, 'qr.png'); await host.locator('#qr').screenshot({ path: qrPng });
     const decoded = execFileSync('python3', ['-c', 'import cv2,sys;im=cv2.imread(sys.argv[1]);im=cv2.resize(im,None,fx=3,fy=3,interpolation=cv2.INTER_NEAREST);print(cv2.QRCodeDetector().detectAndDecode(im)[0])', qrPng]).toString().trim();
