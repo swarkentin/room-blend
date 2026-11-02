@@ -69,7 +69,7 @@ Spotify limits a development-mode app to five authorised users, and extended acc
 ## Tests
 
     npm test                    # engine, tag reader (needs ffmpeg), API
-    npm run test:browser        # Spotify (shared, own app, saved-songs sync), local files, Navidrome/Subsonic sync, join paths, genre picker. Needs Playwright and ffmpeg.
+    npm run test:browser        # Spotify (shared, own app, saved-songs sync), local files, Navidrome/Subsonic sync, join paths, genre picker. Needs Playwright, ffmpeg and Python OpenCV (CI installs these).
 
 ## Not verified against real Spotify
 

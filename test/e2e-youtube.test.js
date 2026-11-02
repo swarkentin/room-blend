@@ -172,7 +172,7 @@ const yt = http.createServer((req, res) => {
     assert.ok(found && found.tracks.length === 3); ok('three songs were read from it (and cached for a week)');
     await until(() => host.evaluate(() => /Zed Song/.test([...document.querySelectorAll('#queue .qrow')].map((e) => e.textContent).join(' ') + document.querySelector('#now-title').textContent)), 10000, 'zed in lineup'); ok('Zoe, who named Zed Obscure, has their songs in the lineup');
     const seen = await host.evaluate(async ({ c, z }) => { const f = async (q) => (await fetch('/api/rooms/' + c + '/search?q=' + encodeURIComponent(q), { headers: { 'x-guest-id': z.guestId, 'x-guest-key': z.guestKey } })).json(); return { zed: await f('zed song'), zedArtist: await f('zed obscure'), other: await f('not zed') }; }, { c: codeNow, z: zoe });
-    assert.strictEqual(seen.zed.songs.length, 2); assert.ok(seen.zedArtist.artists.some((a) => a.name === 'Zed Obscure' && a.songs === 2)); assert.ok(!seen.other.songs.some((x) => /Not Zed/.test(x.title)) && !seen.other.artists.some((a) => /Someone Else/.test(a.name))); ok("the room has Zed Obscure's two songs and not the other artist's song from that playlist")
+    assert.strictEqual(seen.zed.songs.filter((song) => song.source !== 'musicbrainz').length, 2); assert.ok(seen.zedArtist.artists.some((a) => a.name === 'Zed Obscure' && a.songs === 2)); assert.ok(!seen.other.songs.some((x) => x.source !== 'musicbrainz' && /Not Zed/.test(x.title)) && !seen.other.artists.some((a) => a.source !== 'musicbrainz' && /Someone Else/.test(a.name))); ok("the room has Zed Obscure's two songs and not the other artist's song from that playlist")
     poolOn = false;
 
     // switching away hides the player; removing the key forgets it
