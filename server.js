@@ -38,6 +38,8 @@ const CLIENT_CONFIG = {
   ytIframeUrl: process.env.YOUTUBE_IFRAME_URL || 'https://www.youtube.com/iframe_api',
   genres: Engine.GENRES,
   genreGroups: Engine.GENRE_GROUPS,
+  genreAliases: Engine.GENRE_ALIASES,
+  genreAliasGroups: Engine.GENRE_ALIAS_GROUPS,
   beatMs: Number(process.env.BEAT_MS) || 60000,
 };
 

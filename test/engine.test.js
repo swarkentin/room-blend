@@ -9,6 +9,10 @@ const prim = (q) => q.map((x) => x.track.genres[0]);
 
 assert.ok(tracks.length >= 4500); assert.strictEqual(E.GENRES.length, 58); ok('catalogue has ' + tracks.length + ' tracks, 58 genres');
 assert.strictEqual(new Set(E.GENRES).size, 58);
+for (const [pick, expected] of [['80s', 'synth pop'], ['90s', 'hip hop'], ['rap', 'hip hop'], ['phonk', 'trap'], ['korean pop', 'k-pop']]) {
+  assert.ok(E.isPick(pick)); assert.ok(E.expandPick(pick).includes(expected));
+}
+assert.ok(!E.GENRES.includes('80s') && !E.GENRES.includes('rap')); ok('era and style aliases expand to canonical genres');
 assert.ok(tracks.every((t) => t.genres.length && t.genres.every((g) => E.GENRES.includes(g))), 'every track uses known genres');
 assert.strictEqual(new Set(tracks.map((t) => t.id)).size, tracks.length);
 ok('every track tag is a known genre; ids are unique');
