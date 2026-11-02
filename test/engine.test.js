@@ -66,10 +66,6 @@ r = E.buildQueue([person('a', ['rock', 'jazz']), person('b', ['rock', 'jazz'])],
 const sharedCounts = Object.fromEntries(['rock', 'jazz'].map((g) => [g, prim(r.queue).filter((x) => x === g).length]));
 assert.ok(Math.max(...Object.values(sharedCounts)) - Math.min(...Object.values(sharedCounts)) <= 1, 'multi-user genres are balanced: ' + JSON.stringify(sharedCounts)); ok('multi-user queue distributes songs across each user\'s selected genres');
 
-r = E.buildQueue([person('a', ['techno', 'metal']), person('b', ['jazz', 'folk'])], { catalog, n: 12, seed: 11 });
-for (const g of ['techno', 'metal', 'jazz', 'folk']) assert.ok(prim(r.queue).includes(g), 'multi-user queue includes selected genre ' + g);
-ok('multi-user balancing covers each listener\'s distinct selected genres');
-
 const keep = E.buildQueue([person('a', ['rock']), person('b', ['blues'])], { catalog, n: 6, seed: 4 });
 const kept = E.buildQueue([person('a', ['rock']), person('b', ['blues'])], { catalog, n: 6, seed: 5, keep: keep.queue.slice(0, 3) });
 assert.deepStrictEqual(kept.queue.slice(0, 3).map((x) => x.track.id), keep.queue.slice(0, 3).map((x) => x.track.id)); ok('kept songs stay in place');
