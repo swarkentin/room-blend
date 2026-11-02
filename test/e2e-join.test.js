@@ -43,6 +43,7 @@ const decodeQr = (file) => execFileSync('python3', ['-c', [
     await host.click('#tv-mode');
     assert.ok(await host.locator('body').evaluate((e) => e.classList.contains('tv-cast-mode')));
     assert.strictEqual(await host.textContent('#tv-cast-code'), code);
+    await host.waitForFunction(() => document.querySelector('#tv-cast-room').textContent === 'Friday Night');
     assert.strictEqual((await host.textContent('#tv-cast-room')).trim(), 'Friday Night');
     assert.ok(await host.locator('#tv-cast-view').isVisible());
     ok('TV / cast view presents the room in the host tab');
@@ -61,8 +62,10 @@ const decodeQr = (file) => execFileSync('python3', ['-c', [
 
     // ---- guest 1: opens the site, sees the room near them, taps it ----
     const g1 = await page(); await g1.goto(APP);
-    await g1.waitForSelector('#nearby:not([hidden])'); assert.ok((await g1.textContent('#nearby')).includes('Friday Night')); ok('a guest opening the site sees "Friday Night" playing near them');
+    await g1.waitForFunction(() => { const nearby = document.querySelector('#nearby'); return nearby && !nearby.hidden && nearby.textContent.includes('Friday Night'); });
+    assert.ok((await g1.textContent('#nearby')).includes('Friday Night')); ok('a guest opening the site sees "Friday Night" playing near them');
     await g1.click('#nearby a'); await g1.waitForURL(new RegExp('/r/' + code));
+    await g1.waitForFunction(() => document.querySelector('#gv-title-h').textContent === 'Friday Night');
     assert.strictEqual(await g1.textContent('#gv-title-h'), 'Friday Night'); ok('the join page shows the room name');
     await g1.click('#gv-picker [data-g="rock"]'); await g1.click('#gv-submit'); await g1.waitForSelector('#gv-title');
     await host.waitForFunction(() => /Guest/.test(document.querySelector('#guests').textContent)); ok('a guest joins with one tap on a genre and no name or sign-up');
