@@ -1,0 +1,71 @@
+'use strict';
+// A guest names artists and songs in a real browser: search, add, remove, survive a reload, stay private.
+const http = require('http'), os = require('os'), path = require('path'), fs = require('fs');
+const assert = require('assert');
+const { spawn } = require('child_process');
+const { chromium } = require('playwright');
+const PORT = 4896, APP = 'http://127.0.0.1:' + PORT;
+let passed = 0; const ok = (s) => { passed++; console.log('  ok  ' + s); };
+const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) throw new Error('timeout: ' + what); await new Promise((r) => setTimeout(r, 100)); } };
+
+(async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rb-picks-'));
+  const srv = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: Object.assign({}, process.env, { PORT, DATA_DIR: tmp }), stdio: ['ignore', 'ignore', 'inherit'] });
+  await until(() => new Promise((r) => http.get(APP, () => r(true)).on('error', () => r(false))), 8000, 'server up');
+  const browser = await chromium.launch(); const errors = [];
+  const page = async (vp) => { const c = await browser.newContext({ viewport: vp || { width: 400, height: 850 } }); const p = await c.newPage(); p.on('pageerror', (e) => errors.push(e.message)); p.on('console', (m) => { if (m.type() === 'error' && !/fonts|ERR_|Failed to load resource/.test(m.text())) errors.push(m.text()); }); await p.route(/^https:\/\//, (r) => r.abort()); return p; };
+  try {
+    const host = await page({ width: 1200, height: 900 });
+    await host.goto(APP); await host.click('#start-room'); await host.waitForURL(/\/host\/[A-Z0-9]{5}$/);
+    const code = host.url().split('/').pop();
+
+    const g = await page(); await g.goto(`${APP}/r/${code}`);
+    await g.click('#gv-picker [data-g="classical"]'); await g.click('#gv-submit'); await g.waitForSelector('#gv-title');
+    assert.ok(await g.locator('#gv-picks').count()); assert.strictEqual(await g.textContent('#gv-picks-sum'), 'Artists and songs I want to hear'); ok('after joining, the guest page offers "Artists and songs I want to hear"');
+
+    await g.click('#gv-picks-sum');
+    await g.fill('#gv-q', 'quee');
+    await g.waitForSelector('#gv-results .rrow');
+    const rows = await g.locator('#gv-results .rrow').allTextContents(); assert.ok(rows.some((t) => /Queen/.test(t) && /songs? here/.test(t))); ok('typing part of a name lists matching artists with how many songs the room has');
+    await g.locator('#gv-results .rrow', { hasText: 'Queen' }).first().getByRole('button', { name: /Add artist/ }).click();
+    await g.waitForSelector('#gv-chosen .chip');
+    assert.ok(/Queen/.test(await g.textContent('#gv-chosen'))); assert.ok(/\(1\)/.test(await g.textContent('#gv-picks-sum'))); ok('adding an artist shows it as a chip and counts it in the heading');
+    assert.ok(await g.locator('#gv-results .rrow', { hasText: 'Queen' }).first().getByRole('button', { name: 'Added' }).isDisabled()); ok('an artist already added cannot be added twice');
+
+    await g.fill('#gv-q', 'so what miles');
+    await g.waitForSelector('#gv-results .rrow button:has-text("Add song")');
+    await g.locator('#gv-results .rrow', { hasText: 'So What' }).first().getByRole('button', { name: 'Add song' }).click();
+    await until(async () => /So What/i.test(await g.textContent('#gv-chosen')), 4000, 'song chip'); ok('adding a song shows it as a chip too');
+
+    // it reached the server, and it is the only place the picks are visible
+    const mine = await g.evaluate(async (c) => { const reg = JSON.parse(localStorage.getItem('rb-guest-' + c)); const r = await fetch('/api/rooms/' + c + '/events?gid=' + reg.id + '&gkey=' + reg.key); const rd = r.body.getReader(); const { value } = await rd.read(); rd.cancel(); return JSON.parse(new TextDecoder().decode(value).match(/data: (.*)\n/)[1]).me; }, code);
+    assert.deepStrictEqual(mine.artists, ['Queen']); assert.strictEqual(mine.songs.length, 1); ok('the server holds the picks for this guest');
+
+    await g.reload(); await g.waitForSelector('#gv-title'); await g.click('#gv-picks-sum');
+    await g.waitForSelector('#gv-chosen .chip'); assert.strictEqual(await g.locator('#gv-chosen .chip').count(), 2); ok('a reload keeps the picks');
+
+    // another guest sees nothing of them
+    const g2 = await page(); await g2.goto(`${APP}/r/${code}`); await g2.click('#gv-picker [data-g="rock"]'); await g2.click('#gv-submit'); await g2.waitForSelector('#gv-title');
+    await g2.click('#gv-picks-sum'); assert.strictEqual(await g2.locator('#gv-chosen .chip').count(), 0);
+    const hostText = await host.evaluate(() => document.querySelector('#guests').innerText); assert.ok(!/Miles|So What/.test(hostText)); ok("a second guest starts with none, and the host's guest list does not show anyone's picks");
+
+    // remove
+    await g.locator('#gv-chosen .chip', { hasText: 'Queen' }).click();
+    await until(async () => (await g.locator('#gv-chosen .chip').count()) === 1, 4000, 'chip removed'); ok('tapping a chip removes the pick');
+
+    // limit
+    for (const name of ['Adele', 'Beyonc', 'Radiohead', 'Madonna', 'Nirvana', 'Fleetwood']) {
+      await g.fill('#gv-q', name); await g.waitForTimeout(500);
+      const b = g.locator('#gv-results .rrow button:has-text("Add artist")').first();
+      if (await b.count() && await b.isEnabled()) { await b.click(); await g.waitForTimeout(250); }
+    }
+    assert.strictEqual(await g.locator('#gv-chosen .chip').count(), 6, 'one song plus exactly five artists'); assert.ok(!/Fleetwood/.test(await g.textContent('#gv-chosen'))); assert.ok(await g.locator('#gv-results .rrow button:has-text("Add artist")').first().isDisabled()); ok('the guest cannot go past five artists: the sixth cannot be added');
+
+    // no match
+    await g.fill('#gv-q', 'zzqxjv'); await g.waitForFunction(() => /Nothing in this room/.test(document.querySelector('#gv-picks-msg').textContent), null, { timeout: 4000 }); ok('a search with no match explains why');
+
+    assert.deepStrictEqual(errors, [], 'no browser errors: ' + errors.join(' | ')); ok('no browser errors');
+    console.log('\n' + passed + ' checks passed');
+  } catch (e) { console.error('\nFAILED:', e.stack || e.message); process.exitCode = 1; }
+  finally { await browser.close(); srv.kill('SIGTERM'); }
+})();

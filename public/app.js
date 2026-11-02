@@ -48,9 +48,9 @@
       } });
     }
     groups.forEach(function (grp) {
-      var all = grp[1].length > 1 ? chip('any:' + grp[0].toLowerCase().replace(/\s+/g, '-'), 'All ' + grp[0].toLowerCase()) : null;
+      var all = grp[1].length > 1 && grp[0] !== 'Holiday' ? chip('any:' + grp[0].toLowerCase().replace(/\s+/g, '-'), 'All ' + grp[0].toLowerCase()) : null;
       if (all) all.classList.add('chip-all');
-      container.appendChild(h('div', { class: 'chipgroup' }, [h('div', { class: 'chipgroup-name', text: grp[0] }), h('div', { class: 'chips' }, (all ? [all] : []).concat(grp[1].map(function (g) { return chip(g); })))]));
+      container.appendChild(h('div', { class: 'chipgroup' }, [h('div', { class: 'chipgroup-name', text: grp[0] }), h('div', { class: 'chips' }, (all ? [all] : []).concat(grp[1].map(function (g) { return chip(g); }))), grp[0] === 'Holiday' ? h('div', { class: 'hint', text: 'Holiday songs play only while someone in the room has picked that holiday.' }) : null].filter(Boolean)));
     });
     sync();
     return sync;
@@ -274,6 +274,9 @@
       return lines.join('\n');
     }
 
+    // Free hosts (Render) put an idle server to sleep after 15 minutes and forget live rooms. A light request from the host page every 5 minutes keeps it awake while a room is open.
+    setInterval(function () { try { fetch('/healthz', { cache: 'no-store' }).catch(function () {}); } catch (e) { /* ignore */ } }, 300000);
+
     // ----- music source (provider) -----
     var Pv = window.Providers; Pv.finish();
     var ctx = {
@@ -294,7 +297,8 @@
       var prev = S.prov, next = Pv.get(id);
       if (prev === next) return;
       try { prev.stop(); } catch (e) { /* ignore */ }
-      S.prov = next; S.status = ''; S.playing = null; S.reup = 0;
+      S.prov = next; S.status = ''; S.playing = null; S.reup = 0; S.tried = {};
+      if (prev.pool) post('extras', { reset: true });
       if (!next.unavailable) lsSet('rb-source', id);
       if (next.kind !== 'library' && S.st && S.st.source && S.st.source.kind === 'library') ctx.clearLibrary();
       if (next.kind === 'library' && next.activate) next.activate(ctx);
@@ -331,17 +335,38 @@
       else if (S.status) { S.status = ''; renderSource(); }
     }
 
+    // Genres the guests picked (broad picks spread out), so a search can prefer songs two of them can share.
+    function partnersOf(st) {
+      var out = [];
+      function add(x) { if (out.indexOf(x) < 0) out.push(x); }
+      (st.guests || []).forEach(function (g) {
+        (g.genres || []).forEach(function (p) {
+          var grp = /^any:/.test(p) ? (C.genreGroups || []).filter(function (x) { return 'any:' + x[0].toLowerCase().replace(/\s+/g, '-') === p; })[0] : null;
+          (grp ? grp[1] : [p]).forEach(add);
+        });
+      });
+      return out;
+    }
+
     async function maybeExtras() {
       var st = S.st, P = S.prov;
       if (!st || !P.canExtras || !P.canExtras() || S.extrasBusy || (st.source && st.source.kind === 'library')) return;
       var todo = (st.wantGenres || []).filter(function (g) { return !S.tried[g]; });
-      if (!todo.length) return;
+      var arts = P.artistTracks ? (st.wantArtists || []).filter(function (a) { return !S.tried['a:' + a.name.toLowerCase()]; }) : [];
+      if (!todo.length && !arts.length) return;
       S.extrasBusy = true;
       try {
         for (var i = 0; i < todo.length; i++) {
           S.tried[todo[i]] = true;
-          var tracks = []; try { tracks = await P.extras(todo[i]); } catch (e) { tracks = []; }
-          await post('extras', { genre: todo[i], tracks: tracks });
+          var tracks = []; try { tracks = await P.extras(todo[i], partnersOf(st)) || []; } catch (e) { tracks = []; }
+          // pool: the service now supplies the songs (only once it has actually returned some, otherwise the built-in list stays)
+          await post('extras', { genre: todo[i], tracks: tracks, pool: !!P.pool && tracks.length > 0, source: P.id });
+        }
+        // Artists guests named that the room's songs do not have: look each one up once. Only that artist's songs are kept.
+        for (var j = 0; j < arts.length; j++) {
+          S.tried['a:' + arts[j].name.toLowerCase()] = true;
+          var found = []; try { found = await P.artistTracks(arts[j].name, arts[j].genre) || []; } catch (e) { found = []; }
+          await post('extras', { genre: arts[j].genre, artist: arts[j].name, tracks: found, pool: false, source: P.id });
         }
       } finally { S.extrasBusy = false; }
     }
@@ -544,6 +569,7 @@
           h('ol', { class: 'played', id: 'gv-played' }),
         ]),
         h('details', { class: 'saved', id: 'gv-saved' }, [h('summary', { id: 'gv-saved-sum', text: 'Songs I saved' }), h('ol', { class: 'played', id: 'gv-saved-list' }), h('div', { class: 'row' }, [h('button', { class: 'btn small', type: 'button', id: 'gv-saved-copy', text: 'Copy my list', onclick: function () { copy(savedList().map(function (x) { return x.title + ' - ' + x.artist; }).join('\n'), $('gv-saved-copy')); } })])]),
+        picksPanel(),
         h('div', { class: 'ask', id: 'gv-ask', role: 'alert', hidden: 'hidden' }, [
           h('p', { text: 'Still here? Tap to keep your picks in the mix.' }),
           h('button', { class: 'btn primary', type: 'button', id: 'gv-here', text: 'I\'m still here', onclick: function () { touch(true); } }),
@@ -560,6 +586,64 @@
     }
 
     var auth = function () { return { 'x-guest-id': reg.id, 'x-guest-key': reg.key }; };
+
+    // Artists and songs a guest names. They count as a perfect match for that guest, but never override what the room shares.
+    var MAX_ARTISTS = 5, MAX_SONGS = 5;
+    function songKeyOf(x) { return (x.title + '|' + x.artist).toLowerCase().replace(/[^a-z0-9|]+/g, ' ').trim(); }
+    function picksPanel() {
+      var input = h('input', { type: 'search', id: 'gv-q', maxlength: '60', placeholder: 'Search artists or songs in this room', autocomplete: 'off', 'aria-label': 'Search artists or songs in this room' });
+      var results = h('div', { id: 'gv-results', 'aria-live': 'polite' });
+      var chosen = h('div', { class: 'chips', id: 'gv-chosen' });
+      var msg = h('p', { class: 'hint', id: 'gv-picks-msg', role: 'status' });
+      var timer = null, seq = 0, last = null;
+      input.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(run, 250); });
+      async function run() {
+        var q = input.value.trim(), mine = ++seq;
+        if (q.length < 2) { results.replaceChildren(); msg.textContent = ''; return; }
+        var r = await http('GET', '/api/rooms/' + code + '/search?q=' + encodeURIComponent(q), null, auth());
+        if (mine !== seq) return; // a newer search is already on its way
+        if (!r.ok) { msg.textContent = 'Search is not available right now.'; return; }
+        last = r.data; draw();
+      }
+      function draw() {
+        results.replaceChildren();
+        if (!last) return;
+        var a = last.artists || [], t = last.songs || [];
+        var typed = input.value.trim().replace(/\s+/g, ' ');
+        var canTyped = !a.length && !t.length && typed.length >= 2 && (reg.artists || []).length < MAX_ARTISTS && (reg.artists || []).map(function (x) { return x.toLowerCase(); }).indexOf(typed.toLowerCase()) < 0;
+        msg.textContent = a.length || t.length ? '' : 'Nothing in this room\'s music matches.' + (canTyped ? ' If the host\'s music has this artist, their songs join the mix once you add them.' : '');
+        if (canTyped) results.appendChild(h('div', { class: 'rrow' }, [h('span', { class: 'rname', text: typed }), h('button', { class: 'btn small', type: 'button', id: 'gv-add-typed', text: 'Add as artist anyway', onclick: function () { addArtist(typed); } })]));
+        var haveA = (reg.artists || []).map(function (x) { return x.toLowerCase(); }), haveS = (reg.songs || []).map(songKeyOf);
+        a.forEach(function (x) {
+          var on = haveA.indexOf(x.name.toLowerCase()) >= 0;
+          results.appendChild(h('div', { class: 'rrow' }, [h('span', { class: 'rname', text: x.name }), h('span', { class: 'hint', text: x.songs + (x.songs === 1 ? ' song here' : ' songs here') }),
+            h('button', { class: 'btn small', type: 'button', text: on ? 'Added' : 'Add artist', disabled: on || (reg.artists || []).length >= MAX_ARTISTS ? 'disabled' : null, onclick: function () { addArtist(x.name); } })]));
+        });
+        t.forEach(function (x) {
+          var on = haveS.indexOf(songKeyOf(x)) >= 0;
+          results.appendChild(h('div', { class: 'rrow' }, [h('span', { class: 'rname' }, [document.createTextNode(x.title + ' '), h('span', { text: x.artist })]),
+            h('button', { class: 'btn small', type: 'button', text: on ? 'Added' : 'Add song', disabled: on || (reg.songs || []).length >= MAX_SONGS ? 'disabled' : null, onclick: function () { addSong(x); } })]));
+        });
+      }
+      function save() { lsSet(regKey, JSON.stringify(reg)); patch({ artists: reg.artists, songs: reg.songs }); showChosen(); draw(); }
+      function addArtist(name) { reg.artists = (reg.artists || []).concat([name]).slice(0, MAX_ARTISTS); save(); }
+      function addSong(x) { reg.songs = (reg.songs || []).concat([{ title: x.title, artist: x.artist }]).slice(0, MAX_SONGS); save(); }
+      function showChosen() {
+        var chips = [];
+        (reg.artists || []).forEach(function (n) { chips.push(h('button', { class: 'chip', type: 'button', 'aria-pressed': 'true', 'aria-label': 'Remove artist ' + n, text: n + ' \u00d7', onclick: function () { reg.artists = reg.artists.filter(function (x) { return x !== n; }); save(); } })); });
+        (reg.songs || []).forEach(function (x) { chips.push(h('button', { class: 'chip', type: 'button', 'aria-pressed': 'true', 'aria-label': 'Remove song ' + x.title, text: x.title + ' \u00d7', onclick: function () { reg.songs = reg.songs.filter(function (y) { return songKeyOf(y) !== songKeyOf(x); }); save(); } })); });
+        chosen.replaceChildren.apply(chosen, chips);
+        var n = (reg.artists || []).length + (reg.songs || []).length;
+        sum.textContent = 'Artists and songs I want to hear' + (n ? ' (' + n + ')' : '');
+      }
+      var sum = h('summary', { id: 'gv-picks-sum', text: 'Artists and songs I want to hear' });
+      picksPanel.refresh = showChosen;
+      var box = h('details', { class: 'saved', id: 'gv-picks' }, [sum,
+        h('p', { class: 'hint', text: 'Optional. Name up to 5 artists and 5 songs. They count as a perfect match for you. They never override what the room shares, so they play when the room allows, and on your turn when it rotates. Only you can see them.' }),
+        chosen, input, results, msg]);
+      showChosen();
+      return box;
+    }
 
     // Presence: tell the room we are still here about once a minute, and how long since we touched the page.
     var lastTouch = Date.now(), lastBeat = 0, beatTimer = null;
@@ -651,6 +735,7 @@
       (s.next || []).forEach(function (n) { ol.appendChild(h('li', { class: 'nextrow' }, [document.createTextNode(n.title + ' '), h('span', { text: n.artist + (n.mine ? ' (your turn)' : '') })])); });
       if (!s.next || !s.next.length) ol.appendChild(h('li', { class: 'nextrow' }, [h('span', { text: 'Nothing lined up yet.' })]));
       var me = s.me;
+      if (me && Array.isArray(me.artists) && reg) { var ch = JSON.stringify([me.artists, me.songs]) !== JSON.stringify([reg.artists || [], reg.songs || []]); if (ch) { reg.artists = me.artists; reg.songs = me.songs; lsSet(regKey, JSON.stringify(reg)); if (picksPanel.refresh) picksPanel.refresh(); } }
       renderPlayed(s);
       $('gv-ask').hidden = !(me && me.ask && !me.away);
       $('gv-sit').setAttribute('aria-pressed', me && me.sit ? 'true' : 'false');
@@ -667,7 +752,7 @@
         // Server restarted or dropped us: check the room, then rejoin quietly with the same picks.
         var r = await http('GET', '/api/rooms/' + code);
         if (r.status === 404) return roomGone();
-        var j = await http('POST', '/api/rooms/' + code + '/guests', { name: reg.name, genres: reg.genres, since: reg.since });
+        var j = await http('POST', '/api/rooms/' + code + '/guests', { name: reg.name, genres: reg.genres, since: reg.since, artists: reg.artists, songs: reg.songs });
         if (j.ok) { reg.id = j.data.guestId; reg.key = j.data.guestKey; lsSet(regKey, JSON.stringify(reg)); connect(); }
         else setTimeout(connect, 3000);
       };

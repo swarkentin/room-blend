@@ -1,5 +1,6 @@
 # One-click deploy on Render: New > Blueprint > point at this repo.
-# The free plan sleeps after 15 idle minutes and forgets live rooms when it does; fine for a test night.
+# The free plan sleeps after 15 minutes without incoming requests and has no persistent disk, so a sleep or restart forgets live rooms
+# (the host page pings /healthz every 5 minutes while open, which keeps it awake). Fine for testing.
 services:
   - type: web
     name: room-blend

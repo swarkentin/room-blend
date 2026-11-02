@@ -7,8 +7,8 @@ let n = 0; const ok = (s) => { n++; console.log('  ok  ' + s); };
 const person = (id, genres) => ({ id, taste: Object.fromEntries(genres.map((g, i) => [g, [4, 3, 2, 1][i]])) });
 const prim = (q) => q.map((x) => x.track.genres[0]);
 
-assert.ok(tracks.length >= 4500); assert.strictEqual(E.GENRES.length, 56); ok('catalogue has ' + tracks.length + ' tracks, 56 genres');
-assert.strictEqual(new Set(E.GENRES).size, 56);
+assert.ok(tracks.length >= 4500); assert.strictEqual(E.GENRES.length, 58); ok('catalogue has ' + tracks.length + ' tracks, 58 genres');
+assert.strictEqual(new Set(E.GENRES).size, 58);
 assert.ok(tracks.every((t) => t.genres.length && t.genres.every((g) => E.GENRES.includes(g))), 'every track uses known genres');
 assert.strictEqual(new Set(tracks.map((t) => t.id)).size, tracks.length);
 ok('every track tag is a known genre; ids are unique');
@@ -65,4 +65,24 @@ assert.ok(!r2.queue.some((x) => rec.has(x.track.id))); ok('recently played songs
 const a = E.buildQueue([person('a', ['pop']), person('b', ['metal'])], { catalog, n: 6, seed: 9 });
 const b = E.buildQueue([person('a', ['pop']), person('b', ['metal'])], { catalog, n: 6, seed: 9 });
 assert.deepStrictEqual(a.queue.map((x) => x.track.id), b.queue.map((x) => x.track.id)); ok('same seed gives the same queue');
+
+// ---- holiday genres
+const isHol = (x) => x.track.genres.some((g) => E.HOLIDAYS.includes(g));
+let leaks = 0;
+for (const g of E.GENRES.filter((x) => !E.HOLIDAYS.includes(x))) leaks += E.buildQueue([person('a', [g]), person('b', ['pop'])], { catalog, n: 30, seed: 1 }).queue.filter(isHol).length;
+assert.strictEqual(leaks, 0); ok('holiday songs never play unless someone picked a holiday');
+assert.ok(!E.GROUPS['any:holiday'] && !E.isPick('any:holiday')); ok('there is no "All holiday" pick: a holiday must be asked for by name');
+r = E.buildQueue([person('a', ['christmas']), person('b', ['pop'])], { catalog, n: 12, seed: 2 });
+assert.strictEqual(r.mode, 'blend');
+assert.ok(r.queue.every((x) => x.track.genres.includes('christmas')) && r.queue.every((x) => x.fits.every((f) => f.fit >= 0.9)));
+ok('a Christmas fan and a pop fan share Christmas pop that suits both');
+r = E.buildQueue([person('a', ['christmas']), person('b', ['metal'])], { catalog, n: 6, seed: 2 });
+assert.ok(isHol(r.queue[0]) && r.queue[0].track.genres.some((g) => ['hard rock', 'rock', 'metal'].includes(g)));
+ok('a Christmas fan and a metal fan start with Christmas songs that rock');
+r = E.buildQueue([person('a', ['christmas'])], { catalog, n: 20, seed: 1 });
+assert.ok(r.queue.filter(isHol).length >= 18); ok('a Christmas fan on their own hears almost only Christmas songs');
+r = E.buildQueue([person('a', ['halloween']), person('b', ['punk'])], { catalog, n: 6, seed: 2 });
+assert.ok(r.queue.slice(0, 3).every((x) => x.track.genres.includes('halloween')) && !r.queue.some((x) => x.track.genres.includes('christmas'))); ok('Halloween picks bring Halloween songs and not Christmas ones');
+const left = E.buildQueue([person('a', ['pop'])], { catalog, n: 5, seed: 1, keep: E.buildQueue([person('a', ['christmas'])], { catalog, n: 5, seed: 1 }).queue });
+assert.ok(!left.queue.some(isHol)); ok('when the holiday fan leaves, queued holiday songs are dropped');
 console.log(n + ' checks passed');

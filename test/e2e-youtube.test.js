@@ -13,14 +13,27 @@ const GOOD = 'AIzaFakeKey_0123456789abcdefghijklmnopqrs'; // 39 characters
 let passed = 0; const ok = (s) => { passed++; console.log('  ok  ' + s); };
 const until = async (fn, ms = 10000, what = 'condition') => { const t0 = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) throw new Error('timeout: ' + what); await new Promise((r) => setTimeout(r, 100)); } };
 
-const log = { searches: [], badKey: 0 };
-let quotaOut = false;
+const log = { searches: [], badKey: 0, params: [], plSearches: [], plItems: 0, videoCalls: 0 };
+let quotaOut = false, poolOn = false;
+// a playlist of song videos for "jazz songs": three good ones, 14 filler songs, and entries that must be filtered out
+const VIDEOS = {}, PLITEMS = [];
+const addVid = (id, title, channel, dur, emb = true) => { VIDEOS[id] = { id, snippet: { title, channelTitle: channel }, contentDetails: { duration: dur }, status: { embeddable: emb, privacyStatus: 'public' } }; PLITEMS.push({ snippet: { title, resourceId: { videoId: id } } }); };
+addVid('plA1', 'Dave Brubeck - Take Five (Official Audio)', 'Dave Brubeck', 'PT5M24S');
+addVid('plA2', 'Nina Simone - Feeling Good', 'NinaSimoneVEVO', 'PT2M55S');
+addVid('plA3', 'Jazz Classics Full Album 2 hours', 'Jazz Radio', 'PT2H0M0S');
+addVid('plA4', 'Ella Fitzgerald - Cheek to Cheek (Live)', 'Ella', 'PT4M0S');
+addVid('plA5', 'Blocked Artist - Blocked Song', 'Blocked', 'PT3M0S', false);
+addVid('plA6', 'So What', 'Miles Davis - Topic', 'PT9M22S');
+for (let i = 0; i < 14; i++) addVid('plB' + i, 'Pool Artist ' + i + ' - Pool Tune ' + i + ' (Official Video)', 'Pool Artist ' + i, 'PT3M30S');
+const ZITEMS = [['plZ1', 'Zed Obscure - Zed Song One'], ['plZ2', 'Zed Obscure - Zed Song Two'], ['plZ3', 'Someone Else - Not Zed']].map(([id, title]) => { VIDEOS[id] = { id, snippet: { title, channelTitle: title.split(' - ')[0] }, contentDetails: { duration: 'PT3M10S' }, status: { embeddable: true, privacyStatus: 'public' } }; return { snippet: { title, resourceId: { videoId: id } } }; });
+PLITEMS.push({ snippet: { title: 'Private video', resourceId: { videoId: 'plPriv' } } });
 const IFRAME_API = `
 window.__ytLog = [];
 window.YT = { Player: function (id, opts) {
   var self = this; window.__ytPlayer = self; window.__ytOpts = opts;
   setTimeout(function () { opts.events.onReady({}); }, 20);
-  self.loadVideoById = function (v) { window.__ytLog.push(v); if (window.__ytBlock) return; setTimeout(function () { opts.events.onStateChange({ data: 1 }); }, 30); };
+  self.loadVideoById = function (v) { window.__ytLog.push(v); if (window.__ytBlock) return;
+    if (window.__ytFail === 'all' || (window.__ytFail === 'first' && !/_b$/.test(v))) { setTimeout(function () { opts.events.onError({ data: 150 }); }, 30); return; } setTimeout(function () { opts.events.onStateChange({ data: 1 }); }, 30); };
   self.pauseVideo = function () { window.__ytPaused = true; }; self.playVideo = function () { window.__ytPaused = false; }; self.stopVideo = function () {};
 } };
 setTimeout(function () { if (window.onYouTubeIframeAPIReady) window.onYouTubeIframeAPIReady(); }, 10);`;
@@ -28,19 +41,31 @@ const yt = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
   const send = (code, type, body) => { res.writeHead(code, { 'Content-Type': type, 'Access-Control-Allow-Origin': '*' }); res.end(body); };
   if (u.pathname === '/iframe_api') return send(200, 'application/javascript', IFRAME_API);
+  if (u.pathname.startsWith('/youtube/v3/') && u.searchParams.get('key') !== GOOD) { log.badKey++; return send(400, 'application/json', JSON.stringify({ error: { code: 400, errors: [{ reason: 'keyInvalid' }] } })); }
+  if (u.pathname === '/youtube/v3/search' && u.searchParams.get('type') === 'playlist') {
+    const q = u.searchParams.get('q'); log.plSearches.push(q);
+    if (poolOn && q === 'Zed Obscure greatest hits songs') return send(200, 'application/json', JSON.stringify({ items: [{ id: { playlistId: 'PLzed' }, snippet: { title: 'Zed Obscure Greatest Hits' } }] }));
+    return send(200, 'application/json', JSON.stringify({ items: poolOn && q === 'jazz songs' ? [{ id: { playlistId: 'PLjazz' }, snippet: { title: 'Best Jazz Songs' } }] : [] }));
+  }
+  if (u.pathname === '/youtube/v3/playlistItems') { log.plItems++; return send(200, 'application/json', JSON.stringify({ items: u.searchParams.get('playlistId') === 'PLzed' ? ZITEMS : PLITEMS })); }
+  if (u.pathname === '/youtube/v3/videos') { log.videoCalls++; return send(200, 'application/json', JSON.stringify({ items: u.searchParams.get('id').split(',').map((i) => VIDEOS[i]).filter(Boolean) })); }
   if (u.pathname === '/youtube/v3/search') {
     if (u.searchParams.get('key') !== GOOD) { log.badKey++; return send(400, 'application/json', JSON.stringify({ error: { code: 400, errors: [{ reason: 'keyInvalid' }] } })); }
     if (quotaOut) return send(403, 'application/json', JSON.stringify({ error: { code: 403, errors: [{ reason: 'quotaExceeded' }] } }));
     const q = u.searchParams.get('q'); log.searches.push(q);
     if (/Nowhere/.test(q)) return send(200, 'application/json', JSON.stringify({ items: [] }));
-    return send(200, 'application/json', JSON.stringify({ items: [{ id: { videoId: 'vid' + log.searches.length } }] }));
+    const n = log.searches.length; log.params.push(u.search);
+    return send(200, 'application/json', JSON.stringify({ items: [
+      { id: { videoId: 'vid' + n + '_c' }, snippet: { title: q + ' (cover)', channelTitle: 'Someone' } },
+      { id: { videoId: 'vid' + n }, snippet: { title: q + ' (Official Video)', channelTitle: 'ArtistVEVO' } },
+      { id: { videoId: 'vid' + n + '_b' }, snippet: { title: q + ' lyrics', channelTitle: 'Fan' } }] }));
   }
   send(404, 'text/plain', 'no');
 });
 
 (async () => {
   await new Promise((r) => yt.listen(YT_PORT, '127.0.0.1', r));
-  const srv = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: Object.assign({}, process.env, { PORT: APP_PORT, SPOTIFY_CLIENT_ID: '', DATA_DIR: path.join(os.tmpdir(), 'rb-yt-' + Date.now()), YOUTUBE_API_BASE: YT + '/youtube/v3', YOUTUBE_IFRAME_URL: YT + '/iframe_api' }), stdio: ['ignore', 'pipe', 'inherit'] });
+  const srv = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: Object.assign({}, process.env, { PORT: APP_PORT, SPOTIFY_CLIENT_ID: '', DATA_DIR: path.join(os.tmpdir(), 'rb-yt-' + Date.now()), YOUTUBE_API_BASE: YT + '/youtube/v3', YOUTUBE_IFRAME_URL: YT + '/iframe_api' }), stdio: ['ignore', 'ignore', 'inherit'] });
   await until(() => new Promise((r) => http.get(APP, () => r(true)).on('error', () => r(false))), 8000, 'server up');
   const browser = await chromium.launch();
   const errors = [];
@@ -87,6 +112,25 @@ const yt = http.createServer((req, res) => {
     const cached = await host.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('rb-yt-cache') || '{}')).length);
     assert.ok(cached >= 2); ok('looked-up songs are remembered in the browser (' + cached + ' so far), so repeats cost no search quota');
 
+    // the search is not over-strict, and it ranks covers last
+    assert.ok(!/videoCategoryId/.test(log.params[0]) && /maxResults=8/.test(log.params[0])); ok('the search has no category filter and asks for several candidates');
+    assert.ok(/^vid\d+$/.test(id1)); ok('the official video is chosen ahead of a cover');
+
+    await new Promise((r) => setTimeout(r, 600));
+    // a video that is unavailable: the next candidate is tried before giving up on the song
+    await host.evaluate(() => { window.__ytFail = 'first'; window.__ytLog.length = 0; });
+    await host.evaluate(() => window.__ytOpts.events.onStateChange({ data: 0 }));
+    await until(() => host.evaluate(() => window.__ytLog.length >= 2 && /_b$/.test(window.__ytLog[window.__ytLog.length - 1])), 10000, 'fallback video').catch(async (e) => { console.log('LOG', await host.evaluate(() => JSON.stringify(window.__ytLog)), await nowTitle()); throw e; });
+    ok('when the first video is unavailable, the next candidate plays (' + await host.evaluate(() => window.__ytLog.join(', ')) + ')');
+    await host.evaluate(() => { window.__ytFail = 'all'; });
+    await new Promise((r) => setTimeout(r, 600));
+    const tBefore = await nowTitle();
+    await host.evaluate(() => window.__ytOpts.events.onStateChange({ data: 0 }));
+    await until(async () => (await nowTitle()) !== tBefore, 15000, 'skip when every candidate fails');
+    ok('when no candidate plays, the song is skipped');
+    await host.evaluate(() => { window.__ytFail = ''; });
+    await new Promise((r) => setTimeout(r, 1500));
+
     // an embedding error skips the song
     const before = await nowTitle();
     await host.evaluate(() => { window.__ytBlock = false; });
@@ -101,6 +145,35 @@ const yt = http.createServer((req, res) => {
     await host.waitForFunction(() => /allowance is used up/.test(document.querySelector('#sp').textContent), null, { timeout: 10000 });
     ok('when the free daily allowance is used up, the host is told plainly');
     quotaOut = false;
+
+    // ---- songs by genre: playlists are read, filtered and played by their own id ----
+    poolOn = true;
+    const searchesBefore = log.searches.length;
+    await host.fill('#g-name', 'Ben'); await host.click('#picker [data-g="jazz"]'); await host.click('#add-form button[type=submit]');
+    await until(() => log.plItems >= 1 && log.videoCalls >= 1, 12000, 'playlist read');
+    assert.ok(log.plSearches.includes('jazz songs')); ok('a jazz guest makes the host look for a jazz playlist: ' + log.plSearches.slice(-2).join(' | '));
+    assert.ok(log.plItems === 1 && log.videoCalls === 1); ok('reading the playlist took one call for its songs and one for their details (about 2 quota units, not 100 per song)');
+    const stored = await until(() => host.evaluate(() => { try { return JSON.parse(localStorage.getItem('rb-yt-pools')).jazz; } catch (e) { return null; } }), 8000, 'pool cached');
+    const titles = stored.tracks.map((t) => t.artist + ' - ' + t.title);
+    assert.strictEqual(stored.tracks.length, 17); ok('17 songs were kept from the playlist');
+    assert.ok(titles.includes('Dave Brubeck - Take Five') && titles.includes('Nina Simone - Feeling Good') && titles.includes('Miles Davis - So What')); ok('artist and title are read from "Artist - Song (Official Audio)" and from a "- Topic" channel');
+    assert.ok(!titles.some((t) => /Full Album|Cheek to Cheek|Blocked|Private/.test(t))); ok('hour-long uploads, live versions, videos that cannot be embedded and private videos were filtered out');
+    await host.waitForFunction(() => /Pool Tune|Take Five|Feeling Good|So What/.test([...document.querySelectorAll('#queue .qrow')].map((e) => e.textContent).join(' ') + document.querySelector('#now-title').textContent), null, { timeout: 12000 }); ok('the queue now holds songs from the playlist');
+    await host.evaluate(() => { window.__ytLog.length = 0; });
+    for (let i = 0; i < 8 && !(await host.evaluate(() => window.__ytLog.some((v) => /^pl/.test(v)))); i++) { await host.click('#btn-next'); await new Promise((r) => setTimeout(r, 900)); }
+    assert.ok(await host.evaluate(() => window.__ytLog.some((v) => /^pl/.test(v)))); ok('a playlist song is loaded straight into the player by its video id: ' + (await host.evaluate(() => window.__ytLog.filter((v) => /^pl/.test(v))[0])));
+    assert.ok(!log.searches.slice(searchesBefore).some((q) => /Pool Tune|Take Five|Feeling Good|So What/.test(q))); ok('it needed no title search');
+    // ---- an artist a guest names that the room does not have: one playlist search, only that artist's songs kept ----
+    const codeNow = host.url().split('/').pop();
+    const zoe = await host.evaluate(async (c) => { const r = await fetch('/api/rooms/' + c + '/guests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Zoe', genres: ['jazz'], artists: ['Zed Obscure'] }) }); return r.ok ? r.json() : null; }, codeNow);
+    assert.ok(zoe && zoe.guestId);
+    await until(() => log.plSearches.includes('Zed Obscure greatest hits songs'), 14000, 'artist playlist search'); ok('a guest naming an artist makes the host search YouTube playlists for "Zed Obscure greatest hits"');
+    const found = await until(() => host.evaluate(() => { try { return JSON.parse(localStorage.getItem('rb-yt-pools'))['Zed Obscure greatest hits'] || null; } catch (e) { return null; } }), 8000, 'artist pool cached');
+    assert.ok(found && found.tracks.length === 3); ok('three songs were read from it (and cached for a week)');
+    await until(() => host.evaluate(() => /Zed Song/.test([...document.querySelectorAll('#queue .qrow')].map((e) => e.textContent).join(' ') + document.querySelector('#now-title').textContent)), 10000, 'zed in lineup'); ok('Zoe, who named Zed Obscure, has their songs in the lineup');
+    const seen = await host.evaluate(async ({ c, z }) => { const f = async (q) => (await fetch('/api/rooms/' + c + '/search?q=' + encodeURIComponent(q), { headers: { 'x-guest-id': z.guestId, 'x-guest-key': z.guestKey } })).json(); return { zed: await f('zed song'), zedArtist: await f('zed obscure'), other: await f('not zed') }; }, { c: codeNow, z: zoe });
+    assert.strictEqual(seen.zed.songs.length, 2); assert.ok(seen.zedArtist.artists.some((a) => a.name === 'Zed Obscure' && a.songs === 2)); assert.ok(!seen.other.songs.some((x) => /Not Zed/.test(x.title)) && !seen.other.artists.some((a) => /Someone Else/.test(a.name))); ok("the room has Zed Obscure's two songs and not the other artist's song from that playlist")
+    poolOn = false;
 
     // switching away hides the player; removing the key forgets it
     await host.click('[data-src="manual"]');

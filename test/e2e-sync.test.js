@@ -44,7 +44,7 @@ const until = async (fn, ms = 10000, what = 'condition') => { const t0 = Date.no
 (async () => {
   await new Promise((r) => fake.listen(SP_PORT, '127.0.0.1', r));
   const srv = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: Object.assign({}, process.env, { PORT: APP_PORT, SPOTIFY_CLIENT_ID: 'fakeid', DATA_DIR: require('os').tmpdir() + '/rb-sync-' + Date.now(),
-    SPOTIFY_API_BASE: SP + '/v1', SPOTIFY_ACCOUNTS_BASE: SP, SPOTIFY_SDK_URL: SP + '/spotify-player.js' }), stdio: ['ignore', 'pipe', 'inherit'] });
+    SPOTIFY_API_BASE: SP + '/v1', SPOTIFY_ACCOUNTS_BASE: SP, SPOTIFY_SDK_URL: SP + '/spotify-player.js' }), stdio: ['ignore', 'ignore', 'inherit'] });
   await until(() => new Promise((r) => http.get(APP, () => r(true)).on('error', () => r(false))), 8000, 'server up');
   const browser = await chromium.launch(); const errors = [];
   try {

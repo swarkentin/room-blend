@@ -7,10 +7,11 @@ One service, many rooms. Anyone can open it, press **Start a room**, and send fr
 Open the service, press **Start a room**, then choose where your music is:
 
 - **Spotify: my songs**: plays your own saved songs through your Premium account and re-reads them automatically, so the catalogue is as big as your library.
-- **Spotify**: plays through your Premium account. A short guide helps you create your own free Spotify app (2 minutes).
+- **Spotify**: plays through your Premium account, using Spotify's own songs for the genres in the room. A short guide helps you create your own free Spotify app (2 minutes).
 - **My music files**: pick a folder on your computer. Nothing is uploaded except song names and genres.
-- **YouTube (free)**: plays each song in YouTube's own player, so no Premium and no files are needed. You bring a free Google API key (about 5 minutes, steps are on the host page and in `docs/SETUP.md`). About 100 new songs a day on the free allowance.
+- **YouTube (free)**: plays songs in YouTube's own player, so no Premium and no files are needed. You bring a free Google API key (about 5 minutes, steps are on the host page and in `docs/SETUP.md`). For each genre in the room it reads a playlist, so about 100 playlist searches a day on the free allowance, remembered for a week.
 - **Navidrome / Subsonic**: connect your own music server.
+- **Holiday blends**: guests can pick Christmas or Halloween. Those songs play only while someone in the room has picked the holiday, and everyone else is served by the style of each song.
 - **Just show the songs**: you play them yourself.
 - **Apple Music**: not available yet (needs a paid Apple developer account; see `docs/PROVIDERS.md`).
 
@@ -26,6 +27,10 @@ No app, no account, no typing needed. Any one of these works:
 4. **Type the 5-letter code, or paste the link,** into the box on the home page. It joins the moment the code is complete.
 
 On the join page a guest taps one to four genres and is in. A name is optional. Returning guests get a one-tap **Rejoin** on the home page, and reloading the page keeps them in the room. Shared links show a preview with the room name in chat apps.
+
+### Naming artists and songs
+
+After joining, a guest can open **Artists and songs I want to hear**, search the room's own music and name up to 5 artists and 5 songs (or type an artist the search does not find). A named artist or song counts as a perfect match for that guest. It never overrides the room: when the room agrees on a style, a named song only gets a small nudge and only if everyone could nearly accept it, and when songs rotate, it is the first choice on that guest's own turn. Only the guest sees their picks. The host sees how many were made, and the server logs only counts. If the room's songs do not include a named artist, the host's browser looks them up once in its music source (Spotify artist search, or one YouTube playlist search of "<artist> greatest hits") and keeps only that artist's songs. Hosts playing their own complete library are never asked to look anything up.
 
 "Near you" matches the public network address, so it suits a home, party or venue Wi-Fi. On a mobile network, where many strangers share an address, the host should untick "Show to people on this Wi-Fi".
 
@@ -45,6 +50,8 @@ No settings are required. The address is picked up from the browser, so there is
 | `SPOTIFY_CLIENT_ID` | A Spotify app for everyone to use. See the note below before you rely on it. |
 | `MAX_ROOMS`, `ROOMS_PER_IP_HOUR` | Capacity (2000) and how many rooms one visitor may start per hour (8). |
 | `DATA_DIR` | Where room codes and host keys survive restarts. Live state is rebuilt when people reconnect. |
+| `LOG_LEVEL` | `silent`, `error`, `warn`, `info` (default), or `debug` (adds one line per request). Logs are JSON lines: warnings and errors on stderr, the rest on stdout. They never contain names, picks, room codes, host keys or IP addresses. Rooms and visitors appear as short salted hashes. |
+| `STATUS_KEY` | `/status` shows rooms, guests, connections, timings, memory and top genres. By default it answers only on the machine itself. Set a key to read it remotely with `?key=...` or an `x-status-key` header. |
 
 `/healthz` answers `ok` for platform health checks.
 
@@ -55,7 +62,7 @@ Spotify limits a development-mode app to five authorised users, and extended acc
 ## Free ways to run it
 
 - **Your laptop plus a Cloudflare Tunnel** (free, always HTTPS): `node server.js` then `cloudflared tunnel --url http://localhost:3000`. Set `PUBLIC_URL` to the tunnel address so join links and QR codes use it. The host opens `http://127.0.0.1:3000` themselves, which Spotify accepts for login. Best for testing with friends tonight.
-- **Render free web service**: `render.yaml` is included (New > Blueprint). It sleeps after about 15 idle minutes and forgets live rooms when it does, so it suits occasional use.
+- **Render free web service**: `render.yaml` is included (New > Blueprint). Free services sleep after 15 minutes with no incoming requests (the host page pings every 5 minutes while a room is open), wake in about a minute, have no persistent disk, and can be restarted at any time, which forgets rooms. 750 free hours a month covers one always-on service. See `docs/SETUP.md` section 5.
 - **Oracle Cloud Always Free VM**: genuinely always on, but you manage a small Linux server (install Node or Docker, put Caddy in front for HTTPS). Availability varies by region.
 - **Railway** gives a one-time trial credit; **Fly.io** (`fly.toml` included) asks for a card and costs a few dollars a month. Serverless platforms (Vercel, Netlify, Workers) are not suitable: this needs a long-running server.
 
@@ -70,7 +77,7 @@ Local files were tested with real mp3, ogg and flac files played in Chromium. Su
 - YouTube: that your API key is accepted, that songs start by themselves (browsers may need one click on the player first), and that most songs are found and embeddable.
 - Navidrome: that your server allows requests from the page (CORS) and that an empty search returns your whole library. If it does not, the app falls back to walking albums.
 - The player reports end-of-track the way `public/spotify.js` expects. If songs do not advance, **Next song** still works.
-- Genre search and top-artists import still work for new apps. If not, the app uses the built-in list of about 6,400 songs and manual picks.
+- Genre search and top-artists import still work for new apps. If not, the app uses the built-in list of about 6,700 songs and manual picks.
 - Built-in songs are matched by title and artist, so a few may be a different version.
 
 Licensing: Spotify is for private listening. Use this at home or with friends, not in a business.

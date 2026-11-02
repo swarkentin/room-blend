@@ -1,0 +1,7 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "commonjs", "allowJs": true, "checkJs": true,
+    "noEmit": true, "strict": false, "skipLibCheck": true, "types": ["node"], "lib": ["ES2022"]
+  },
+  "include": ["server.js", "lib/**/*.js", "types.d.ts"]
+}

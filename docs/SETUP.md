@@ -51,7 +51,7 @@ The host chooses a music source on the host page. Nothing about guests changes.
   2. Credentials, then Create credentials, then API key. Under restrictions choose **Restrict key**, then the YouTube Data API v3 only. Do **not** restrict it to websites: Room Blend sends no referrer, so that would block it.
   3. In Room Blend choose **YouTube**, paste the key, save it, then press **Start the music**.
   4. Keep the tab open and the small YouTube player visible. If a song does not start by itself, press play on that player once.
-  Limits: about 100 new songs a day on the free allowance (repeats cost nothing), some videos cannot be embedded and are skipped, and free YouTube may play ads between songs.
+  Limits: the free allowance covers about 100 playlist searches a day. Each genre in the room needs about two, and what is found is remembered for a week, so repeat genres cost nothing. Some videos cannot be embedded and are skipped, and free YouTube may play ads between songs.
 - **Spotify** needs your own Spotify app, because one shared app cannot serve many people (see the README for why).
   1. Go to the Spotify developer dashboard and create an app.
   2. Add this redirect URI exactly: `http://127.0.0.1:3000/callback` (use your port if you changed it).
@@ -71,6 +71,8 @@ There is nothing to switch on. Every press of **Start a room** creates a separat
   | `MAX_ROOMS` | 2000 | Most rooms at once. |
   | `ROOMS_PER_IP_HOUR` | 8 | Rooms one device may start per hour. Raise it if you create many test rooms (`ROOMS_PER_IP_HOUR=100`). |
   | `DATA_DIR` | `./data` | Where room codes, host keys and room settings are saved so rooms survive a restart. |
+  | `LOG_LEVEL` | `info` | `silent`, `error`, `warn`, `info` or `debug`. JSON lines, with no names, picks, codes, keys or IPs. |
+  | `STATUS_KEY` | none | Lets you read `/status` from outside with `?key=` or an `x-status-key` header. Without it, only the machine itself can. |
 
   A room holds at most 40 guests. Idle rooms are cleaned up automatically.
 - **What is stored.** The data folder holds room codes, host keys, room settings and the room's network label. It does not hold guest names, picks or listening history, which live in memory only and are rebuilt when people reconnect. Delete the data folder to forget all rooms.
@@ -80,6 +82,7 @@ There is nothing to switch on. Every press of **Start a room** creates a separat
 
 - **Quick test with friends elsewhere:** `cloudflared tunnel --url http://localhost:3000`, then start the server with `PUBLIC_URL` set to the tunnel address and `TRUST_PROXY=1`. The host still opens `http://127.0.0.1:3000` themselves.
 - **Always-on hosting:** Docker (`docker build -t room-blend . && docker run -p 8080:8080 -v rb-data:/data room-blend`), Render (`render.yaml`), or Fly.io (`fly.toml`). Put the data folder on a volume. See the README section "Free ways to run it".
+- **Render, free:** push the folder to a GitHub repo, then on render.com choose New, Blueprint, and pick the repo (`render.yaml` is included). Set `PUBLIC_URL` to the `https://your-name.onrender.com` address Render gives you. Limits of the free plan: it sleeps after 15 minutes with no incoming requests and takes about a minute to wake; it has no persistent disk, so a restart or redeploy forgets every room (hosts start a new one); it can be restarted at any time; and 750 free hours a month is enough for one always-on service. The host page sends a small request every 5 minutes while open, so a room in use stays awake. The first visitor after a sleep waits about a minute. Spotify login will not work on the Render address (Spotify only allows `127.0.0.1` over plain http), so use YouTube, files or manual mode there, or open the host page through your own HTTPS address with your Spotify app set up for it.
 - Set `TRUST_PROXY=1` only when a proxy sits in front of Node. Leave it off when Node is reached directly, or visitors could fake their address.
 
 ## Settings reference

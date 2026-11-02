@@ -98,26 +98,69 @@ window.Spotify_ = (function () {
   // ---------- host-side helpers ----------
   var norm = function (s) { return String(s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); };
 
-  // Finds a Spotify track for "title by artist". Cached per browser.
+  // Finds a Spotify track for "title by artist". Cached per browser by title and artist (not by song id,
+  // so the cache stays right when the built-in list changes).
+  // 1. a precise search with Spotify's track: and artist: filters; 2. if nothing acceptable, a plain search,
+  // which tolerates titles that differ a little ("&" and "and", extra brackets, "Pt. 2").
+  // A result must match most of the title and part of the artist, so a cover or a different song is not played.
   async function resolveUri(track) {
-    var ck = 'rb-uri-' + track.id;
+    var M = window.Match, title = M.cleanTitle(track.title), artist = M.cleanArtist(track.artist);
+    var ck = 'rb-uri2-' + M.words(title + ' ' + artist).join(' ');
     try { var c = localStorage.getItem(ck); if (c) return c; } catch (e) { /* ignore */ }
-    var r = await api('GET', '/search?type=track&limit=5&q=' + encodeURIComponent('track:' + track.title + ' artist:' + track.artist));
-    var items = r.ok && r.data && r.data.tracks ? r.data.tracks.items || [] : [];
-    var want = norm(track.artist);
-    var pick = items.find(function (t) { return (t.artists || []).some(function (a) { return norm(a.name) === want; }); }) || items[0];
-    if (!pick) return null;
-    try { localStorage.setItem(ck, pick.uri); } catch (e) { /* ignore */ }
-    return pick.uri;
+    var queries = [
+      'track:' + title.replace(/"/g, '') + ' artist:' + artist.replace(/"/g, ''),
+      title + ' ' + artist,
+    ];
+    for (var i = 0; i < queries.length; i++) {
+      var r = await api('GET', '/search?type=track&limit=10&q=' + encodeURIComponent(queries[i]));
+      var items = r.ok && r.data && r.data.tracks ? r.data.tracks.items || [] : [];
+      var ranked = M.rank({ title: track.title, artist: track.artist }, items, function (t) {
+        return { title: t.name, artists: (t.artists || []).map(function (a) { return a.name; }), popularity: t.popularity };
+      });
+      if (ranked.length && M.acceptable(ranked[0].s)) {
+        var uri = ranked[0].item.uri;
+        try { localStorage.setItem(ck, uri); } catch (e) { /* ignore */ }
+        return uri;
+      }
+    }
+    return null;
   }
 
-  // Best-effort genre search. Returns [{title, artist}]. May return nothing if Spotify ignores the filter.
-  async function searchGenre(genre) {
-    var out = [];
+  // Songs Spotify itself files under a genre, for the genres in the room. Spotify's search is the source, so every
+  // song is playable and needs no matching: the result's own uri is kept and played directly.
+  // Each genre is searched by its own name and by a few compound names ("blues rock") so two guests can share songs.
+  // Dev-mode apps get at most 10 results per search, so a few pages are read. Returns [{title, artist, id, genres}].
+  async function searchGenre(genre, partners) {
+    var P = window.Pools, M = window.Match, out = [], seen = {};
+    var qs = P.queries(genre, 3, partners);
+    for (var qi = 0; qi < qs.length; qi++) {
+      for (var off = 0; off < 30; off += 10) {
+        var r = await api('GET', '/search?type=track&limit=10&offset=' + off + '&market=from_token&q=' + encodeURIComponent('genre:"' + qs[qi].q + '"'));
+        if (!r.ok) { if (r.status === 429 || r.status === 401) return out; break; }
+        var items = r.data && r.data.tracks ? r.data.tracks.items || [] : [];
+        items.forEach(function (t) {
+          if (!t || !t.name || !t.uri || !t.artists || !t.artists[0] || t.is_playable === false || seen[t.uri] || M.isBad(t.name)) return;
+          seen[t.uri] = 1;
+          out.push({ title: t.name, artist: t.artists[0].name, id: t.uri, genres: qs[qi].tags });
+        });
+        if (items.length < 10) break;
+      }
+    }
+    return out;
+  }
+
+  // Songs by an artist a guest named, for artists the room's songs do not have. Two pages of Spotify's own search, so every
+  // song is playable and keeps its uri. They are tagged with the genre of the guest who named the artist.
+  async function searchArtist(name, genre) {
+    var M = window.Match, out = [], seen = {};
     for (var off = 0; off < 20; off += 10) {
-      var r = await api('GET', '/search?type=track&limit=10&offset=' + off + '&q=' + encodeURIComponent('genre:"' + genre + '"'));
-      var items = r.ok && r.data && r.data.tracks ? r.data.tracks.items || [] : [];
-      items.forEach(function (t) { if (t && t.name && t.artists && t.artists[0]) out.push({ title: t.name, artist: t.artists[0].name }); });
+      var r = await api('GET', '/search?type=track&limit=10&offset=' + off + '&market=from_token&q=' + encodeURIComponent('artist:"' + name.replace(/"/g, '') + '"'));
+      if (!r.ok) break;
+      var items = r.data && r.data.tracks ? r.data.tracks.items || [] : [];
+      items.forEach(function (t) {
+        if (!t || !t.name || !t.uri || !t.artists || !t.artists[0] || t.is_playable === false || seen[t.uri] || M.isBad(t.name)) return;
+        seen[t.uri] = 1; out.push({ title: t.name, artist: t.artists[0].name, id: t.uri, genres: [genre] });
+      });
       if (items.length < 10) break;
     }
     return out;
@@ -181,7 +224,7 @@ window.Spotify_ = (function () {
 
   return {
     connected: function () { return !!load(); }, clientId: clientId, ownClient: ownId, setOwnClient: setOwnClient, hasScopes: hasScopes, login: login, handleCallback: handleCallback, logout: logout,
-    api: api, resolveUri: resolveUri, searchGenre: searchGenre, topArtistGenres: topArtistGenres,
+    api: api, resolveUri: resolveUri, searchGenre: searchGenre, searchArtist: searchArtist, topArtistGenres: topArtistGenres,
     startPlayer: startPlayer, transfer: transfer, play: play,
     pause: function () { return player && player.pause(); }, resume: function () { return player && player.resume(); },
     ready: function () { return !!deviceId; },

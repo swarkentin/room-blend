@@ -263,3 +263,10 @@ a.btn.primary { color: var(--on-primary, #fff); }
 .findlinks { display: inline-flex; gap: 10px; font-size: 13px; padding-left: 6px; }
 .saved { margin: 14px 0; }
 .saved summary { cursor: pointer; font-weight: 600; }
+
+/* artists and songs a guest names */
+.rrow { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.rrow .rname { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.rrow .rname span { color: var(--muted); font-size: 13px; }
+#gv-picks input[type="search"] { width: 100%; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+#gv-picks .chips { margin-bottom: 4px; }

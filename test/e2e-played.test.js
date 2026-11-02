@@ -10,7 +10,7 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
 
 (async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rb-played-'));
-  const srv = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: Object.assign({}, process.env, { PORT, DATA_DIR: tmp }), stdio: ['ignore', 'pipe', 'inherit'] });
+  const srv = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: Object.assign({}, process.env, { PORT, DATA_DIR: tmp }), stdio: ['ignore', 'ignore', 'inherit'] });
   await until(() => new Promise((r) => http.get(APP, () => r(true)).on('error', () => r(false))), 8000, 'server up');
   const browser = await chromium.launch(); const errors = [];
   const mk = async (vp) => { const c = await browser.newContext({ viewport: vp || { width: 420, height: 900 } }); const p = await c.newPage(); p.on('pageerror', (e) => errors.push(e.message)); return [c, p]; };

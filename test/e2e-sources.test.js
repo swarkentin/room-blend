@@ -49,7 +49,7 @@ const sub = http.createServer((req, res) => {
 
 (async () => {
   await new Promise((r) => sub.listen(SUB_PORT, '127.0.0.1', r));
-  const srv = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: Object.assign({}, process.env, { PORT: APP_PORT, SPOTIFY_CLIENT_ID: '', DATA_DIR: path.join(os.tmpdir(), 'rb-src-' + Date.now()) }), stdio: ['ignore', 'pipe', 'inherit'] });
+  const srv = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: Object.assign({}, process.env, { PORT: APP_PORT, SPOTIFY_CLIENT_ID: '', DATA_DIR: path.join(os.tmpdir(), 'rb-src-' + Date.now()) }), stdio: ['ignore', 'ignore', 'inherit'] });
   await until(() => new Promise((r) => http.get(APP, () => r(true)).on('error', () => r(false))), 8000, 'server up');
   const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
   const errors = [];

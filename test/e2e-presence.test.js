@@ -10,7 +10,7 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
 
 (async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rb-pres-'));
-  const srv = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: Object.assign({}, process.env, { PORT, DATA_DIR: tmp, TRUST_PROXY: '1', BEAT_MS: '400', DISCONNECT_GRACE_MS: '2000', DOZE_DEFAULT_MIN: '0.1', IDLE_ASK_S: '10', IDLE_ANSWER_MS: '4000' }), stdio: ['ignore', 'pipe', 'inherit'] });
+  const srv = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: Object.assign({}, process.env, { PORT, DATA_DIR: tmp, TRUST_PROXY: '1', BEAT_MS: '400', DISCONNECT_GRACE_MS: '2000', DOZE_DEFAULT_MIN: '0.1', IDLE_ASK_S: '10', IDLE_ANSWER_MS: '4000' }), stdio: ['ignore', 'ignore', 'inherit'] });
   await until(() => new Promise((r) => http.get(APP, () => r(true)).on('error', () => r(false))), 8000, 'server up');
   const browser = await chromium.launch(); const errors = [];
   const HOME = { 'x-forwarded-for': '203.0.113.5' }, ELSEWHERE = { 'x-forwarded-for': '198.51.100.7' };

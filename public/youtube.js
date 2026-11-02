@@ -2,9 +2,11 @@
 // No Premium account is needed. The host brings a free Google API key, used only to look each song up
 // (YouTube Data API search). The key stays in this browser. The Room Blend server never sees it.
 //
-// Limits worth knowing: the free quota is 10,000 units a day and one search costs 100, so about 100 new
-// songs a day. Results are remembered in this browser, so repeats cost nothing. YouTube requires the
-// player to stay visible, so it sits in a corner of the page. Free YouTube may play ads between songs.
+// Songs come from YouTube playlists, one per genre in the room (see poolQuery). Reading a playlist costs about 1 unit
+// per 50 songs; finding it costs 100 (one search), and the result is remembered for a week. The free quota is
+// 10,000 units a day, so about 100 playlist searches, which is a few rooms' worth of genres. Songs from the built-in
+// list (used only where a genre's playlist comes back thin) are looked up by title at 100 units each.
+// YouTube requires the player to stay visible, so it sits in a corner of the page. Free YouTube may play ads between songs.
 (function () {
   'use strict';
   var P = window.Providers, C = window.CONFIG || {}, el = P.el, state = P.state;
@@ -28,27 +30,98 @@
     if (keys.length > CACHE_MAX) keys.slice(0, keys.length - CACHE_MAX).forEach(function (x) { delete cache[x]; });
     lsSet(CACHE, JSON.stringify(cache));
   }
-  function cleanTitle(t) { return String(t || '').replace(/\s*\((live|remaster(ed)?[^)]*|[^)]*version)\)/ig, '').trim(); }
 
-  // Finds an embeddable music video. Returns a video id, or null when YouTube has nothing for it.
+  // One YouTube Data API call. Returns the parsed JSON, or throws an error written for the host.
+  async function yapi(path, params) {
+    var qs = Object.keys(params).map(function (k) { return k + '=' + encodeURIComponent(params[k]); }).join('&');
+    var r;
+    try { r = await fetch(C.ytApiBase + path + '?' + qs + '&key=' + encodeURIComponent(apiKey())); } catch (e) { throw new Error('Could not reach YouTube. Check the internet connection.'); }
+    var j = null; try { j = await r.json(); } catch (e) { /* not json */ }
+    if (r.ok) return j || {};
+    var reason = j && j.error && j.error.errors && j.error.errors[0] && j.error.errors[0].reason || '';
+    if (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded') throw new Error('Today\'s free YouTube allowance is used up. It renews at midnight Pacific time. Songs already found still play.');
+    if (r.status === 400 || reason === 'keyInvalid' || reason === 'API_KEY_INVALID') throw new Error('YouTube did not accept the API key. Check that the YouTube Data API v3 is enabled for it.');
+    if (r.status === 403) throw new Error('YouTube refused the key. It may be restricted to websites, or the YouTube Data API v3 is not enabled for it.');
+    throw new Error('YouTube search failed (' + r.status + ').');
+  }
+
+  // Finds embeddable videos for a song by title and artist (used for songs from the built-in list).
+  // Returns a list of video ids, best first (empty when YouTube has nothing).
+  // One search costs the same however many results it returns, so we ask for several and keep them as fallbacks.
   async function search(track) {
     var ck = (track.title + '|' + track.artist).toLowerCase(), hit = cacheGet(ck);
-    if (hit !== undefined) return hit || null;
-    var q = cleanTitle(track.title) + ' ' + track.artist;
-    var url = C.ytApiBase + '/search?part=snippet&type=video&videoEmbeddable=true&videoSyndicated=true&videoCategoryId=10&maxResults=1&q=' + encodeURIComponent(q) + '&key=' + encodeURIComponent(apiKey());
-    var r;
-    try { r = await fetch(url); } catch (e) { throw new Error('Could not reach YouTube. Check the internet connection.'); }
-    var j = null; try { j = await r.json(); } catch (e) { /* not json */ }
-    if (!r.ok) {
-      var reason = j && j.error && j.error.errors && j.error.errors[0] && j.error.errors[0].reason || '';
-      if (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded') throw new Error('Today\'s free YouTube search allowance is used up. It renews at midnight Pacific time. Songs already looked up still play.');
-      if (r.status === 400 || reason === 'keyInvalid' || reason === 'API_KEY_INVALID') throw new Error('YouTube did not accept the API key. Check that the YouTube Data API v3 is enabled for it.');
-      if (r.status === 403) throw new Error('YouTube refused the key. It may be restricted to websites, or the YouTube Data API v3 is not enabled for it.');
-      throw new Error('YouTube search failed (' + r.status + ').');
+    if (hit !== undefined) return Array.isArray(hit) ? hit : (hit ? [hit] : []);
+    var M = window.Match, q = M.cleanTitle(track.title) + ' ' + M.cleanArtist(track.artist);
+    var j = await yapi('/search', { part: 'snippet', type: 'video', videoEmbeddable: 'true', videoSyndicated: 'true', maxResults: 8, q: q });
+    var items = (j.items || []).filter(function (it) { return it && it.id && it.id.videoId; });
+    // Best match first. Videos that clearly are not this song (a different title) go last rather than being dropped.
+    var ranked = M.rank(track, items, function (it) { return { title: (it.snippet || {}).title, channel: (it.snippet || {}).channelTitle }; }, M.scoreVideo)
+      .map(function (x) { return x.item.id.videoId; });
+    cachePut(ck, ranked);
+    return ranked;
+  }
+
+  // ---------- songs by genre (playlists are cheap to read: about 1 unit per 50 songs, against 100 per search) ----------
+  var POOLS = 'rb-yt-pools', POOL_TTL = 7 * 86400000, pools = null;
+  function poolGet(k) {
+    if (!pools) { try { pools = JSON.parse(lsGet(POOLS) || '{}') || {}; } catch (e) { pools = {}; } }
+    var h = pools[k]; return h && Date.now() - h.at < POOL_TTL ? h.tracks : null;
+  }
+  function poolPut(k, tracks) {
+    poolGet(k);
+    pools[k] = { at: Date.now(), tracks: tracks };
+    var keys = Object.keys(pools);
+    if (keys.length > 80) keys.sort(function (a, b) { return pools[a].at - pools[b].at; }).slice(0, keys.length - 80).forEach(function (x) { delete pools[x]; });
+    lsSet(POOLS, JSON.stringify(pools));
+  }
+  function seconds(iso) { var m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso || ''); return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : 0; }
+  // "Artist - Song (Official Video)" on a channel, or "Song" on the artist's "Artist - Topic" channel.
+  function parseVideo(v) {
+    var M = window.Match, title = M.cleanTitle(v.title);
+    var ch = String(v.channel || '').replace(/\s*-\s*Topic$/i, '').replace(/VEVO$/i, '').trim();
+    var m = /^(.+?)\s+[-\u2013\u2014|:]\s+(.+)$/.exec(title);
+    var artist = m ? m[1] : ch, song = m ? m[2] : title;
+    artist = M.cleanArtist(artist.replace(/\s+(feat\.?|ft\.?|featuring)\s+.*$/i, ''));
+    song = M.cleanTitle(song);
+    return artist && song && artist.length < 80 && song.length < 100 ? { title: song, artist: artist } : null;
+  }
+  async function playlistFor(q) {
+    var j = await yapi('/search', { part: 'snippet', type: 'playlist', maxResults: 5, q: q + ' songs' });
+    var items = (j.items || []).filter(function (it) { return it && it.id && it.id.playlistId; });
+    var good = items.filter(function (it) { return !/\b(hours?|mix|study|sleep|full albums?)\b/i.test((it.snippet || {}).title || ''); });
+    return ((good[0] || items[0] || {}).id || {}).playlistId || '';
+  }
+  // Songs for one query ("blues rock"): the best matching playlist, read and filtered to single, embeddable songs.
+  async function poolQuery(q) {
+    var hit = poolGet(q.q);
+    if (hit) return hit;
+    var M = window.Match, pl = await playlistFor(q.q), ids = [], token = '';
+    if (!pl) { poolPut(q.q, []); return []; }
+    for (var page = 0; page < 2; page++) {
+      var p = { part: 'snippet', maxResults: 50, playlistId: pl }; if (token) p.pageToken = token;
+      var j = await yapi('/playlistItems', p);
+      (j.items || []).forEach(function (it) { var id = it.snippet && it.snippet.resourceId && it.snippet.resourceId.videoId; if (id && !/^(Private|Deleted) video$/.test(it.snippet.title)) ids.push(id); });
+      token = j.nextPageToken || ''; if (!token) break;
     }
-    var id = j && j.items && j.items[0] && j.items[0].id && j.items[0].id.videoId || '';
-    cachePut(ck, id);
-    return id || null;
+    var out = [], seen = {};
+    for (var i = 0; i < ids.length; i += 50) {
+      var v = await yapi('/videos', { part: 'snippet,contentDetails,status', id: ids.slice(i, i + 50).join(',') });
+      (v.items || []).forEach(function (it) {
+        var st = it.status || {}, sn = it.snippet || {}, d = seconds((it.contentDetails || {}).duration);
+        if (st.embeddable !== true || st.privacyStatus !== 'public' || d < 60 || d > 600 || M.isBad(sn.title)) return;
+        var t = parseVideo({ title: sn.title, channel: sn.channelTitle });
+        if (!t || seen[it.id]) return;
+        seen[it.id] = 1; out.push({ title: t.title, artist: t.artist, id: it.id });
+      });
+    }
+    poolPut(q.q, out);
+    return out;
+  }
+
+  // A video that would not play goes to the back of the song's list, so next time the others are tried first.
+  function demote(track, id) {
+    var ck = (track.title + '|' + track.artist).toLowerCase(), hit = cacheGet(ck);
+    if (Array.isArray(hit) && hit.indexOf(id) >= 0) cachePut(ck, hit.filter(function (x) { return x !== id; }).concat(id));
   }
 
   function loadApi() {
@@ -85,6 +158,17 @@
     else if (cur && rctx) { cur = null; rctx.ended(); }
   }
 
+  // Loads one video. true: playing. null: this video cannot be played (try another). false: timed out.
+  function tryVideo(id) {
+    return new Promise(function (resolve) {
+      var done = false, timer;
+      function fin(v) { if (done) return; done = true; clearTimeout(timer); waiter = null; resolve(v); }
+      timer = setTimeout(function () { note = 'YouTube did not start the song. Press play on the YouTube player in the corner.'; fin(false); }, 15000);
+      waiter = fin; cur = id; note = '';
+      try { player.loadVideoById(id); } catch (e) { note = 'The YouTube player is not ready.'; fin(false); }
+    });
+  }
+
   var yt = {
     id: 'youtube', name: 'YouTube', blurb: 'Free. Plays in YouTube\'s own player.', kind: 'curated',
     render: function (ctx) {
@@ -108,7 +192,7 @@
           lsSet(KEY, v); ctx.rerender();
         } })]));
         box.appendChild(msg);
-        box.appendChild(el('p', { class: 'hint', text: 'The free allowance is about 100 new song lookups a day. Songs already looked up are remembered, so repeats cost nothing.' }));
+        box.appendChild(el('p', { class: 'hint', text: 'The free allowance covers about 100 playlist searches a day. Each genre in the room needs about two, and what is found is remembered for a week, so repeat genres cost nothing.' }));
       } else if (!on) {
         box.appendChild(state('dot-ok', 'Key saved.', note || 'Start the music to play through this browser.'));
         box.appendChild(el('div', { class: 'row' }, [
@@ -136,19 +220,42 @@
         on = true; busy = false; ctx.rerender(); ctx.changed();
       } catch (e) { busy = false; note = e.message; if (dock) dock.hidden = true; ctx.rerender(); }
     },
+    pool: true, // the room's songs come from YouTube playlists for each genre; the built-in list is only a fallback
+    canExtras: function () { return on; },
+    extras: async function (genre, partners) {
+      var out = [], seen = {};
+      try {
+        var qs = window.Pools.queries(genre, 2, partners);
+        for (var i = 0; i < qs.length; i++) {
+          var got = await poolQuery(qs[i]);
+          got.forEach(function (t) { if (!seen[t.id]) { seen[t.id] = 1; out.push({ title: t.title, artist: t.artist, id: t.id, genres: qs[i].tags }); } });
+        }
+      } catch (e) { note = e.message; if (rctx) rctx.status(e.message); }
+      return out;
+    },
+    // A named artist: one playlist search ("<artist> greatest hits"); the room keeps only that artist's songs.
+    artistTracks: async function (name, genre) {
+      try {
+        var got = await poolQuery({ q: name + ' greatest hits', tags: [genre] });
+        return got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, genres: [genre] }; });
+      } catch (e) { note = e.message; if (rctx) rctx.status(e.message); return []; }
+    },
     ready: function () { return on; },
     lastError: function () { return note; },
     play: async function (track) {
-      var id;
-      try { id = await search(track); } catch (e) { note = e.message; return false; }
-      if (!id) { note = '"' + track.title + '" was not found on YouTube, so it was skipped.'; return null; }
-      return new Promise(function (resolve) {
-        var done = false, timer;
-        function fin(v) { if (done) return; done = true; clearTimeout(timer); waiter = null; resolve(v); }
-        timer = setTimeout(function () { note = 'YouTube did not start the song. Press play on the YouTube player in the corner.'; fin(false); }, 15000);
-        waiter = fin; cur = id; note = '';
-        try { player.loadVideoById(id); } catch (e) { note = 'The YouTube player is not ready.'; fin(false); }
-      });
+      var ids;
+      if (track.nid) ids = [track.nid]; // found by genre: already a known, embeddable video
+      else { try { ids = await search(track); } catch (e) { note = e.message; return false; } }
+      if (!ids.length) { note = '"' + track.title + '" was not found on YouTube, so it was skipped.'; return null; }
+      var tries = ids.slice(0, 4);
+      for (var i = 0; i < tries.length; i++) {
+        var r = await tryVideo(tries[i]);
+        if (r === true) return true;
+        if (r === false) return false;
+        demote(track, tries[i]); // null: this video is unavailable or not embeddable, try the next one
+      }
+      note = '"' + track.title + '" has no playable video on YouTube, so it was skipped.';
+      return null;
     },
     pause: function () { try { player.pauseVideo(); } catch (e) { /* ignore */ } },
     resume: function () { try { player.playVideo(); } catch (e) { /* ignore */ } },

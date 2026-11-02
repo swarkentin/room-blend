@@ -8,7 +8,7 @@ const { chromium } = require('playwright');
 const OWN = process.argv[2] === 'own'; // service has no Spotify app; the host brings their own
 const SP_PORT = 4871, APP_PORT = 4870;
 const APP = 'http://127.0.0.1:' + APP_PORT, SP = 'http://127.0.0.1:' + SP_PORT;
-const log = { plays: [], searches: [], transfers: 0, tops: 0 };
+const log = { plays: [], searches: [], transfers: 0, tops: 0, genreQueries: [], artistQueries: [] };
 let passed = 0; const ok = (s) => { passed++; console.log('  ok  ' + s); };
 
 const SDK = `
@@ -43,7 +43,16 @@ const fake = http.createServer((req, res) => {
   }
   if (u.pathname === '/v1/search') {
     const q = u.searchParams.get('q'); log.searches.push(q);
-    if (q.startsWith('genre:')) return json(200, { tracks: { items: [{ name: 'Extra Song ' + q.length, uri: 'spotify:track:x' + q.length, artists: [{ name: 'Extra Artist' }] }] } });
+    if (q.startsWith('genre:')) {
+      const off = Number(u.searchParams.get('offset') || 0), g = q.slice(7, -1), tag = Buffer.from(g).toString('hex').slice(0, 8);
+      log.genreQueries.push(q + '@' + off + (u.searchParams.get('market') ? '' : ' (no market)'));
+      return json(200, { tracks: { items: Array.from({ length: 10 }, (_, i) => ({ name: g + ' Pool Song ' + (off + i), uri: 'spotify:track:pool' + tag + (off + i), artists: [{ name: 'Pool Artist ' + ((off + i) % 12) }], is_playable: true })) } });
+    }
+    if (q.startsWith('artist:"')) {
+      const nm = q.slice(8, -1), off = Number(u.searchParams.get('offset') || 0); log.artistQueries.push(q + '@' + off + (u.searchParams.get('market') ? '' : ' (no market)'));
+      if (/Nobody Known/.test(nm)) return json(200, { tracks: { items: [] } });
+      return json(200, { tracks: { items: Array.from({ length: 10 }, (_, i) => ({ name: nm + ' Hit ' + (off + i), uri: 'spotify:track:art' + (off + i), artists: [{ name: nm }], is_playable: true })) } });
+    }
     const m = /^track:(.*) artist:(.*)$/.exec(q);
     if (m && /Nowhere Song/.test(m[1])) return json(200, { tracks: { items: [] } });
     return json(200, { tracks: { items: [{ name: m ? m[1] : '?', uri: 'spotify:track:' + Buffer.from(q).toString('hex').slice(0, 16), artists: [{ name: m ? m[2] : '?' }] }] } });
@@ -60,7 +69,7 @@ const until = async (fn, ms = 8000, what = 'condition') => { const t0 = Date.now
   await new Promise((r) => fake.listen(SP_PORT, '127.0.0.1', r));
   const srv = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: Object.assign({}, process.env, {
     PORT: APP_PORT, SPOTIFY_CLIENT_ID: OWN ? '' : 'fakeid', DATA_DIR: require('os').tmpdir() + '/rb-e2e-' + Date.now(),
-    SPOTIFY_API_BASE: SP + '/v1', SPOTIFY_ACCOUNTS_BASE: SP, SPOTIFY_SDK_URL: SP + '/spotify-player.js' }), stdio: ['ignore', 'pipe', 'inherit'] });
+    SPOTIFY_API_BASE: SP + '/v1', SPOTIFY_ACCOUNTS_BASE: SP, SPOTIFY_SDK_URL: SP + '/spotify-player.js' }), stdio: ['ignore', 'ignore', 'inherit'] });
   await until(() => new Promise((r) => http.get(APP, () => r(true)).on('error', () => r(false))), 8000, 'server up');
 
   const browser = await chromium.launch();
@@ -136,7 +145,30 @@ const until = async (fn, ms = 8000, what = 'condition') => { const t0 = Date.now
     await host.waitForFunction((t) => document.querySelector('#now-title').textContent !== t, before); ok('Next song button advances');
 
     // ---- extras: genre search ran for wanted genres (best effort) ----
-    await until(() => log.searches.some((q) => q.startsWith('genre:')), 6000, 'genre search').then(() => ok('host searched Spotify by genre to widen the pool'), () => { console.log('  --  no genre search was requested (catalogue already covered the genres); not a failure'); });
+    await until(() => log.searches.some((q) => q.startsWith('genre:')), 6000, 'genre search'); ok('host searched Spotify by genre for the genres in the room');
+    assert.ok(log.genreQueries.every((x) => !x.includes('(no market)'))); ok('genre searches ask for songs playable in the host\'s market');
+    assert.ok(log.genreQueries.some((x) => /genre:"blues rock"/.test(x)) || log.genreQueries.some((x) => /genre:"(rock|blues)"/.test(x))); ok('the main genre and compound names such as "blues rock" are searched: ' + [...new Set(log.genreQueries.map((x) => x.replace(/@.*/, '')))].slice(0, 5).join(' '));
+    assert.ok(log.genreQueries.some((x) => /@10$/.test(x)) && log.genreQueries.every((x) => !/@(?!0$|10$|20$)\d+/.test(x))); ok('results are read in pages of 10, as dev-mode apps require');
+    // the room now plays Spotify's own songs, found by genre, directly by uri
+    await host.waitForFunction(() => /Pool Song/.test(document.querySelector('#now-title').textContent + [...document.querySelectorAll('#queue .qrow')].map((e) => e.textContent).join(' ')), null, { timeout: 12000 }); ok('the queue is made of Spotify\'s own genre songs');
+    const searchesBefore = log.searches.filter((q) => q.startsWith('track:')).length, playsBefore = log.plays.length;
+    for (let i = 0; i < 6 && log.plays.every((u) => !/^spotify:track:pool/.test(u)); i++) { await host.click('#btn-next'); await new Promise((r) => setTimeout(r, 700)); }
+    await until(() => log.plays.some((u) => /^spotify:track:pool/.test(u)), 8000, 'a pool song is played'); ok('a genre song is played by the uri Spotify gave: ' + log.plays.find((u) => /^spotify:track:pool/.test(u)));
+    const newTrackSearches = log.searches.filter((q) => q.startsWith('track:')).length - searchesBefore;
+    assert.ok(!log.searches.some((q) => q.startsWith('track:') && /Pool Song/.test(q))); ok('playing it needed no title lookup');
+
+    // ---- a guest names an artist the room's songs do not have: Spotify is searched for that artist ----
+    await g1.click('#gv-picks-sum'); await g1.fill('#gv-q', 'Zed Obscure');
+    await g1.waitForSelector('#gv-add-typed'); assert.ok(/If the host's music has this artist/.test(await g1.textContent('#gv-picks-msg'))); ok('searching for an artist the room does not have offers to add them anyway');
+    await g1.click('#gv-add-typed');
+    await until(() => log.artistQueries.some((x) => /artist:"Zed Obscure"@0/.test(x)), 8000, 'artist search');
+    assert.ok(log.artistQueries.every((x) => !x.includes('(no market)'))); ok('the host searched Spotify for that artist, for songs playable in the host\'s market');
+    await g1.fill('#gv-q', 'zed obscure'); await g1.waitForSelector('#gv-results .rrow:has-text("Zed Obscure")');
+    assert.ok(/(1\d|20|\d) songs? here/.test(await g1.textContent('#gv-results'))); ok('their songs are now in the room, so the guest can search for them');
+    await g1.fill('#gv-q', 'Nobody Known'); await g1.click('#gv-add-typed');
+    await until(() => log.artistQueries.some((x) => /Nobody Known/.test(x)), 8000, 'second artist search');
+    await new Promise((r) => setTimeout(r, 1500)); assert.strictEqual(log.artistQueries.filter((x) => /Nobody Known/.test(x)).length, 1); ok('an artist Spotify does not have is searched once and not asked for again');
+    await g1.locator('#gv-chosen .chip', { hasText: 'Nobody Known' }).click(); await g1.locator('#gv-chosen .chip', { hasText: 'Zed Obscure' }).click();
 
     // ---- guest leaves; reload rejoins ----
     await g1.reload(); await g1.waitForSelector('#gv-title'); assert.ok((await g1.textContent('#gv-me')).includes('Your picks')); ok('guest reload restores their place in the room');

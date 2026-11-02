@@ -10,7 +10,7 @@ const until = async (fn, ms = 8000) => { const t0 = Date.now(); for (;;) { const
 
 (async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rb-gen-'));
-  const srv = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: Object.assign({}, process.env, { PORT, DATA_DIR: tmp }), stdio: ['ignore', 'pipe', 'inherit'] });
+  const srv = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: Object.assign({}, process.env, { PORT, DATA_DIR: tmp }), stdio: ['ignore', 'ignore', 'inherit'] });
   await until(() => new Promise((r) => http.get(APP, () => r(true)).on('error', () => r(false))));
   const browser = await chromium.launch(); const errors = [];
   try {
@@ -18,9 +18,9 @@ const until = async (fn, ms = 8000) => { const t0 = Date.now(); for (;;) { const
     host.on('pageerror', (e) => errors.push(e.message));
     await host.goto(APP); await host.click('#start-room'); await host.waitForURL(/\/host\/[A-Z0-9]{5}$/);
     const code = host.url().split('/').pop();
-    // host "add someone by hand" picker: 56 genres plus an "All ..." chip for each of the 7 multi-genre groups
-    assert.strictEqual(await host.locator('#picker .chip').count(), 56 + 7); ok('the picker offers 56 genres and 7 "All ..." buttons');
-    assert.strictEqual(await host.locator('#picker .chipgroup').count(), 8); ok('genres are shown in 8 groups');
+    // host "add someone by hand" picker: 58 genres plus an "All ..." chip for each of the 7 multi-genre groups
+    assert.strictEqual(await host.locator('#picker .chip').count(), 58 + 7); ok('the picker offers 58 genres and 7 "All ..." buttons');
+    assert.strictEqual(await host.locator('#picker .chipgroup').count(), 9); ok('genres are shown in 9 groups');
     const gc = await browser.newContext({ viewport: { width: 420, height: 850 } }), g = await gc.newPage();
     g.on('pageerror', (e) => errors.push(e.message));
     await g.goto(APP + '/' + code); await g.waitForSelector('#gv-picker .chip');

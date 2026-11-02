@@ -9,12 +9,15 @@
 //   MAX_ROOMS            total rooms kept at once (default 2000)
 //   ROOMS_PER_IP_HOUR    new rooms one visitor may start per hour (default 8)
 //   DATA_DIR             where room identities are kept across restarts (default ./data)
+//   LOG_LEVEL            debug, info (default), warn, error or silent. JSON lines; info to stdout, warn and error to stderr
+//   STATUS_KEY           secret for GET /status?key=... (counts, timings, memory). Without it /status answers only on this machine
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const Engine = require('./lib/engine');
 const { Room, rid } = require('./lib/room');
+const L = require('./lib/log');
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
@@ -56,16 +59,18 @@ function loadRooms() {
     }
   } catch { /* first run */ }
 }
+function writeRooms() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const out = { rooms: [...rooms.values()].map((r) => ({ code: r.code, hostKey: r.hostKey, createdAt: r.createdAt, touchedAt: r.touchedAt, opts: r.opts, name: r.name, discoverable: r.discoverable, netKey: r.netKey })) };
+    fs.writeFileSync(path.join(DATA_DIR, 'rooms.json.tmp'), JSON.stringify(out));
+    fs.renameSync(path.join(DATA_DIR, 'rooms.json.tmp'), path.join(DATA_DIR, 'rooms.json'));
+    return true;
+  } catch (e) { L.count('errors.save'); L.error('save.failed', { message: e.message }); return false; }
+}
 function saveRooms() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    try {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-      const out = { rooms: [...rooms.values()].map((r) => ({ code: r.code, hostKey: r.hostKey, createdAt: r.createdAt, touchedAt: r.touchedAt, opts: r.opts, name: r.name, discoverable: r.discoverable, netKey: r.netKey })) };
-      fs.writeFileSync(path.join(DATA_DIR, 'rooms.json.tmp'), JSON.stringify(out));
-      fs.renameSync(path.join(DATA_DIR, 'rooms.json.tmp'), path.join(DATA_DIR, 'rooms.json'));
-    } catch (e) { console.error('save failed', e.message); }
-  }, 500);
+  saveTimer = setTimeout(writeRooms, 500);
 }
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -157,10 +162,11 @@ setInterval(() => { const cut = Date.now() - 600000; for (const [k, b] of bucket
 
 // ---------- live updates (Server-Sent Events) ----------
 const pending = new Set();
+let notifyTimer = null;
 function notify(code) {
   pending.add(code);
-  if (notify.t) return;
-  notify.t = setTimeout(() => { notify.t = null; const codes = [...pending]; pending.clear(); codes.forEach(push); }, 60);
+  if (notifyTimer) return;
+  notifyTimer = setTimeout(() => { notifyTimer = null; const codes = [...pending]; pending.clear(); codes.forEach(push); }, 60);
 }
 function push(code) {
   const room = rooms.get(code), set = subs.get(code);
@@ -174,18 +180,20 @@ function push(code) {
 // ---------- API ----------
 async function api(req, res, url) {
   const ip = clientIp(req);
-  if (limited(ip)) return sendJson(res, 429, { error: 'slow down' });
+  if (limited(ip)) { L.count('limits.requests'); L.warn('rate.limited', { kind: 'requests', visitor: L.visitorTag(ip) }); return sendJson(res, 429, { error: 'slow down' }); }
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // after "api"
   const m = req.method;
 
   if (parts[0] === 'rooms' && parts.length === 1 && m === 'POST') {
-    if (rooms.size >= MAX_ROOMS) return sendJson(res, 503, { error: 'The service is full right now. Try again later.' });
-    if (roomLimited(ip)) return sendJson(res, 429, { error: 'You have started a lot of rooms. Try again in a while.' });
+    if (rooms.size >= MAX_ROOMS) { L.count('limits.full'); L.warn('limit.rooms_full', { rooms: rooms.size, max: MAX_ROOMS }); return sendJson(res, 503, { error: 'The service is full right now. Try again later.' }); }
+    if (roomLimited(ip)) { L.count('limits.new_rooms'); L.warn('rate.limited', { kind: 'new_rooms', visitor: L.visitorTag(ip) }); return sendJson(res, 429, { error: 'You have started a lot of rooms. Try again in a while.' }); }
     const code = newCode(), hostKey = rid(16);
     const nr = new Room(code, hostKey);
     nr.netKey = netKeyOf(ip);
     rooms.set(code, nr);
     saveRooms();
+    L.count('rooms.created');
+    L.info('room.created', { room: L.roomTag(code), rooms: rooms.size });
     return sendJson(res, 200, { code, hostKey });
   }
 
@@ -235,11 +243,11 @@ async function api(req, res, url) {
     return;
   }
 
-  const body = m === 'GET' ? {} : await readBody(req, parts[2] === 'host' && parts[3] === 'library' ? 6 * 1024 * 1024 : undefined);
+  const body = m === 'GET' ? {} : await readBody(req, parts[2] === 'host' && parts[3] === 'library' ? 6 * 1024 * 1024 : parts[2] === 'host' && parts[3] === 'extras' ? 256 * 1024 : undefined);
 
   // Guests
   if (parts[2] === 'guests' && parts.length === 3 && m === 'POST') {
-    const g = room.addGuest(body.name, body.genres, { onNet: !!room.netKey && netKeyOf(clientIp(req)) === room.netKey, since: body.since });
+    const g = room.addGuest(body.name, body.genres, { onNet: !!room.netKey && netKeyOf(clientIp(req)) === room.netKey, since: body.since, artists: body.artists, songs: body.songs });
     if (!g) return sendJson(res, 400, { error: 'pick at least one genre' });
     g.connected = false; g.lostAt = Date.now(); // becomes connected when its event stream opens
     notify(code);
@@ -249,7 +257,7 @@ async function api(req, res, url) {
     const gid = parts[3];
     const g = guestFor();
     if (!g || g.id !== gid) return sendJson(res, 401, { error: 'unknown guest' });
-    if (m === 'PATCH') { room.updateGuest(gid, { name: body.name, genres: body.genres, sit: body.sit }); notify(code); return sendJson(res, 200, { ok: true }); }
+    if (m === 'PATCH') { room.updateGuest(gid, { name: body.name, genres: body.genres, sit: body.sit, artists: body.artists, songs: body.songs }); notify(code); return sendJson(res, 200, { ok: true }); }
     if (m === 'DELETE') { room.removeGuest(gid, 'left'); notify(code); return sendJson(res, 200, { ok: true }); }
   }
   // POST /api/rooms/:code/guests/:id/here  -> "I am still here" (about once a minute from the guest page)
@@ -260,6 +268,13 @@ async function api(req, res, url) {
     const idle = Number(body.idleSec); room.beat(g.id, { onNet, idleSec: Number.isFinite(idle) && idle > 0 ? Math.min(idle, 86400) : 0, hidden: body.hidden === true ? true : body.hidden === false ? false : undefined });
     notify(code);
     return sendJson(res, 200, { ok: true, away: g.away, ask: !!g.askAt });
+  }
+  // GET /api/rooms/:code/search?q=  -> artists and songs in this room's music that a guest can name (guests only)
+  if (parts[2] === 'search' && m === 'GET') {
+    const g = guestFor();
+    if (!g) return sendJson(res, 401, { error: 'unknown guest' });
+    L.count('picks.searches');
+    return sendJson(res, 200, room.search(url.searchParams.get('q') || ''));
   }
   if (parts[2] === 'vote' && m === 'POST') {
     const g = guestFor();
@@ -295,8 +310,8 @@ async function api(req, res, url) {
       notify(code); return sendJson(res, 200, { ok: true, ...r });
     }
     else if (act === 'library' && m === 'DELETE') { room.clearLibrary(); }
-    else if (act === 'extras' && m === 'POST') { room.addExtras(body.genre, body.tracks); }
-    else if (act === 'reset' && m === 'POST') { rooms.set(code, Object.assign(new Room(code, room.hostKey), { opts: room.opts })); subs.get(code)?.forEach((s) => s.res.end()); }
+    else if (act === 'extras' && m === 'POST') { if (body.reset === true) room.clearExtras(); else room.addExtras(body.genre, body.tracks, { pool: body.pool === true, source: body.source, artist: typeof body.artist === 'string' ? body.artist : undefined }); }
+    else if (act === 'reset' && m === 'POST') { L.info('room.reset', { room: L.roomTag(code) }); rooms.set(code, Object.assign(new Room(code, room.hostKey), { opts: room.opts })); subs.get(code)?.forEach((s) => s.res.end()); }
     else return sendJson(res, 404, { error: 'unknown action' });
     notify(code);
     return sendJson(res, 200, { ok: true });
@@ -335,15 +350,66 @@ function serveStatic(req, res, url) {
   });
 }
 
+// A request path without anything that identifies a room or guest, so it can be counted and logged.
+function routeOf(p) {
+  return p.replace(/^\/api\/rooms\/[A-Za-z0-9]{5}(?=\/|$)/, '/api/rooms/:code').replace(/\/guests\/g[0-9a-f]+/, '/guests/:id')
+    .replace(/^\/(r|host|screen)\/[A-Za-z0-9]{5}$/, '/$1/:code').replace(/^\/[A-Za-z0-9]{5}$/, '/:code');
+}
+
+// /status: counts, timings and memory for whoever runs the server. It is not public: with STATUS_KEY set it needs the key
+// (?key= or the x-status-key header); without one it answers only to a request made on this machine and not through a proxy or tunnel.
+function statusAllowed(req, url) {
+  const key = process.env.STATUS_KEY || '';
+  if (key) return safeEq(req.headers['x-status-key'] || url.searchParams.get('key') || '', key);
+  const a = req.socket.remoteAddress || '';
+  const local = a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1';
+  return local && !req.headers['x-forwarded-for'] && !req.headers['forwarded'] && !req.headers['cf-connecting-ip'];
+}
+let lagMs = 0, lagLast = Date.now();
+setInterval(() => { const now = Date.now(); lagMs = Math.max(0, now - lagLast - 1000); lagLast = now; }, 1000).unref();
+function statusView() {
+  let guests = 0, withHost = 0, pooled = 0, library = 0;
+  for (const [code, r] of rooms) {
+    guests += r.guests.size;
+    if ([...(subs.get(code) || [])].some((x) => x.role === 'host')) withHost++;
+    if (r.poolMode) pooled++; else if (r.library) library++;
+  }
+  const sse = { host: 0, guest: 0, screen: 0 };
+  for (const set of subs.values()) for (const s of set) sse[s.role] = (sse[s.role] || 0) + 1;
+  const mem = process.memoryUsage(), snap = L.snapshot();
+  return {
+    ok: true, node: process.version, uptimeSec: snap.uptimeSec,
+    rooms: { total: rooms.size, max: MAX_ROOMS, withHostConnected: withHost, usingServiceSongs: pooled, usingOwnLibrary: library },
+    guestsInRooms: guests, liveConnections: sse,
+    memoryMB: { rss: Math.round(mem.rss / 1048576), heapUsed: Math.round(mem.heapUsed / 1048576) },
+    eventLoopLagMs: lagMs,
+    counters: snap.counters, timers: snap.timers, topGenres: snap.topGenres, topSources: snap.topSources,
+  };
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
+  const t0 = process.hrtime.bigint();
+  if (url.pathname !== '/healthz') {
+    res.on('finish', () => {
+      const ms = Number(process.hrtime.bigint() - t0) / 1e6, s = res.statusCode, route = routeOf(url.pathname);
+      L.count('http.requests'); L.count('http.' + Math.floor(s / 100) + 'xx');
+      if (route.startsWith('/api/')) L.observe('api_ms', ms);
+      const f = { method: req.method, route, status: s, ms };
+      if (s >= 500) L.error('http.error', f); else if (s === 401 || s === 403 || s === 413) L.info('http.denied', f); else L.debug('http.request', f);
+    });
+  }
   try {
     if (url.pathname === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }); return res.end('ok'); }
+    if (url.pathname === '/status') {
+      if (!statusAllowed(req, url)) { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('Not found'); }
+      return sendJson(res, 200, statusView());
+    }
     if (url.pathname.startsWith('/api/')) return await api(req, res, url);
     return serveStatic(req, res, url);
   } catch (e) {
     if (!res.headersSent) sendJson(res, e.status || 500, { error: e.status ? e.message : 'server error' });
-    if (!e.status) console.error(e);
+    if (!e.status) { L.count('errors.unhandled'); L.error('request.failed', { route: routeOf(url.pathname), message: String(e && e.message), stack: String(e && e.stack || '').split('\n').slice(1, 4).join(' | ') }); }
   }
 });
 
@@ -351,7 +417,7 @@ const server = http.createServer(async (req, res) => {
 const clock = setInterval(() => {
   const now = Date.now();
   for (const [code, room] of rooms) {
-    if (now - room.touchedAt > ROOM_TTL_MS && !(subs.get(code) && subs.get(code).size)) { rooms.delete(code); subs.delete(code); saveRooms(); continue; }
+    if (now - room.touchedAt > ROOM_TTL_MS && !(subs.get(code) && subs.get(code).size)) { L.count('rooms.expired'); L.info('room.expired', { room: L.roomTag(code), ageHours: (now - room.createdAt) / 3600000, rooms: rooms.size - 1 }); rooms.delete(code); subs.delete(code); saveRooms(); continue; }
     if (room.tick(now)) notify(code);
     else if ([...room.guests.values()].some((g) => g.status === 'arriving' || (!g.connected && !g.manual))) notify(code);
   }
@@ -359,7 +425,18 @@ const clock = setInterval(() => {
 clock.unref();
 
 if (require.main === module) {
+  const level = L.configure();
   loadRooms();
-  server.listen(PORT, '0.0.0.0', () => console.log(`Room Blend listening on port ${PORT}${PUBLIC_URL ? ' (' + PUBLIC_URL + ')' : ''}${TRUST_PROXY ? ', trusting proxy' : ''}. Hosts ${CLIENT_CONFIG.clientId ? 'can use the built-in Spotify app or their own' : 'bring their own Spotify app, or run manual mode'}.`));
+  server.listen(PORT, '0.0.0.0', () => {
+    L.info('server.start', { port: PORT, node: process.version, rooms: rooms.size, logLevel: level, trustProxy: TRUST_PROXY, publicUrl: !!PUBLIC_URL, ownSpotifyApp: !CLIENT_CONFIG.clientId });
+    // A person running this in a terminal gets a plain sentence as well as the JSON line.
+    if (process.stdout.isTTY) console.log(`Room Blend listening on port ${PORT}${PUBLIC_URL ? ' (' + PUBLIC_URL + ')' : ''}${TRUST_PROXY ? ', trusting proxy' : ''}. Hosts ${CLIENT_CONFIG.clientId ? 'can use the built-in Spotify app or their own' : 'bring their own Spotify app, or run manual mode'}.`);
+  });
+  // Crashes are logged before the process exits (a platform or Docker restarts it). Stopping saves the rooms first.
+  process.on('uncaughtException', (e) => { L.error('process.crash', { message: String(e && e.message), stack: String(e && e.stack || '').split('\n').slice(1, 4).join(' | ') }); writeRooms(); process.exit(1); });
+  process.on('unhandledRejection', (e) => { L.error('process.unhandled_rejection', { message: e instanceof Error ? e.message : String(e) }); });
+  const stop = (sig) => { L.info('server.stop', { signal: sig, rooms: rooms.size }); clearTimeout(saveTimer); writeRooms(); server.close(); setTimeout(() => process.exit(0), 300).unref(); };
+  process.on('SIGTERM', () => stop('SIGTERM'));
+  process.on('SIGINT', () => stop('SIGINT'));
 }
 module.exports = { server, rooms, CLIENT_CONFIG };

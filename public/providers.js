@@ -10,6 +10,7 @@
 //   play(track) -> Promise<true | false | null>   (null = this song is not available here)
 //   pause(), resume(), stop()
 //   optional: canExtras() / extras(genre) -> more songs per genre (curated providers only)
+//   optional: artistTracks(name, genre) -> songs by an artist a guest named (the room only keeps that artist's songs)
 //
 // ctx (supplied by app.js): code, genres, st() latest server state, rerender(), status(text), ended(),
 //   uploadLibrary(provider, label, tracks), clearLibrary()
@@ -123,7 +124,7 @@
       ready: function () { return on; },
       lastError: function () { return note; },
       play: async function (track) {
-        var uri = await SP.resolveUri(track);
+        var uri = track.nid || await SP.resolveUri(track);
         if (!uri) { note = '"' + track.title + '" is not on Spotify here, so it was skipped.'; return null; }
         var ok = await SP.play(uri);
         if (!ok) note = 'Could not start playback. Check that Spotify is not playing somewhere else.';
@@ -131,7 +132,9 @@
       },
       pause: function () { return SP.pause(); }, resume: function () { return SP.resume(); }, stop: function () { return SP.pause(); },
       canExtras: function () { return !!(SP.clientId() && SP.connected()); },
-      extras: function (genre) { return SP.searchGenre(genre); },
+      pool: true, // the room's songs come from Spotify's own genre search; the built-in list is only a fallback
+      extras: function (genre, partners) { return SP.searchGenre(genre, partners); },
+      artistTracks: function (name, genre) { return SP.searchArtist(name, genre); },
     };
     return p;
   })();

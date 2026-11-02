@@ -6,6 +6,8 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   // Order matters: the first matching rule wins, so specific styles come before general ones.
   var RULES = [
+    ['christmas', /christmas|xmas|^holiday|yule/],
+    ['halloween', /halloween|spooky/],
     ['lo-fi', /lo-?fi|chillhop/],
     ['trip hop', /trip hop|trip-hop|bristol sound|portishead/],
     ['reggaeton', /reggaeton|urbano|latin trap|trap latino|perreo/],
@@ -70,6 +72,21 @@
     return null;
   }
 
+  // Every canonical genre a compound name stands for, strongest first: "blues rock" gives [blues, rock],
+  // "classic rock" gives [classic rock]. Each rule that matches uses up the words it matched.
+  function classifyAll(genre, max) {
+    max = max || 3;
+    var g = String(genre || '').toLowerCase(), out = [];
+    while (out.length < max) {
+      var hit = null;
+      for (var i = 0; i < RULES.length && !hit; i++) { var m = RULES[i][1].exec(g); if (m && m[0]) hit = [RULES[i][0], m[0]]; }
+      if (!hit) break;
+      if (out.indexOf(hit[0]) < 0) out.push(hit[0]);
+      g = g.replace(hit[1], ' ');
+    }
+    return out;
+  }
+
   // artistGenreLists: array of arrays (one list of Spotify genres per top artist, most listened first).
   // Earlier artists count more. Returns up to `max` canonical genres, strongest first.
   function fromArtists(artistGenreLists, max) {
@@ -103,5 +120,5 @@
     return out;
   }
 
-  return { classify: classify, fromArtists: fromArtists, fromTag: fromTag, ID3V1: ID3V1 };
+  return { classify: classify, classifyAll: classifyAll, fromArtists: fromArtists, fromTag: fromTag, ID3V1: ID3V1 };
 });

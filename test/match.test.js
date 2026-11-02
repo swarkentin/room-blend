@@ -1,0 +1,50 @@
+'use strict';
+const assert = require('assert');
+const M = require('../public/match.js');
+let n = 0; const ok = (s) => { n++; console.log('  ok  ' + s); };
+
+assert.strictEqual(M.cleanTitle('Alive (Remastered 2011)'), 'Alive');
+assert.strictEqual(M.cleanTitle('Alive - Remastered'), 'Alive');
+assert.strictEqual(M.cleanTitle('Hey Jude [Official Video]'), 'Hey Jude');
+assert.strictEqual(M.cleanTitle('Song (feat. Someone)'), 'Song');
+assert.strictEqual(M.cleanTitle("(I Can't Get No) Satisfaction"), "(I Can't Get No) Satisfaction");
+assert.strictEqual(M.cleanArtist('Charli XCX (Hyper)'), 'Charli XCX');
+assert.strictEqual(M.cleanArtist('Rihanna feat. Drake'), 'Rihanna');
+ok('titles lose version noise but keep brackets that are part of the name; artist notes are dropped');
+
+const want = (title, artist) => ({ title, artist });
+const sp = (title, artists, popularity = 50) => ({ title, artists, popularity });
+const accepts = (w, c) => M.acceptable(M.scoreTrack(w, c));
+assert.ok(accepts(want('Mr. Brightside', 'The Killers'), sp('Mr. Brightside', ['The Killers'])));
+assert.ok(accepts(want('Rock and Roll', 'Led Zeppelin'), sp('Rock & Roll', ['Led Zeppelin'])));
+assert.ok(accepts(want('September', 'Earth, Wind and Fire'), sp('September', ['Earth, Wind & Fire'])));
+assert.ok(accepts(want('Alive', 'Pearl Jam'), sp('Alive - Remastered', ['Pearl Jam'])));
+assert.ok(accepts(want('Heart-Shaped Box', 'Nirvana'), sp('Heart Shaped Box', ['Nirvana'])));
+assert.ok(accepts(want('Mas Que Nada', 'Sérgio Mendes'), sp('Mas Que Nada', ['Sergio Mendes', 'Brasil 66'])));
+assert.ok(accepts(want('Beauty and the Beast', 'The Beatles'), sp('Beauty and the Beast', ['Beatles'])));
+assert.ok(accepts(want('Let It Snow', 'Dean Martin'), sp('Let It Snow! Let It Snow! Let It Snow!', ['Dean Martin'])));
+ok('titles that differ in "&" and "and", dashes, accents, remaster notes and "The" still match');
+
+assert.ok(!accepts(want('Alive', 'Pearl Jam'), sp('Alive', ['Sia'])));
+assert.ok(!accepts(want('Alive', 'Pearl Jam'), sp('Alive', ['Pearl Jam Tribute Band'])));
+assert.ok(accepts(want('Lightning Crashes', 'Live'), sp('Lightning Crashes', ['Live'])));
+assert.ok(!accepts(want('Hotel California', 'Eagles'), sp('Hotel California - Live', ['Eagles'])));
+assert.ok(!accepts(want('Creep', 'Radiohead'), sp('Creep', ['Vitamin String Quartet'])));
+assert.ok(!accepts(want('Creep', 'Radiohead'), sp('Creep (Karaoke Version)', ['Radiohead'])));
+assert.ok(!accepts(want('Yesterday', 'The Beatles'), sp('Yesterday Once More', ['The Carpenters'])));
+ok('a different artist, a live or karaoke version, or a different song is not accepted');
+
+const items = [sp('Creep (Acoustic)', ['Radiohead'], 20), sp('Creep', ['Radiohead'], 80), sp('Creep', ['Cover Band'], 90)];
+const r = M.rank(want('Creep', 'Radiohead'), items, (x) => x);
+assert.strictEqual(r[0].item, items[1]); ok('ranking picks the right song by the right artist over popular wrong ones');
+
+const v = (title, channel) => ({ title, channel });
+const vok = (w, c) => M.acceptable(M.scoreVideo(w, c));
+assert.ok(vok(want('Creep', 'Radiohead'), v('Radiohead - Creep (Official Video)', 'Radiohead')));
+assert.ok(vok(want('Creep', 'Radiohead'), v('Creep', 'Radiohead')));
+assert.ok(!vok(want('Creep', 'Radiohead'), v('Creep (cover) by Someone', 'Someone')));
+assert.ok(!vok(want('Creep', 'Radiohead'), v('Creep - Radiohead (Live in Paris)', 'Fan Channel')));
+const vids = [v('Creep cover', 'Rando'), v('Radiohead - Creep', 'Radiohead'), v('Creep lyrics', 'Fan')];
+assert.strictEqual(M.rank(want('Creep', 'Radiohead'), vids, (x) => x, M.scoreVideo)[0].item, vids[1]);
+ok('videos: the official upload ranks first, covers and live recordings are rejected');
+console.log('\n' + n + ' checks passed');
