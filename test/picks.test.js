@@ -42,9 +42,10 @@ const snap = (path, headers) => new Promise((resolve, reject) => {
   ok("another guest never sees your picks, and the host sees only how many you made");
 
   // ---- search
-  const noAuth = await req('GET', `/api/rooms/${mk.code}/search?q=queen`); assert.strictEqual(noAuth.status, 401);
-  const wrong = await req('GET', `/api/rooms/${mk.code}/search?q=queen`, null, { 'x-guest-id': a.guestId, 'x-guest-key': 'nope' }); assert.strictEqual(wrong.status, 401);
-  ok('search needs a guest key');
+  // The join page searches before the guest exists, so the room code is enough. An unknown room is still a 404.
+  const open = await req('GET', `/api/rooms/${mk.code}/search?q=queen`); assert.strictEqual(open.status, 200); assert.ok(open.json.artists.some((x) => /queen/i.test(x.name)));
+  const nowhere = await req('GET', '/api/rooms/ZZZZZ/search?q=queen'); assert.strictEqual(nowhere.status, 404);
+  ok('search works with just the room code (for the join page), and an unknown room is not found');
   const q = (await req('GET', `/api/rooms/${mk.code}/search?q=${encodeURIComponent('miles dav')}`, null, gH(b))).json;
   assert.ok(q.artists.length >= 1 && /davis/i.test(q.artists[0].name) && q.artists[0].songs >= 1);
   const t = (await req('GET', `/api/rooms/${mk.code}/search?q=${encodeURIComponent('so what')}`, null, gH(b))).json;
@@ -65,8 +66,21 @@ const snap = (path, headers) => new Promise((resolve, reject) => {
   vb2 = await snap(`/api/rooms/${mk.code}/events`, gH(b)); assert.deepStrictEqual(vb2.me.artists, []); assert.deepStrictEqual(vb2.me.songs, []); ok('picks can be cleared');
   assert.strictEqual((await req('PATCH', `/api/rooms/${mk.code}/guests/${a.guestId}`, { artists: ['X Y'] }, gH(b))).status, 401); ok("you cannot change someone else's picks");
 
-  // ---- a guest with no genres is still refused, picks or not
-  assert.strictEqual((await req('POST', `/api/rooms/${mk.code}/guests`, { name: 'Zed', artists: ['Queen'] })).status, 400); ok('picks do not replace choosing at least one genre');
+  // ---- a guest can join with only a named artist or song; with nothing at all they are still refused
+  assert.strictEqual((await req('POST', `/api/rooms/${mk.code}/guests`, { name: 'Zed' })).status, 400);
+  assert.strictEqual((await req('POST', `/api/rooms/${mk.code}/guests`, { name: 'Zed', genres: [], artists: ['', '  '], songs: [{ title: 'x' }] })).status, 400);
+  ok('a guest with no genre, artist or song is refused');
+  const z = await req('POST', `/api/rooms/${mk.code}/guests`, { name: 'Zed', artists: ['Fleetwood Mac'] }); assert.strictEqual(z.status, 200);
+  const vz = await snap(`/api/rooms/${mk.code}/events`, gH(z.json));
+  assert.deepStrictEqual(vz.me.genres, []); assert.ok(vz.me.inferred.length >= 1 && vz.me.inferred.length <= 3, 'genres are guessed from the matching songs: ' + vz.me.inferred);
+  const vh2 = await snap(`/api/rooms/${mk.code}/events`, H); const hz = vh2.guests.find((g) => g.id === z.json.guestId);
+  assert.strictEqual(hz.artistCount, 1); assert.strictEqual(hz.songCount, 0); assert.ok(hz.inferred.length >= 1); assert.ok(!JSON.stringify(vh2.guests).includes('Fleetwood'));
+  ok('a guest can join with only an artist: their genres are guessed from the matching songs, and the host sees counts only');
+  await req('PATCH', `/api/rooms/${mk.code}/guests/${z.json.guestId}`, { artists: [] }, gH(z.json));
+  const vz2 = await snap(`/api/rooms/${mk.code}/events`, gH(z.json)); assert.deepStrictEqual(vz2.me.artists, ['Fleetwood Mac']);
+  ok('the last pick of a guest with no genres cannot be removed');
+  const zs = await req('POST', `/api/rooms/${mk.code}/guests`, { name: 'Yan', artists: ['Zzyzx Nobody'] }); assert.strictEqual(zs.status, 200);
+  ok('an artist the room has never heard of still lets a guest join');
 
   // ---- the queue uses them
   const solo = (await req('POST', '/api/rooms')).json;

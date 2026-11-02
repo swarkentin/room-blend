@@ -32,6 +32,13 @@
     try { navigator.clipboard.writeText(text).then(function () { el.textContent = 'Copied'; setTimeout(function () { el.textContent = 'Copy'; }, 1500); }, fb); } catch (e) { fb(); }
   }
   function gl(g) { return /^any:/.test(g) ? 'all ' + g.slice(4).replace(/-/g, ' ') : g; }
+  // What a guest named, as counts only. The host never sees the names themselves.
+  function namedLine(g) {
+    var a = g.artistCount || 0, n = g.songCount || 0;
+    if (!a && !n) return null;
+    var parts = []; if (a) parts.push(a + (a === 1 ? ' artist' : ' artists')); if (n) parts.push(n + (n === 1 ? ' song' : ' songs'));
+    return h('div', { class: 'hint gnamed', text: 'Named ' + parts.join(' and ') + (g.genres.length ? '' : '. Genres guessed from these.') });
+  }
   function tagList(genres) { return genres.map(function (g) { return h('span', { class: 'tag', text: gl(g) }); }); }
   function chipPicker(container, picked, onChange) {
     var groups = (C.genreGroups || [['Genres', C.genres]]).slice();
@@ -286,7 +293,7 @@
       var names = {}; st.guests.forEach(function (g) { names[g.id] = g.name; });
       var lines = ['Room Blend session ' + code,
         'Settings: protect least-happy ' + pct(st.opts.lambda) + '%, blend threshold ' + st.opts.tau.toFixed(2) + ', settle ' + st.opts.settle + ' s',
-        'Guests: ' + (st.guests.length ? st.guests.map(function (g) { return g.name + ' (' + g.genres.map(gl).join(', ') + ')'; }).join('; ') : 'none'), 'Played:'];
+        'Guests: ' + (st.guests.length ? st.guests.map(function (g) { return g.name + ' (' + (g.genres.length ? g.genres : g.inferred || []).map(gl).join(', ') + ')'; }).join('; ') : 'none'), 'Played:'];
       st.history.forEach(function (x, i) {
         lines.push((i + 1) + '. ' + x.track.title + ' - ' + x.track.artist + ' | ' + x.mode + (x.owner && names[x.owner] ? ' (' + names[x.owner] + ')' : '') + ' | room ' + pct(x.room) + ' | ' +
           x.fits.filter(function (f) { return names[f.id]; }).map(function (f) { return names[f.id] + ' ' + pct(f.fit) + '%'; }).join(', ') +
@@ -452,7 +459,7 @@
         var stat = g.status === 'arriving' ? 'Arriving, counts in ' + g.arriveIn + ' s' : g.away === 'network' ? 'Away: left the Wi-Fi' : g.away === 'idle' ? 'Quiet: no answer to "still here?"' : g.hostSit ? 'Sat out by you' : g.status === 'sitting' ? 'Sitting out' : (!g.connected && !g.manual ? (g.dozing ? 'Phone locked, still counted' : 'Reconnecting…') : 'In the blend');
         ul.appendChild(h('li', { class: 'guest' + (out ? ' out' : '') }, [
           h('span', { class: 'swatch', style: 'background:' + COLORS[g.color % COLORS.length] }),
-          h('div', null, [h('div', { class: 'gname', text: g.name + (g.manual ? ' (added by you)' : '') }), h('div', { class: 'gstate', text: stat }), h('div', { class: 'tags' }, tagList(g.genres))]),
+          h('div', null, [h('div', { class: 'gname', text: g.name + (g.manual ? ' (added by you)' : '') }), h('div', { class: 'gstate', text: stat }), h('div', { class: 'tags' }, tagList(g.genres.length ? g.genres : g.inferred || [])), namedLine(g)]),
           h('div', { class: 'gactions' }, [
             g.status === 'arriving' ? null : h('button', { class: 'btn small', type: 'button', text: g.hostSit ? 'Bring back' : 'Sit out', onclick: function () { post('guests/' + g.id, { sit: !g.hostSit }); } }),
             h('button', { class: 'btn small', type: 'button', text: 'Remove', onclick: function () { post('guests/' + g.id, { remove: true }); } }),
@@ -505,7 +512,7 @@
     var es = null, st = null;
 
     app.replaceChildren(h('div', { class: 'wrap guest-wrap' }, [
-      h('header', { class: 'top' }, [h('div', null, [h('h1', { id: 'gv-title-h', text: 'Room ' + code }), h('p', { id: 'g-sub', text: 'Pick the genres you like. The room\'s music shifts to fit everyone who is here.' })])]),
+      h('header', { class: 'top' }, [h('div', null, [h('h1', { id: 'gv-title-h', text: 'Room ' + code }), h('p', { id: 'g-sub', text: 'Pick genres, or name artists and songs you like. The room\'s music shifts to fit everyone who is here.' })])]),
       h('section', { class: 'gcol', id: 'gform-sec' }),
       h('section', { class: 'gcol', id: 'glive-sec', hidden: 'hidden' }),
     ]));
@@ -519,6 +526,8 @@
       var nameIn = h('input', { type: 'text', id: 'gv-name', maxlength: '20', placeholder: 'First name or nickname', autocomplete: 'given-name', value: reg ? reg.name : (lsGet('rb-name') || '') });
       var picker = h('div', { class: 'chips', id: 'gv-picker' });
       var hint = h('p', { class: 'hint', id: 'gv-hint', role: 'status', text: note || '' });
+      var named = { artists: reg && reg.artists ? reg.artists.slice() : [], songs: reg && reg.songs ? reg.songs.slice() : [] };
+      var np = editing ? null : namedPicker(named, function () { hint.textContent = ''; });
       var importBox = null;
       if (C.clientId && !editing) {
         importBox = h('div', { class: 'import' }, [
@@ -530,6 +539,7 @@
         h('h3', { text: editing ? 'Change your genres' : 'Join the room' }),
         h('div', null, [h('label', { for: 'gv-name', text: 'Your name (optional)' }), nameIn]),
         importBox,
+        np ? h('fieldset', null, [h('legend', { text: 'Artists and songs you want to hear' }), h('p', { class: 'hint', text: 'Optional. Not sure about genres? Start here. Up to 5 of each, and only you can see them.' }), np.el]) : null,
         h('fieldset', null, [h('legend', { text: 'Favourite genres, up to 4 (first pick counts most)' }), picker]),
         h('div', { class: 'row' }, [h('button', { class: 'btn primary', type: 'submit', id: 'gv-submit', text: editing ? 'Save' : 'Join the room' }), editing ? h('button', { class: 'btn', type: 'button', text: 'Cancel', onclick: function () { showLive(); } }) : null]),
         hint,
@@ -539,17 +549,18 @@
       if (!editing && params.get('import') === '1') runImport(picked, picker, hint);
       form.addEventListener('submit', async function (e) {
         e.preventDefault();
-        if (!picked.length) { hint.textContent = 'Pick at least one genre first.'; return; }
+        var hasNamed = np ? named.artists.length + named.songs.length : (reg ? (reg.artists || []).length + (reg.songs || []).length : 0);
+        if (!picked.length && !hasNamed) { hint.textContent = 'Pick a genre, or name an artist or song, to join.'; return; }
         var name = nameIn.value.trim() || 'Guest'; lsSet('rb-name', name);
         if (editing && reg) {
           var r = await http('PATCH', '/api/rooms/' + code + '/guests/' + reg.id, { name: name, genres: picked }, { 'x-guest-id': reg.id, 'x-guest-key': reg.key });
           if (!r.ok) { hint.textContent = 'Could not save. Try again.'; return; }
           reg.name = name; reg.genres = picked.slice(); lsSet(regKey, JSON.stringify(reg)); showLive();
         } else {
-          var j = await http('POST', '/api/rooms/' + code + '/guests', { name: name, genres: picked, since: (reg && reg.since) || undefined });
+          var j = await http('POST', '/api/rooms/' + code + '/guests', { name: name, genres: picked, artists: named.artists, songs: named.songs, since: (reg && reg.since) || undefined });
           if (j.status === 404) { return roomGone(); }
           if (!j.ok) { hint.textContent = 'Could not join. Try again.'; return; }
-          reg = { id: j.data.guestId, key: j.data.guestKey, name: name, genres: picked.slice(), since: (reg && reg.since) || j.data.since || Date.now() }; lsSet(regKey, JSON.stringify(reg));
+          reg = { id: j.data.guestId, key: j.data.guestKey, name: name, genres: picked.slice(), artists: named.artists.slice(), songs: named.songs.slice(), since: (reg && reg.since) || j.data.since || Date.now() }; lsSet(regKey, JSON.stringify(reg));
           history.replaceState(null, '', '/r/' + code); showLive();
         }
       });
@@ -584,13 +595,13 @@
           h('div', { class: 'controls' }, [h('span', { class: 'label', text: 'Your call' }), h('button', { class: 'btn small', type: 'button', id: 'gv-good', 'aria-pressed': 'false', text: 'Good pick', onclick: function () { vote('up'); } }), h('button', { class: 'btn small', type: 'button', id: 'gv-bad', 'aria-pressed': 'false', text: 'Bad pick', onclick: function () { vote('down'); } })]),
         ]),
         h('div', null, [h('div', { class: 'sec-h' }, [h('h2', { text: 'Up next' })]), h('ol', { class: 'gnext', id: 'gv-next' })]),
+        picksSection(),
         h('div', { id: 'gv-played-sec' }, [
           h('div', { class: 'sec-h' }, [h('h2', { text: 'Played while you were here' }), h('span', { class: 'meta', id: 'gv-played-n' })]),
           h('p', { class: 'hint', id: 'gv-played-msg', role: 'status' }),
           h('ol', { class: 'played', id: 'gv-played' }),
         ]),
         h('details', { class: 'saved', id: 'gv-saved' }, [h('summary', { id: 'gv-saved-sum', text: 'Songs I saved' }), h('ol', { class: 'played', id: 'gv-saved-list' }), h('div', { class: 'row' }, [h('button', { class: 'btn small', type: 'button', id: 'gv-saved-copy', text: 'Copy my list', onclick: function () { copy(savedList().map(function (x) { return x.title + ' - ' + x.artist; }).join('\n'), $('gv-saved-copy')); } })])]),
-        picksPanel(),
         h('div', { class: 'ask', id: 'gv-ask', role: 'alert', hidden: 'hidden' }, [
           h('p', { text: 'Still here? Tap to keep your picks in the mix.' }),
           h('button', { class: 'btn primary', type: 'button', id: 'gv-here', text: 'I\'m still here', onclick: function () { touch(true); } }),
@@ -609,10 +620,11 @@
     var auth = function () { return { 'x-guest-id': reg.id, 'x-guest-key': reg.key }; };
 
     // Artists and songs a guest names. They count as a perfect match for that guest, but never override what the room shares.
+    // One picker serves the join form (before the guest exists) and the room view (after), over a holder with artists and songs lists.
     var MAX_ARTISTS = 5, MAX_SONGS = 5;
     function songKeyOf(x) { return (x.title + '|' + x.artist).toLowerCase().replace(/[^a-z0-9|]+/g, ' ').trim(); }
-    function picksPanel() {
-      var input = h('input', { type: 'search', id: 'gv-q', maxlength: '60', placeholder: 'Search artists or songs in this room', autocomplete: 'off', 'aria-label': 'Search artists or songs in this room' });
+    function namedPicker(holder, onChange, keepOne) {
+      var input = h('input', { type: 'search', class: 'genre-search', id: 'gv-q', maxlength: '60', placeholder: 'Search by artist or song', autocomplete: 'off', 'aria-label': 'Search the room\'s music by artist or song' });
       var results = h('div', { id: 'gv-results', 'aria-live': 'polite' });
       var chosen = h('div', { class: 'chips', id: 'gv-chosen' });
       var msg = h('p', { class: 'hint', id: 'gv-picks-msg', role: 'status' });
@@ -620,8 +632,8 @@
       input.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(run, 250); });
       async function run() {
         var q = input.value.trim(), mine = ++seq;
-        if (q.length < 2) { results.replaceChildren(); msg.textContent = ''; return; }
-        var r = await http('GET', '/api/rooms/' + code + '/search?q=' + encodeURIComponent(q), null, auth());
+        if (q.length < 2) { last = null; results.replaceChildren(); msg.textContent = ''; return; }
+        var r = await http('GET', '/api/rooms/' + code + '/search?q=' + encodeURIComponent(q), null, reg ? auth() : {});
         if (mine !== seq) return; // a newer search is already on its way
         if (!r.ok) { msg.textContent = 'Search is not available right now.'; return; }
         last = r.data; draw();
@@ -631,39 +643,52 @@
         if (!last) return;
         var a = last.artists || [], t = last.songs || [];
         var typed = input.value.trim().replace(/\s+/g, ' ');
-        var canTyped = !a.length && !t.length && typed.length >= 2 && (reg.artists || []).length < MAX_ARTISTS && (reg.artists || []).map(function (x) { return x.toLowerCase(); }).indexOf(typed.toLowerCase()) < 0;
+        var haveA = holder.artists.map(function (x) { return x.toLowerCase(); }), haveS = holder.songs.map(songKeyOf);
+        var canTyped = !a.length && !t.length && typed.length >= 2 && holder.artists.length < MAX_ARTISTS && haveA.indexOf(typed.toLowerCase()) < 0;
         msg.textContent = a.length || t.length ? '' : 'Nothing in this room\'s music matches.' + (canTyped ? ' If the host\'s music has this artist, their songs join the mix once you add them.' : '');
         if (canTyped) results.appendChild(h('div', { class: 'rrow' }, [h('span', { class: 'rname', text: typed }), h('button', { class: 'btn small', type: 'button', id: 'gv-add-typed', text: 'Add as artist anyway', onclick: function () { addArtist(typed); } })]));
-        var haveA = (reg.artists || []).map(function (x) { return x.toLowerCase(); }), haveS = (reg.songs || []).map(songKeyOf);
         a.forEach(function (x) {
           var on = haveA.indexOf(x.name.toLowerCase()) >= 0;
           results.appendChild(h('div', { class: 'rrow' }, [h('span', { class: 'rname', text: x.name }), h('span', { class: 'hint', text: x.songs + (x.songs === 1 ? ' song here' : ' songs here') }),
-            h('button', { class: 'btn small', type: 'button', text: on ? 'Added' : 'Add artist', disabled: on || (reg.artists || []).length >= MAX_ARTISTS ? 'disabled' : null, onclick: function () { addArtist(x.name); } })]));
+            h('button', { class: 'btn small', type: 'button', text: on ? 'Added' : 'Add artist', disabled: on || holder.artists.length >= MAX_ARTISTS ? 'disabled' : null, onclick: function () { addArtist(x.name); } })]));
         });
         t.forEach(function (x) {
           var on = haveS.indexOf(songKeyOf(x)) >= 0;
           results.appendChild(h('div', { class: 'rrow' }, [h('span', { class: 'rname' }, [document.createTextNode(x.title + ' '), h('span', { text: x.artist })]),
-            h('button', { class: 'btn small', type: 'button', text: on ? 'Added' : 'Add song', disabled: on || (reg.songs || []).length >= MAX_SONGS ? 'disabled' : null, onclick: function () { addSong(x); } })]));
+            h('button', { class: 'btn small', type: 'button', text: on ? 'Added' : 'Add song', disabled: on || holder.songs.length >= MAX_SONGS ? 'disabled' : null, onclick: function () { addSong(x); } })]));
         });
       }
-      function save() { lsSet(regKey, JSON.stringify(reg)); patch({ artists: reg.artists, songs: reg.songs }); showChosen(); draw(); }
-      function addArtist(name) { reg.artists = (reg.artists || []).concat([name]).slice(0, MAX_ARTISTS); save(); }
-      function addSong(x) { reg.songs = (reg.songs || []).concat([{ title: x.title, artist: x.artist }]).slice(0, MAX_SONGS); save(); }
+      function change() { showChosen(); draw(); if (onChange) onChange(); }
+      function addArtist(name) { holder.artists = holder.artists.concat([name]).slice(0, MAX_ARTISTS); change(); }
+      function addSong(x) { holder.songs = holder.songs.concat([{ title: x.title, artist: x.artist }]).slice(0, MAX_SONGS); change(); }
+      // A guest who named no genres needs at least one artist or song to go on.
+      function lastOne() {
+        if (keepOne && keepOne() && holder.artists.length + holder.songs.length === 1) { msg.textContent = 'Add a genre before removing your last artist or song.'; return true; }
+        return false;
+      }
       function showChosen() {
         var chips = [];
-        (reg.artists || []).forEach(function (n) { chips.push(h('button', { class: 'chip', type: 'button', 'aria-pressed': 'true', 'aria-label': 'Remove artist ' + n, text: n + ' \u00d7', onclick: function () { reg.artists = reg.artists.filter(function (x) { return x !== n; }); save(); } })); });
-        (reg.songs || []).forEach(function (x) { chips.push(h('button', { class: 'chip', type: 'button', 'aria-pressed': 'true', 'aria-label': 'Remove song ' + x.title, text: x.title + ' \u00d7', onclick: function () { reg.songs = reg.songs.filter(function (y) { return songKeyOf(y) !== songKeyOf(x); }); save(); } })); });
+        holder.artists.forEach(function (n) { chips.push(h('button', { class: 'chip', type: 'button', 'aria-pressed': 'true', 'aria-label': 'Remove artist ' + n, text: n + ' ×', onclick: function () { if (lastOne()) return; holder.artists = holder.artists.filter(function (x) { return x !== n; }); change(); } })); });
+        holder.songs.forEach(function (x) { chips.push(h('button', { class: 'chip', type: 'button', 'aria-pressed': 'true', 'aria-label': 'Remove song ' + x.title, text: x.title + ' ×', onclick: function () { if (lastOne()) return; holder.songs = holder.songs.filter(function (q) { return songKeyOf(q) !== songKeyOf(x); }); change(); } })); });
         chosen.replaceChildren.apply(chosen, chips);
-        var n = (reg.artists || []).length + (reg.songs || []).length;
-        sum.textContent = 'Artists and songs I want to hear' + (n ? ' (' + n + ')' : '');
       }
-      var sum = h('summary', { id: 'gv-picks-sum', text: 'Artists and songs I want to hear' });
-      picksPanel.refresh = showChosen;
-      var box = h('details', { class: 'saved', id: 'gv-picks' }, [sum,
-        h('p', { class: 'hint', text: 'Optional. Name up to 5 artists and 5 songs. They count as a perfect match for you. They never override what the room shares, so they play when the room allows, and on your turn when it rotates. Only you can see them.' }),
-        chosen, input, results, msg]);
       showChosen();
-      return box;
+      return { el: h('div', { class: 'picker' }, [chosen, input, results, msg]), refresh: function () { showChosen(); draw(); } };
+    }
+
+    // The same picker inside the room, high on the page where a guest can see it.
+    function picksSection() {
+      var meta = h('span', { class: 'meta', id: 'gv-picks-n' });
+      var holder = { get artists() { return reg.artists || []; }, set artists(v) { reg.artists = v; }, get songs() { return reg.songs || []; }, set songs(v) { reg.songs = v; } };
+      function count() { var n = holder.artists.length + holder.songs.length; meta.textContent = n ? n + ' added' : ''; }
+      var pk = namedPicker(holder, function () { lsSet(regKey, JSON.stringify(reg)); patch({ artists: reg.artists, songs: reg.songs }); count(); }, function () { return !(reg.genres && reg.genres.length); });
+      picksSection.refresh = function () { pk.refresh(); count(); };
+      count();
+      return h('div', { id: 'gv-picks' }, [
+        h('div', { class: 'sec-h' }, [h('h2', { text: 'Artists and songs you want to hear' }), meta]),
+        h('p', { class: 'hint', text: 'Songs by these artists play when they fit the room, and on your turn when it rotates. Only you can see them.' }),
+        pk.el,
+      ]);
     }
 
     // Presence: tell the room we are still here about once a minute, and how long since we touched the page.
@@ -756,12 +781,12 @@
       (s.next || []).forEach(function (n) { ol.appendChild(h('li', { class: 'nextrow' }, [document.createTextNode(n.title + ' '), h('span', { text: n.artist + (n.mine ? ' (your turn)' : '') })])); });
       if (!s.next || !s.next.length) ol.appendChild(h('li', { class: 'nextrow' }, [h('span', { text: 'Nothing lined up yet.' })]));
       var me = s.me;
-      if (me && Array.isArray(me.artists) && reg) { var ch = JSON.stringify([me.artists, me.songs]) !== JSON.stringify([reg.artists || [], reg.songs || []]); if (ch) { reg.artists = me.artists; reg.songs = me.songs; lsSet(regKey, JSON.stringify(reg)); if (picksPanel.refresh) picksPanel.refresh(); } }
+      if (me && Array.isArray(me.artists) && reg) { var ch = JSON.stringify([me.artists, me.songs]) !== JSON.stringify([reg.artists || [], reg.songs || []]); if (ch) { reg.artists = me.artists; reg.songs = me.songs; lsSet(regKey, JSON.stringify(reg)); if (picksSection.refresh) picksSection.refresh(); } }
       renderPlayed(s);
       $('gv-ask').hidden = !(me && me.ask && !me.away);
       $('gv-sit').setAttribute('aria-pressed', me && me.sit ? 'true' : 'false');
       $('gv-sit').textContent = me && me.sit ? 'Rejoin the blend' : 'Sit out for now';
-      $('gv-me').textContent = me ? (me.status === 'arriving' ? 'You are in. Your picks count in a few seconds.' : me.away === 'network' ? 'You seem to have left the Wi-Fi, so songs are chosen without you. Open this page when you are back.' : me.away === 'idle' ? 'Songs are chosen without you because you did not answer. Tap anywhere to rejoin the blend.' : me.hostSit ? 'The host has sat you out for now.' : me.sit ? 'You are sitting out, so songs are chosen without you.' : 'Your picks: ' + me.genres.map(gl).join(', ') + '.') : '';
+      $('gv-me').textContent = me ? (me.status === 'arriving' ? 'You are in. Your picks count in a few seconds.' : me.away === 'network' ? 'You seem to have left the Wi-Fi, so songs are chosen without you. Open this page when you are back.' : me.away === 'idle' ? 'Songs are chosen without you because you did not answer. Tap anywhere to rejoin the blend.' : me.hostSit ? 'The host has sat you out for now.' : me.sit ? 'You are sitting out, so songs are chosen without you.' : (me.genres.length ? 'Your picks: ' + me.genres.map(gl).join(', ') + '.' : me.inferred && me.inferred.length ? 'Starting you on ' + me.inferred.map(gl).join(', ') + ', guessed from what you named. Change my genres lets you steer it.' : 'The songs you named play as the room\'s music finds them.')) : '';
     }
 
     function connect() {

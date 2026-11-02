@@ -250,7 +250,7 @@ async function api(req, res, url) {
   // Guests
   if (parts[2] === 'guests' && parts.length === 3 && m === 'POST') {
     const g = room.addGuest(body.name, body.genres, { onNet: !!room.netKey && netKeyOf(clientIp(req)) === room.netKey, since: body.since, artists: body.artists, songs: body.songs });
-    if (!g) return sendJson(res, 400, { error: 'pick at least one genre' });
+    if (!g) return sendJson(res, 400, { error: 'pick a genre, an artist or a song' });
     g.connected = false; g.lostAt = Date.now(); // becomes connected when its event stream opens
     notify(code);
     return sendJson(res, 200, { guestId: g.id, guestKey: g.key, since: g.sinceAt });
@@ -271,10 +271,9 @@ async function api(req, res, url) {
     notify(code);
     return sendJson(res, 200, { ok: true, away: g.away, ask: !!g.askAt });
   }
-  // GET /api/rooms/:code/search?q=  -> artists and songs in this room's music that a guest can name (guests only)
+  // GET /api/rooms/:code/search?q=  -> artists and songs in this room's music that someone can name. Open to anyone who has the
+  // room code, because the join page uses it before the guest exists; the per-visitor request limit above still applies.
   if (parts[2] === 'search' && m === 'GET') {
-    const g = guestFor();
-    if (!g) return sendJson(res, 401, { error: 'unknown guest' });
     L.count('picks.searches');
     return sendJson(res, 200, room.search(url.searchParams.get('q') || ''));
   }
