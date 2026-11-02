@@ -82,6 +82,14 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
     const hp = await page({ width: 390, height: 800 }); await hp.goto(APP); await hp.click('#start-room'); await hp.waitForURL(/host\//);
     assert.ok(await hp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)); ok('the host header has no horizontal scroll on a phone');
     assert.deepStrictEqual(errors, [], errors.join(' | ')); ok('no page errors');
-  } finally { await browser.close(); srv.kill(); fs.rmSync(tmp, { recursive: true, force: true }); }
+  } finally {
+    await browser.close();
+    await new Promise((resolve) => {
+      if (srv.exitCode !== null || srv.signalCode !== null) return resolve();
+      srv.once('exit', resolve);
+      srv.kill('SIGTERM');
+    });
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
   console.log('\n' + passed + ' checks passed'); process.exit(0);
 })().catch((e) => { console.error('\nFAILED:', e.stack || e.message); process.exit(1); });
