@@ -209,7 +209,8 @@
           '<label class="disc"><input type="checkbox" id="disc"> Show to people on this Wi-Fi so they can tap to join</label></div>' +
         '<div class="joinbox"><div id="qr" role="img" aria-label="QR code to join this room"></div><div><small>Friends scan, or open</small><div class="link" id="jl"></div>' +
         '<div class="row" style="margin-top:8px"><button class="btn small" id="jc" type="button">Copy</button><button class="btn small" id="js" type="button" hidden>Share</button>' +
-        '<a class="btn small" id="jtv" target="_blank" rel="noopener">Show on a screen</a></div></div></div>' +
+        '<a class="btn small" id="jtv" target="_blank" rel="noopener" title="Open a separate join-code display without music playback">QR screen</a>' +
+        '<button class="btn small" id="tv-mode" type="button" aria-pressed="false">TV / cast view</button></div></div></div>' +
       '</header>' +
       '<div id="sp" class="sp"></div>' +
       '<main class="grid">' +
@@ -241,10 +242,37 @@
         '</aside>' +
       '</main>';
 
+    var tvCastView = h('div', { class: 'tv-cast', id: 'tv-cast-view', hidden: 'hidden' }, [
+      h('div', { class: 'tv-cast-join' }, [
+        h('div', { id: 'tv-cast-qr', role: 'img', 'aria-label': 'QR code to join this room' }),
+        h('p', { class: 'tv-cast-label', text: 'Scan to join' }),
+        h('p', { class: 'tv-cast-code', id: 'tv-cast-code', text: code }),
+      ]),
+      h('div', { class: 'tv-cast-main' }, [
+        h('p', { class: 'tv-cast-label', id: 'tv-cast-room', text: 'Now playing' }),
+        h('h1', { id: 'tv-cast-title', text: 'Waiting for the first guest' }),
+        h('p', { class: 'tv-cast-artist', id: 'tv-cast-artist' }),
+        h('p', { class: 'tv-cast-meta', id: 'tv-cast-meta' }),
+        h('div', { class: 'tags', id: 'tv-cast-genres' }),
+        h('div', { class: 'tv-cast-next-wrap' }, [h('h2', { text: 'Coming up' }), h('ol', { id: 'tv-cast-next', class: 'tv-cast-next' })]),
+      ]),
+      h('button', { class: 'btn tv-cast-exit', id: 'tv-cast-exit', type: 'button', text: 'Exit TV view' }),
+    ]);
+    wrap.appendChild(tvCastView);
+
     var base = C.publicUrl || location.origin;
     $('rc').textContent = code; $('jl').textContent = joinUrl.replace(/^https?:\/\//, '');
     $('jc').addEventListener('click', function () { copy(joinUrl, $('jc')); });
     $('jtv').setAttribute('href', '/screen/' + code);
+    try { $('tv-cast-qr').innerHTML = window.QR.svg(joinUrl, { ecc: 'M', label: 'QR code to join room ' + code }); } catch (e) { $('tv-cast-qr').hidden = true; }
+    function setTvMode(on) {
+      document.body.classList.toggle('tv-cast-mode', on);
+      tvCastView.hidden = !on;
+      $('tv-mode').setAttribute('aria-pressed', on ? 'true' : 'false');
+      $('tv-mode').textContent = on ? 'Exit TV view' : 'TV / cast view';
+    }
+    $('tv-mode').addEventListener('click', function () { setTvMode(!document.body.classList.contains('tv-cast-mode')); });
+    $('tv-cast-exit').addEventListener('click', function () { setTvMode(false); });
     if (navigator.share) {
       $('js').hidden = false;
       $('js').addEventListener('click', function () { navigator.share({ title: ($('room-name').value || 'Room ' + code) + ' on Room Blend', text: 'Join the music. Pick your genres and it fits everyone.', url: joinUrl }).catch(function () { /* dismissed */ }); });
@@ -402,6 +430,16 @@
     // ----- rendering -----
     function render(st) {
       S.st = st;
+      $('tv-cast-room').textContent = st.name || 'Now playing';
+      $('tv-cast-title').textContent = st.now ? st.now.track.title : 'Waiting for the first guest';
+      $('tv-cast-artist').textContent = st.now ? st.now.track.artist : '';
+      $('tv-cast-meta').textContent = st.guests.filter(function (g) { return g.status === 'active'; }).length + ' listening · ' + (st.now ? (st.now.mode === 'rotate' ? 'taking turns' : 'blending everyone’s taste') : 'waiting for guests');
+      $('tv-cast-genres').replaceChildren.apply($('tv-cast-genres'), st.now ? tagList(st.now.track.genres || []) : []);
+      var tvNext = $('tv-cast-next'); tvNext.replaceChildren();
+      st.queue.slice(0, 3).forEach(function (item) {
+        tvNext.appendChild(h('li', null, [document.createTextNode(item.track.title + ' '), h('span', { text: item.track.artist })]));
+      });
+      if (!st.queue.length) tvNext.appendChild(h('li', { class: 'tv-cast-empty', text: 'Songs will appear here.' }));
       if (document.activeElement !== $('room-name') && $('room-name').value !== st.name) $('room-name').value = st.name || '';
       $('disc').checked = st.discoverable !== false;
       var people = {}; st.guests.forEach(function (g) { people[g.id] = g; });
@@ -627,16 +665,22 @@
     var MAX_ARTISTS = 5, MAX_SONGS = 5;
     function songKeyOf(x) { return (x.title + '|' + x.artist).toLowerCase().replace(/[^a-z0-9|]+/g, ' ').trim(); }
     function namedPicker(holder, onChange, keepOne) {
-      var input = h('input', { type: 'search', class: 'genre-search', id: 'gv-q', maxlength: '60', placeholder: 'Search by artist or song', autocomplete: 'off', 'aria-label': 'Search the room\'s music by artist or song' });
+      var input = h('input', { type: 'search', class: 'genre-search', id: 'gv-q', maxlength: '60', placeholder: 'Search by artist, song or album', autocomplete: 'off', 'aria-label': 'Search for an artist, song or album' });
       var results = h('div', { id: 'gv-results', 'aria-live': 'polite' });
       var chosen = h('div', { class: 'chips', id: 'gv-chosen' });
       var msg = h('p', { class: 'hint', id: 'gv-picks-msg', role: 'status' });
       var timer = null, seq = 0, last = null;
-      input.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(run, 250); });
+      input.addEventListener('input', function () {
+        clearTimeout(timer); last = null; results.replaceChildren(); msg.textContent = '';
+        timer = setTimeout(run, 400);
+      });
       async function run() {
         var q = input.value.trim(), mine = ++seq;
         if (q.length < 2) { last = null; results.replaceChildren(); msg.textContent = ''; return; }
-        var r = await http('GET', '/api/rooms/' + code + '/search?q=' + encodeURIComponent(q), null, reg ? auth() : {});
+        msg.textContent = 'Searching the room and MusicBrainz…';
+        var r;
+        try { r = await http('GET', '/api/rooms/' + code + '/search?q=' + encodeURIComponent(q), null, reg ? auth() : {}); }
+        catch (e) { if (mine === seq) msg.textContent = 'Search is not available right now.'; return; }
         if (mine !== seq) return; // a newer search is already on its way
         if (!r.ok) { msg.textContent = 'Search is not available right now.'; return; }
         last = r.data; draw();
@@ -644,26 +688,62 @@
       function draw() {
         results.replaceChildren();
         if (!last) return;
-        var a = last.artists || [], t = last.songs || [];
+        var a = last.artists || [], t = last.songs || [], albums = last.albums || [];
         var typed = input.value.trim().replace(/\s+/g, ' ');
         var haveA = holder.artists.map(function (x) { return x.toLowerCase(); }), haveS = holder.songs.map(songKeyOf);
-        var canTyped = !a.length && !t.length && typed.length >= 2 && holder.artists.length < MAX_ARTISTS && haveA.indexOf(typed.toLowerCase()) < 0;
-        msg.textContent = a.length || t.length ? '' : 'Nothing in this room\'s music matches.' + (canTyped ? ' If the host\'s music has this artist, their songs join the mix once you add them.' : '');
-        if (canTyped) results.appendChild(h('div', { class: 'rrow' }, [h('span', { class: 'rname', text: typed }), h('button', { class: 'btn small', type: 'button', id: 'gv-add-typed', text: 'Add as artist anyway', onclick: function () { addArtist(typed); } })]));
+        var canTyped = !a.length && !t.length && !albums.length && typed.length >= 2 && holder.artists.length < MAX_ARTISTS && haveA.indexOf(typed.toLowerCase()) < 0;
+        msg.textContent = last.lookupUnavailable ? 'MusicBrainz search is unavailable; showing matches from the room.' : '';
+        if (!a.length && !t.length && !albums.length) {
+          msg.textContent += (msg.textContent ? ' ' : '') + 'Nothing in the room or MusicBrainz matches.';
+          if (canTyped) msg.textContent += ' You can still add this name as an artist.';
+        }
+        if (canTyped) results.appendChild(h('div', { class: 'rrow' }, [h('span', { class: 'rname', text: typed }), h('button', { class: 'btn small', type: 'button', id: 'gv-add-typed', text: 'Add artist', onclick: function () { addArtist(typed); } })]));
         a.forEach(function (x) {
           var on = haveA.indexOf(x.name.toLowerCase()) >= 0;
-          results.appendChild(h('div', { class: 'rrow' }, [h('span', { class: 'rname', text: x.name }), h('span', { class: 'hint', text: x.songs + (x.songs === 1 ? ' song here' : ' songs here') }),
+          results.appendChild(h('div', { class: 'rrow' }, [h('span', { class: 'rname', text: x.name }), h('span', { class: 'hint', text: x.source === 'musicbrainz' ? 'MusicBrainz artist' : x.songs + (x.songs === 1 ? ' song here' : ' songs here') }),
             h('button', { class: 'btn small', type: 'button', text: on ? 'Added' : 'Add artist', disabled: on || holder.artists.length >= MAX_ARTISTS ? 'disabled' : null, onclick: function () { addArtist(x.name); } })]));
         });
         t.forEach(function (x) {
           var on = haveS.indexOf(songKeyOf(x)) >= 0;
-          results.appendChild(h('div', { class: 'rrow' }, [h('span', { class: 'rname' }, [document.createTextNode(x.title + ' '), h('span', { text: x.artist })]),
+          results.appendChild(h('div', { class: 'rrow' }, [h('span', { class: 'rname' }, [document.createTextNode(x.title + ' '), h('span', { text: x.artist })]), x.source === 'musicbrainz' ? h('span', { class: 'hint', text: 'MusicBrainz song' }) : null,
             h('button', { class: 'btn small', type: 'button', text: on ? 'Added' : 'Add song', disabled: on || holder.songs.length >= MAX_SONGS ? 'disabled' : null, onclick: function () { addSong(x); } })]));
+        });
+        albums.forEach(function (x) {
+          var roomLeft = holder.songs.length < MAX_SONGS;
+          results.appendChild(h('div', { class: 'rrow' }, [
+            h('span', { class: 'rname' }, [document.createTextNode(x.title + ' '), h('span', { text: x.artist })]),
+            h('span', { class: 'hint', text: 'MusicBrainz album' }),
+            h('button', { class: 'btn small', type: 'button', text: roomLeft ? 'Add album tracks' : 'Song limit reached', disabled: !roomLeft ? 'disabled' : null, onclick: function (event) { addAlbum(x, event.currentTarget); } }),
+          ]));
         });
       }
       function change() { showChosen(); draw(); if (onChange) onChange(); }
       function addArtist(name) { holder.artists = holder.artists.concat([name]).slice(0, MAX_ARTISTS); change(); }
       function addSong(x) { holder.songs = holder.songs.concat([{ title: x.title, artist: x.artist }]).slice(0, MAX_SONGS); change(); }
+      async function addAlbum(album, button) {
+        button.disabled = true; button.textContent = 'Loading tracks…';
+        var r;
+        try { r = await http('GET', '/api/rooms/' + code + '/search/album/' + encodeURIComponent(album.id), null, reg ? auth() : {}); }
+        catch (e) {
+          button.disabled = false; button.textContent = 'Add album tracks';
+          msg.textContent = 'Could not load this album’s tracks. Try again.';
+          return;
+        }
+        if (!r.ok || !r.data || !Array.isArray(r.data.songs)) {
+          button.disabled = false; button.textContent = 'Add album tracks';
+          msg.textContent = 'Could not load this album’s tracks. Try again.';
+          return;
+        }
+        var existing = holder.songs.map(songKeyOf), added = [];
+        r.data.songs.forEach(function (song) {
+          var key = songKeyOf(song);
+          if (existing.indexOf(key) < 0 && added.length + holder.songs.length < MAX_SONGS) { added.push(song); existing.push(key); }
+        });
+        if (!added.length) { button.disabled = false; button.textContent = 'Add album tracks'; msg.textContent = r.data.songs.length ? 'Your five-song limit is full, or these album tracks are already picked.' : 'No tracklist is available for this album.'; return; }
+        holder.songs = holder.songs.concat(added);
+        change();
+        msg.textContent = 'Added ' + added.length + ' track' + (added.length === 1 ? '' : 's') + ' from ' + album.title + '.';
+      }
       // A guest who named no genres needs at least one artist or song to go on.
       function lastOne() {
         if (keepOne && keepOne() && holder.artists.length + holder.songs.length === 1) { msg.textContent = 'Add a genre before removing your last artist or song.'; return true; }

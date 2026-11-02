@@ -2,7 +2,7 @@
 // Artist and song picks over the API: stored, limited, private to the guest, searchable from the room's own songs.
 const http = require('http');
 const assert = require('assert');
-const { server } = require('../server.js');
+const { server, musicBrainz } = require('../server.js');
 let base, n = 0;
 const ok = (s) => { n++; console.log('  ok  ' + s); };
 const req = (method, path, body, headers = {}) => new Promise((resolve, reject) => {
@@ -19,6 +19,21 @@ const snap = (path, headers) => new Promise((resolve, reject) => {
 });
 
 (async () => {
+  musicBrainz.search = async (q) => q.toLowerCase() === 'tool'
+    ? {
+      artists: [{ name: 'Tool', songs: 0, source: 'musicbrainz' }],
+      songs: [{ title: 'Schism', artist: 'Tool', source: 'musicbrainz' }],
+      albums: [{ id: '12345678-1234-1234-1234-123456789abc', title: 'Lateralus', artist: 'Tool' }],
+    }
+    : { artists: [], songs: [], albums: [] };
+  musicBrainz.albumTracks = async () => [
+    { title: 'The Grudge', artist: 'Tool' },
+    { title: 'Eon Blue Apocalypse', artist: 'Tool' },
+    { title: 'The Patient', artist: 'Tool' },
+    { title: 'Mantra', artist: 'Tool' },
+    { title: 'Schism', artist: 'Tool' },
+    { title: 'Parabol', artist: 'Tool' },
+  ];
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = 'http://127.0.0.1:' + server.address().port;
   const mk = (await req('POST', '/api/rooms')).json, H = { 'x-host-key': mk.hostKey };
@@ -51,8 +66,16 @@ const snap = (path, headers) => new Promise((resolve, reject) => {
   const t = (await req('GET', `/api/rooms/${mk.code}/search?q=${encodeURIComponent('so what')}`, null, gH(b))).json;
   assert.ok(t.songs.some((s) => /so what/i.test(s.title)) && t.songs.length <= 8 && t.artists.length <= 8);
   ok("search finds artists and songs in the room's own music, by part of a name, up to 8 each");
+  const external = await req('GET', `/api/rooms/${mk.code}/search?q=tool`);
+  assert.ok(external.json.artists.some((x) => x.name === 'Tool' && x.source === 'musicbrainz'));
+  assert.ok(external.json.songs.some((x) => x.title === 'Schism' && x.source === 'musicbrainz'));
+  assert.ok(external.json.albums.some((x) => x.title === 'Lateralus'));
+  const album = await req('GET', `/api/rooms/${mk.code}/search/album/12345678-1234-1234-1234-123456789abc`);
+  assert.strictEqual(album.status, 200); assert.strictEqual(album.json.songs.length, 5);
+  assert.strictEqual((await req('GET', `/api/rooms/${mk.code}/search/album/not-an-id`)).status, 400);
+  ok('search also includes MusicBrainz artists, recordings and albums; album selections return tracklists');
   for (const bad of ['', ' ', 'a', '%%%', 'x'.repeat(500)]) { const r = await req('GET', `/api/rooms/${mk.code}/search?q=${encodeURIComponent(bad)}`, null, gH(b)); assert.strictEqual(r.status, 200); assert.ok(r.json.artists.length <= 8); }
-  assert.deepStrictEqual((await req('GET', `/api/rooms/${mk.code}/search?q=zzqxjv`, null, gH(b))).json, { artists: [], songs: [] });
+  assert.deepStrictEqual((await req('GET', `/api/rooms/${mk.code}/search?q=zzqxjv`, null, gH(b))).json, { artists: [], songs: [], albums: [] });
   ok('empty, too short, junk and very long searches are harmless; no match gives empty lists');
 
   // ---- editing

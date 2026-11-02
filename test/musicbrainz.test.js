@@ -20,6 +20,43 @@ const { Room } = require('../lib/room');
           }] }),
         };
       }
+      if (new URL(requestedUrl).pathname.endsWith('/recording/')) {
+        return {
+          ok: true,
+          json: async () => ({ recordings: [
+            { title: 'Schism', score: 100, 'artist-credit': [{ name: 'Tool' }] },
+            { title: 'Wrong', score: 40, 'artist-credit': [{ name: 'Other' }] },
+          ] }),
+        };
+      }
+      if (new URL(requestedUrl).pathname.endsWith('/release-group/')) {
+        return {
+          ok: true,
+          json: async () => ({ 'release-groups': [
+            { id: '12345678-1234-1234-1234-123456789abc', title: 'Lateralus', score: 100, 'artist-credit': [{ name: 'Tool' }] },
+          ] }),
+        };
+      }
+      if (new URL(requestedUrl).pathname.endsWith('/release-group/12345678-1234-1234-1234-123456789abc')) {
+        return { ok: true, json: async () => ({ releases: [{ id: '00000000-0000-0000-0000-000000000001' }] }) };
+      }
+      if (new URL(requestedUrl).pathname.endsWith('/release/00000000-0000-0000-0000-000000000001')) {
+        return {
+          ok: true,
+          json: async () => ({
+            'artist-credit': [{ name: 'Tool' }],
+            media: [{ tracks: [
+              { title: 'Track One', recording: { 'artist-credit': [{ name: 'Tool' }] } },
+              { title: 'Track Two' },
+              { title: 'Track One', recording: { 'artist-credit': [{ name: 'Tool' }] } },
+              { title: 'Track Three' },
+              { title: 'Track Four' },
+              { title: 'Track Five' },
+              { title: 'Track Six' },
+            ] }],
+          }),
+        };
+      }
       return {
         ok: true,
         json: async () => ({
@@ -49,6 +86,45 @@ const { Room } = require('../lib/room');
   const bach = await client.lookupArtist('Bach');
   assert.ok(bach.some((x) => x.genre === 'classical'), 'exact aliases resolve canonical artist names');
   console.log('  ok  MusicBrainz maps positive community tags, exact aliases, and cached artist lookups');
+
+  const found = await client.search('Schism');
+  assert.deepStrictEqual(found.songs[0], { title: 'Schism', artist: 'Tool', source: 'musicbrainz' });
+  assert.strictEqual(found.albums[0].title, 'Lateralus');
+  assert.ok(found.artists.some((x) => x.name === 'Tool'));
+  console.log('  ok  MusicBrainz search returns artist, recording and release-group matches');
+
+  const withTracks = createClient({
+    intervalMs: 0,
+    fetchImpl: async (url) => {
+      const path = new URL(url).pathname;
+      if (path.endsWith('/release-group/12345678-1234-1234-1234-123456789abc')) {
+        return { ok: true, json: async () => ({ releases: [{ id: '00000000-0000-0000-0000-000000000001' }] }) };
+      }
+      if (path.endsWith('/release/00000000-0000-0000-0000-000000000001')) {
+        return {
+          ok: true,
+          json: async () => ({
+            'artist-credit': [{ name: 'Tool' }],
+            media: [{ tracks: [
+              { title: 'Track One', recording: { 'artist-credit': [{ name: 'Tool' }] } },
+              { title: 'Track Two' },
+              { title: 'Track One', recording: { 'artist-credit': [{ name: 'Tool' }] } },
+              { title: 'Track Three' },
+              { title: 'Track Four' },
+              { title: 'Track Five' },
+              { title: 'Track Six' },
+            ] }],
+          }),
+        };
+      }
+      throw new Error('unexpected MusicBrainz path: ' + path);
+    },
+  });
+  const tracks = await withTracks.albumTracks('12345678-1234-1234-1234-123456789abc');
+  assert.strictEqual(tracks.length, 5);
+  assert.strictEqual(tracks[1].artist, 'Tool', 'album artist is used when track artist credit is missing');
+  assert.deepStrictEqual(await withTracks.albumTracks('bad-id'), []);
+  console.log('  ok  album tracklists deduplicate, resolve credits, and honor the five-song pick limit');
 
   const room = new Room('ABCDE', 'key');
   const guest = room.addGuest('Guest', [], { artists: ['Tool', 'Bach'] });

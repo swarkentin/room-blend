@@ -22,6 +22,19 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
     await host.fill('#room-name', 'Friday Night'); await host.waitForTimeout(700);
     ok('host names the room');
 
+    await host.click('#tv-mode');
+    assert.ok(await host.locator('body').evaluate((e) => e.classList.contains('tv-cast-mode')));
+    assert.strictEqual(await host.textContent('#tv-cast-code'), code);
+    assert.strictEqual((await host.textContent('#tv-cast-room')).trim(), 'Friday Night');
+    assert.ok(await host.locator('#tv-cast-view').isVisible());
+    ok('TV / cast view presents the room in the host tab');
+    const castQr = path.join(tmp, 'cast-qr.png'); await host.locator('#tv-cast-qr').screenshot({ path: castQr });
+    const castDecoded = execFileSync('python3', ['-c', 'import cv2,sys;im=cv2.imread(sys.argv[1]);im=cv2.resize(im,None,fx=3,fy=3,interpolation=cv2.INTER_NEAREST);print(cv2.QRCodeDetector().detectAndDecode(im)[0])', castQr]).toString().trim();
+    assert.strictEqual(castDecoded, `${APP}/${code}`); ok('TV / cast view shows a scannable join QR code');
+    await host.click('#tv-cast-exit');
+    assert.ok(!(await host.locator('body').evaluate((e) => e.classList.contains('tv-cast-mode'))));
+    assert.match(host.url(), /\/host\/[A-Z0-9]{5}$/); ok('exiting TV view returns to the host controls without navigating away');
+
     // ---- the QR code on screen really decodes to the short join link ----
     const qrPng = path.join(tmp, 'qr.png'); await host.locator('#qr').screenshot({ path: qrPng });
     const decoded = execFileSync('python3', ['-c', 'import cv2,sys;im=cv2.imread(sys.argv[1]);im=cv2.resize(im,None,fx=3,fy=3,interpolation=cv2.INTER_NEAREST);print(cv2.QRCodeDetector().detectAndDecode(im)[0])', qrPng]).toString().trim();
@@ -69,6 +82,14 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
     const hp = await page({ width: 390, height: 800 }); await hp.goto(APP); await hp.click('#start-room'); await hp.waitForURL(/host\//);
     assert.ok(await hp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)); ok('the host header has no horizontal scroll on a phone');
     assert.deepStrictEqual(errors, [], errors.join(' | ')); ok('no page errors');
-  } finally { await browser.close(); srv.kill(); fs.rmSync(tmp, { recursive: true, force: true }); }
+  } finally {
+    await browser.close();
+    await new Promise((resolve) => {
+      if (srv.exitCode !== null || srv.signalCode !== null) return resolve();
+      srv.once('exit', resolve);
+      srv.kill('SIGTERM');
+    });
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
   console.log('\n' + passed + ' checks passed'); process.exit(0);
 })().catch((e) => { console.error('\nFAILED:', e.stack || e.message); process.exit(1); });

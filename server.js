@@ -318,9 +318,40 @@ async function api(req, res, url) {
   }
   // GET /api/rooms/:code/search?q=  -> artists and songs in this room's music that someone can name. Open to anyone who has the
   // room code, because the join page uses it before the guest exists; the per-visitor request limit above still applies.
-  if (parts[2] === 'search' && m === 'GET') {
+  if (parts[2] === 'search' && parts[3] === 'album' && parts.length === 5 && m === 'GET') {
+    const id = parts[4];
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return sendJson(res, 400, { error: 'invalid album id' });
+    try {
+      return sendJson(res, 200, { songs: (await musicBrainz.albumTracks(id)).slice(0, 5) });
+    } catch (e) {
+      L.warn('musicbrainz.album_failed', { message: String(e && e.message || e).slice(0, 100) });
+      return sendJson(res, 503, { error: 'MusicBrainz album tracks are unavailable right now' });
+    }
+  }
+  if (parts[2] === 'search' && parts.length === 3 && m === 'GET') {
     L.count('picks.searches');
-    return sendJson(res, 200, room.search(url.searchParams.get('q') || ''));
+    const result = room.search(url.searchParams.get('q') || '');
+    if (Engine.normKey(url.searchParams.get('q') || '').length < 2) return sendJson(res, 200, { ...result, albums: [] });
+    try {
+      const external = await musicBrainz.search(url.searchParams.get('q') || '');
+      const artists = new Map(result.artists.map((artist) => [Engine.normKey(artist.name), artist]));
+      for (const artist of external.artists) if (!artists.has(Engine.normKey(artist.name))) artists.set(Engine.normKey(artist.name), artist);
+      const songs = new Map(result.songs.map((song) => [Engine.songKey(song.title, song.artist), song]));
+      for (const song of external.songs) if (!songs.has(Engine.songKey(song.title, song.artist))) songs.set(Engine.songKey(song.title, song.artist), song);
+      const albums = new Map();
+      for (const album of external.albums) {
+        const key = Engine.normKey(album.title + ' ' + album.artist);
+        if (!albums.has(key)) albums.set(key, album);
+      }
+      return sendJson(res, 200, {
+        artists: [...artists.values()].slice(0, 8),
+        songs: [...songs.values()].slice(0, 8),
+        albums: [...albums.values()].slice(0, 8),
+      });
+    } catch (e) {
+      L.warn('musicbrainz.search_failed', { message: String(e && e.message || e).slice(0, 100) });
+      return sendJson(res, 200, { ...result, albums: [], lookupUnavailable: true });
+    }
   }
   if (parts[2] === 'vote' && m === 'POST') {
     const g = guestFor();
@@ -485,4 +516,4 @@ if (require.main === module) {
   process.on('SIGTERM', () => stop('SIGTERM'));
   process.on('SIGINT', () => stop('SIGINT'));
 }
-module.exports = { server, rooms, CLIENT_CONFIG };
+module.exports = { server, rooms, CLIENT_CONFIG, musicBrainz };

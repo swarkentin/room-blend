@@ -158,14 +158,15 @@ const until = async (fn, ms = 8000, what = 'condition') => { const t0 = Date.now
     assert.ok(!log.searches.some((q) => q.startsWith('track:') && /Pool Song/.test(q))); ok('playing it needed no title lookup');
 
     // ---- a guest names an artist the room's songs do not have: Spotify is searched for that artist ----
-    await g1.click('#gv-picks-sum'); await g1.fill('#gv-q', 'Zed Obscure');
-    await g1.waitForSelector('#gv-add-typed'); assert.ok(/If the host's music has this artist/.test(await g1.textContent('#gv-picks-msg'))); ok('searching for an artist the room does not have offers to add them anyway');
-    await g1.click('#gv-add-typed');
+    await g1.fill('#gv-picks #gv-q', 'Zed Obscure');
+    await g1.waitForSelector('#gv-picks #gv-add-typed'); assert.ok(/You can still add this name as an artist/.test(await g1.textContent('#gv-picks #gv-picks-msg'))); ok('searching for an artist the room does not have offers to add them anyway');
+    await g1.click('#gv-picks #gv-add-typed');
     await until(() => log.artistQueries.some((x) => /artist:"Zed Obscure"@0/.test(x)), 8000, 'artist search');
     assert.ok(log.artistQueries.every((x) => !x.includes('(no market)'))); ok('the host searched Spotify for that artist, for songs playable in the host\'s market');
-    await g1.fill('#gv-q', 'zed obscure'); await g1.waitForSelector('#gv-results .rrow:has-text("Zed Obscure")');
-    assert.ok(/(1\d|20|\d) songs? here/.test(await g1.textContent('#gv-results'))); ok('their songs are now in the room, so the guest can search for them');
-    await g1.fill('#gv-q', 'Nobody Known'); await g1.click('#gv-add-typed');
+    await g1.fill('#gv-picks #gv-q', 'zed obscure'); await g1.waitForSelector('#gv-picks #gv-results .rrow:has-text("Zed Obscure")');
+    assert.ok(/(1\d|20|\d) songs? here/.test(await g1.textContent('#gv-picks #gv-results'))); ok('their songs are now in the room, so the guest can search for them');
+    const unmatchedArtist = 'Nobody Known e2e-' + Date.now();
+    await g1.fill('#gv-picks #gv-q', unmatchedArtist); await g1.waitForSelector('#gv-picks #gv-add-typed'); await g1.click('#gv-picks #gv-add-typed');
     await until(() => log.artistQueries.some((x) => /Nobody Known/.test(x)), 8000, 'second artist search');
     await new Promise((r) => setTimeout(r, 1500)); assert.strictEqual(log.artistQueries.filter((x) => /Nobody Known/.test(x)).length, 1); ok('an artist Spotify does not have is searched once and not asked for again');
     await g1.locator('#gv-chosen .chip', { hasText: 'Nobody Known' }).click(); await g1.locator('#gv-chosen .chip', { hasText: 'Zed Obscure' }).click();
