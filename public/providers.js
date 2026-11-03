@@ -34,11 +34,31 @@
 
   // One <audio> element shared by the library providers.
   var SILENCE = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
-  function makeAudio() {
+  function makeAudio(analyze) {
     var a = new Audio(); a.preload = 'auto';
+    var audioContext = null, analyser = null, source = null, frequencyData = null;
+    function setupAnalyser() {
+      if (!analyze || analyser) return;
+      var Context = window.AudioContext || window.webkitAudioContext;
+      if (!Context) return;
+      try {
+        audioContext = new Context();
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256; analyser.smoothingTimeConstant = 0.72;
+        source = audioContext.createMediaElementSource(a);
+        source.connect(analyser); analyser.connect(audioContext.destination);
+        frequencyData = new Uint8Array(analyser.frequencyBinCount);
+      } catch (e) {
+        analyser = null;
+      }
+    }
     var api = {
       onended: function () {},
-      unlock: function () { try { a.src = SILENCE; var p = a.play(); if (p && p.catch) p.catch(function () {}); } catch (e) { /* ignore */ } },
+      unlock: function () {
+        setupAnalyser();
+        if (audioContext && audioContext.state === 'suspended') audioContext.resume();
+        try { a.src = SILENCE; var p = a.play(); if (p && p.catch) p.catch(function () {}); } catch (e) { /* ignore */ }
+      },
       play: function (url) {
         return new Promise(function (resolve) {
           var done = false, t;
@@ -50,6 +70,24 @@
         });
       },
       pause: function () { a.pause(); }, resume: function () { var p = a.play(); if (p && p.catch) p.catch(function () {}); }, stop: function () { a.pause(); a.removeAttribute('src'); a.load(); },
+      progress: function () { return { currentTime: a.currentTime, duration: a.duration, paused: a.paused }; },
+      seek: function (seconds) {
+        if (!Number.isFinite(seconds) || !Number.isFinite(a.duration)) return false;
+        a.currentTime = Math.max(0, Math.min(a.duration, seconds)); return true;
+      },
+      levels: function (count) {
+        if (!analyser || !frequencyData || a.paused) return null;
+        analyser.getByteFrequencyData(frequencyData);
+        var out = [], bins = frequencyData.length;
+        for (var i = 0; i < count; i++) {
+          var start = Math.floor(Math.pow(i / count, 2) * bins);
+          var end = Math.max(start + 1, Math.floor(Math.pow((i + 1) / count, 2) * bins));
+          var peak = 0;
+          for (var bin = start; bin < Math.min(end, bins); bin++) peak = Math.max(peak, frequencyData[bin]);
+          out.push(peak / 255);
+        }
+        return out;
+      },
     };
     a.addEventListener('ended', function () { api.onended(); });
     api.el = a;
@@ -131,6 +169,7 @@
         return ok;
       },
       pause: function () { return SP.pause(); }, resume: function () { return SP.resume(); }, stop: function () { return SP.pause(); },
+      canSeek: function () { return on; }, progress: function () { return SP.progress(); }, seek: function (seconds) { return SP.seek(seconds); },
       canExtras: function () { return !!(SP.clientId() && SP.connected()); },
       pool: true, // the room's songs come from Spotify's own genre search; the built-in list is only a fallback
       extras: function (genre, partners) { return SP.searchGenre(genre, partners); },

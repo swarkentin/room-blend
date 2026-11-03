@@ -169,6 +169,7 @@
     },
     lastError: function () { return 'A song could not be played from your server, so it was skipped.'; },
     pause: function () { audio && audio.pause(); }, resume: function () { audio && audio.resume(); }, stop: function () { audio && audio.stop(); },
+    canSeek: function () { return !!audio; }, progress: function () { return audio ? audio.progress() : null; }, seek: function (seconds) { return audio && audio.seek(seconds); },
   };
   P.register(p);
 })();

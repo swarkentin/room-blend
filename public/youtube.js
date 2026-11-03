@@ -11,7 +11,7 @@
   'use strict';
   var P = window.Providers, C = window.CONFIG || {}, el = P.el, state = P.state;
   var KEY = 'rb-yt-key', CACHE = 'rb-yt-cache', CACHE_MAX = 3000, QUOTA_DAY = 'rb-yt-quota-day', API_NEXT = 'rb-yt-api-next';
-  var on = false, busy = false, note = '', player = null, dock = null, cur = null, waiter = null, rctx = null, cache = null;
+  var on = false, paused = true, busy = false, note = '', player = null, dock = null, cur = null, waiter = null, rctx = null, cache = null;
   var apiQueue = Promise.resolve(), apiRetryMs = 1000, playbackAttempt = 0;
   var quotaPausedDay = '', API_INTERVAL_MS = 2000, MAX_RETRY_WAIT_MS = 5000, MIN_GENRE_TRACKS = 12;
 
@@ -269,8 +269,9 @@
 
   function stateChange(e) {
     var s = e && e.data;
-    if (s === 1 && waiter) waiter(true);
-    else if (s === 0 && cur && !waiter) { cur = null; if (rctx) rctx.ended(); }
+    if (s === 1) { paused = false; if (waiter) waiter(true); }
+    else if (s === 2) paused = true;
+    else if (s === 0) { paused = true; if (cur && !waiter) { cur = null; if (rctx) rctx.ended(); } }
   }
   function playerError(e) {
     var code = e && e.data;
@@ -382,9 +383,15 @@
       note = '"' + track.title + '" has no playable video on YouTube, so it was skipped.';
       return null;
     },
-    pause: function () { try { player.pauseVideo(); } catch (e) { /* ignore */ } },
-    resume: function () { try { player.playVideo(); } catch (e) { /* ignore */ } },
-    stop: function () { playbackAttempt++; on = false; try { if (player) player.stopVideo(); } catch (e) { /* ignore */ } cur = null; if (dock) dock.hidden = true; },
+    pause: function () { paused = true; try { player.pauseVideo(); } catch (e) { /* ignore */ } },
+    resume: function () { paused = false; try { player.playVideo(); } catch (e) { /* ignore */ } },
+    stop: function () { playbackAttempt++; on = false; paused = true; try { if (player) player.stopVideo(); } catch (e) { /* ignore */ } cur = null; if (dock) dock.hidden = true; },
+    progress: function () {
+      try {
+        if (!player || typeof player.getDuration !== 'function' || typeof player.getCurrentTime !== 'function') return null;
+        return { currentTime: player.getCurrentTime(), duration: player.getDuration(), paused: paused || !on };
+      } catch (e) { return null; }
+    },
   };
   P.register(yt);
 })();

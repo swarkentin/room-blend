@@ -89,6 +89,9 @@ button { cursor: pointer; }
 .now .btn.primary { background: var(--now-fg); color: var(--now-bg); border-color: var(--now-fg); }
 .now .btn[aria-pressed="true"] { background: var(--now-fg); color: var(--now-bg); }
 .now :focus-visible { outline-color: var(--now-fg); }
+.host-media { margin-top: 16px; }
+.host-media input { display: block; width: 100%; accent-color: var(--now-fg); }
+.media-times { display: flex; justify-content: space-between; color: var(--now-muted); font: 12px var(--font-mono); font-variant-numeric: tabular-nums; }
 .check { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
 .check input { width: 16px; height: 16px; accent-color: var(--ink); }
 .verdict { display: inline-flex; gap: 6px; align-items: center; margin-left: auto; }
@@ -199,6 +202,10 @@ button { cursor: pointer; }
 .tv-cast-meta { margin: 10px 0 0; color: #9eabc0; font-size: clamp(15px, 1.6vw, 22px); }
 .tv-cast .tags { margin-top: 18px; }
 .tv-cast .tag { font-size: clamp(13px, 1.3vw, 18px); padding: 5px 12px; }
+.tv-cast-progress { width: min(100%, 760px); margin-top: 22px; }
+.tv-cast-progress-track { height: 7px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.2); }
+.tv-cast-progress-track div { height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--cast-a, #72dfd1), var(--cast-b, #7776e8)); transition: width .2s linear; }
+.tv-cast-times { display: flex; justify-content: space-between; margin-top: 6px; color: #b6c0d0; font: clamp(12px, 1.1vw, 16px) var(--font-mono); font-variant-numeric: tabular-nums; }
 .tv-cast-next-wrap { margin-top: clamp(26px, 5vh, 60px); }
 .tv-cast-next-wrap h2 { margin-bottom: 12px; color: #9eabc0; font-family: var(--font-mono); font-size: clamp(12px, 1.3vw, 18px); letter-spacing: .12em; text-transform: uppercase; }
 .tv-cast-next { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; font-size: clamp(17px, 2vw, 28px); }
@@ -213,12 +220,12 @@ body.tv-cast-mode #app .tv-cast { position: relative; min-height: 88vh; display:
 body.tv-cast-mode .tv-cast-join, body.tv-cast-mode .tv-cast-main { position: relative; z-index: 1; }
 body.tv-cast-mode .tv-cast-atmosphere { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
 .tv-cast-orb { position: absolute; width: 58vw; aspect-ratio: 1; border-radius: 50%; filter: blur(80px); opacity: .13; }
-.tv-cast-orb.orb-one { top: -34vw; left: 15vw; background: #6a63ff; }
-.tv-cast-orb.orb-two { right: -25vw; bottom: -44vw; background: #15b9b0; }
-.tv-cast-orb.orb-three { top: 40vh; left: -42vw; background: #d65b9d; opacity: .09; }
+.tv-cast-orb.orb-one { top: -34vw; left: 15vw; background: var(--cast-b, #6a63ff); }
+.tv-cast-orb.orb-two { right: -25vw; bottom: -44vw; background: var(--cast-a, #15b9b0); }
+.tv-cast-orb.orb-three { top: 40vh; left: -42vw; background: var(--cast-b, #d65b9d); opacity: .09; }
 .tv-cast-spectrum { position: fixed; left: 5vw; bottom: 0; display: flex; align-items: flex-end; gap: 5px; width: min(48vw, 580px); height: 72px; opacity: 0; }
 .tv-cast-playing .tv-cast-spectrum { opacity: .28; }
-.tv-cast-spectrum span { flex: 1; height: 100%; max-height: 66px; transform: scaleY(.18); transform-origin: bottom; border-radius: 5px 5px 0 0; background: linear-gradient(180deg, #72dfd1, #7776e8); }
+.tv-cast-spectrum span { flex: 1; height: 100%; max-height: 66px; transform: scaleY(.08); transform-origin: bottom; border-radius: 5px 5px 0 0; background: linear-gradient(180deg, var(--cast-a, #72dfd1), var(--cast-b, #7776e8)); transition: background .8s ease; }
 body.tv-cast-mode #yt-dock { position: fixed !important; top: 50% !important; right: 3vw !important; bottom: auto !important; z-index: 3 !important; width: min(35vw, 620px) !important; padding: 0 !important; overflow: hidden; border: 0 !important; border-radius: 14px !important; box-shadow: 0 16px 50px rgba(0,0,0,.4) !important; transform: translateY(-50%); }
 body.tv-cast-mode #yt-holder, body.tv-cast-mode iframe#yt-holder { display: block; width: 100% !important; height: auto !important; aspect-ratio: 16 / 9; }
 body.tv-cast-mode #yt-holder iframe { display: block; width: 100% !important; height: 100% !important; aspect-ratio: 16 / 9; }
@@ -228,17 +235,13 @@ body.tv-cast-mode #yt-dock .hint { display: none; }
   .tv-cast-orb.orb-one { animation: cast-drift-one 54s ease-in-out infinite alternate; }
   .tv-cast-orb.orb-two { animation: cast-drift-two 68s ease-in-out infinite alternate; }
   .tv-cast-orb.orb-three { animation: cast-drift-three 76s ease-in-out infinite alternate; }
-  .tv-cast-spectrum span { animation: cast-equalize 1.8s ease-in-out infinite alternate; }
-  .tv-cast-spectrum span:nth-child(4n + 1) { animation-delay: -.8s; }
-  .tv-cast-spectrum span:nth-child(4n + 2) { animation-delay: -1.3s; }
-  .tv-cast-spectrum span:nth-child(4n + 3) { animation-delay: -.4s; }
   @keyframes cast-drift-one { to { transform: translate(22vw, 18vh) scale(1.16); opacity: .2; } }
   @keyframes cast-drift-two { to { transform: translate(-18vw, -16vh) scale(.84); opacity: .2; } }
   @keyframes cast-drift-three { to { transform: translate(23vw, -12vh) scale(1.2); opacity: .16; } }
-  @keyframes cast-equalize { to { transform: scaleY(.78); } }
 }
 @media (prefers-reduced-motion: reduce) {
   .tv-cast-spectrum { transition: none; }
+  .tv-cast-progress-track div { transition: none; }
 }
 @media (max-width: 700px) {
   body.tv-cast-mode #app .wrap { padding: 4vh 5vw 72px; }

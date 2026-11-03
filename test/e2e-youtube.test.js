@@ -30,12 +30,14 @@ PLITEMS.push({ snippet: { title: 'Private video', resourceId: { videoId: 'plPriv
 const SMALLITEMS = PLITEMS.slice(0, 6);
 const IFRAME_API = `
 window.__ytLog = [];
+window.__ytCurrentTime = 35; window.__ytDuration = 180;
 window.YT = { Player: function (id, opts) {
   var self = this; window.__ytPlayer = self; window.__ytOpts = opts;
   setTimeout(function () { opts.events.onReady({}); }, 20);
   self.loadVideoById = function (v) { window.__ytLog.push(v); if (window.__ytBlock) return;
     if (window.__ytFail === 'all' || (window.__ytFail === 'first' && !/_b$/.test(v))) { setTimeout(function () { opts.events.onError({ data: 150 }); }, 30); return; } setTimeout(function () { opts.events.onStateChange({ data: 1 }); }, 30); };
   self.pauseVideo = function () { window.__ytPaused = true; }; self.playVideo = function () { window.__ytPaused = false; }; self.stopVideo = function () {};
+  self.getCurrentTime = function () { return window.__ytCurrentTime; }; self.getDuration = function () { return window.__ytDuration; };
 } };
 setTimeout(function () { if (window.onYouTubeIframeAPIReady) window.onYouTubeIframeAPIReady(); }, 10);`;
 const yt = http.createServer((req, res) => {
@@ -119,6 +121,8 @@ const yt = http.createServer((req, res) => {
     assert.ok(log.searches[0].includes(t1.split(' (')[0])); ok('the search used the song title and artist');
 
     await host.click('#tv-mode');
+    assert.strictEqual(await host.isVisible('#tv-cast-progress'), true); ok('the cast view shows progress and duration from the YouTube player');
+    assert.strictEqual(await host.isVisible('#host-media'), false); ok('YouTube keeps seeking in its own embedded player');
     const castPlayerRatio = await host.evaluate(() => {
       const box = document.querySelector('#yt-holder').getBoundingClientRect();
       return box.width / box.height;

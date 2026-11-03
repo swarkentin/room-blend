@@ -176,7 +176,7 @@ window.Spotify_ = (function () {
   // ---------- web player (host) ----------
   var player = null, deviceId = null;
   var handlers = { ended: function () {}, error: function () {}, ready: function () {} };
-  var currentUri = null, endedFor = null;
+  var currentUri = null, endedFor = null, playbackState = null, playbackStateAt = 0;
 
   function loadSdk() {
     return new Promise(function (resolve, reject) {
@@ -198,6 +198,7 @@ window.Spotify_ = (function () {
       player.addListener(k, function (e) { handlers.error(k, e && e.message); });
     });
     player.addListener('player_state_changed', function (st) {
+      playbackState = st; playbackStateAt = Date.now();
       if (!st || !currentUri) return;
       // A finished track shows up as paused at 0 with the track in "previous".
       var done = st.paused && st.position === 0 && st.track_window && (st.track_window.previous_tracks || []).some(function (t) { return t.uri === currentUri; });
@@ -227,6 +228,13 @@ window.Spotify_ = (function () {
     api: api, resolveUri: resolveUri, searchGenre: searchGenre, searchArtist: searchArtist, topArtistGenres: topArtistGenres,
     startPlayer: startPlayer, transfer: transfer, play: play,
     pause: function () { return player && player.pause(); }, resume: function () { return player && player.resume(); },
+    progress: function () {
+      if (!playbackState || !playbackState.track_window || !playbackState.track_window.current_track) return null;
+      var currentTime = playbackState.position / 1000;
+      if (!playbackState.paused) currentTime += (Date.now() - playbackStateAt) / 1000;
+      return { currentTime: currentTime, duration: playbackState.track_window.current_track.duration_ms / 1000, paused: playbackState.paused };
+    },
+    seek: function (seconds) { return player ? player.seek(Math.round(seconds * 1000)) : false; },
     ready: function () { return !!deviceId; },
   };
 })();

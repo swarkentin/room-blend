@@ -88,6 +88,18 @@ const SEED = SONGS.map(([f]) => ({ path: 'Album/' + f, b64: b64(f) }))
     const t1 = await until(async () => { const t = await nowTitle(); return /^(Rock|Blues|Jazz|Mystery)/.test(t) ? t : ''; }, 12000, 'first song');
     assert.ok(/^Rock/.test(t1), 'a rock fan should hear rock first, got ' + t1); ok('a rock fan is played a rock song: ' + t1);
     assert.ok((await until(playingSrc, 12000, 'audio playing')).startsWith('blob:')); ok('the browser plays the file read through its handle (blob audio, currentTime advancing)');
+    assert.strictEqual(await host.isVisible('#host-media'), true); ok('local playback exposes a host-side seek control');
+    await host.evaluate(() => {
+      const seek = document.querySelector('#host-seek');
+      seek.value = '0.8';
+      seek.dispatchEvent(new Event('input', { bubbles: true }));
+      seek.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await until(() => host.evaluate(() => { const a = window.__audios[window.__audios.length - 1]; return a && a.currentTime > 0.7 && a.currentTime < 1.2; }), 3000, 'local seek applied');
+    ok('the host seek control moves the local audio position');
+    await host.click('#tv-mode');
+    assert.strictEqual(await host.isVisible('#tv-cast-progress'), true); ok('the cast view shows local song progress and duration');
+    await host.click('#tv-cast-exit');
 
     // ---- a reload forgets the files but not the folder ----
     await host.reload(); await host.waitForSelector('#sp');
