@@ -1,5 +1,5 @@
 // Maps Spotify's many micro-genres ("modern rock", "indie folk", "trap latino") onto the
-// 56 canonical genres the engine uses. Works in the browser (window.GenreMap) and Node.
+// 62 canonical genres the engine uses. Works in the browser (window.GenreMap) and Node.
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else root.GenreMap = factory();
@@ -9,9 +9,15 @@
   var RULES = [
     ['christmas', /christmas|xmas|^holiday|yule/],
     ['halloween', /halloween|spooky/],
+    // Film, TV, game and stage music. Before classical, so "orchestral soundtrack" is a soundtrack that is also classical.
+    ['soundtrack', /soundtrack|film score|movie|\bscore\b|\bost\b|video game|\bvgm\b|musicals?\b|show ?tunes|broadway|cast recording|stage and screen|hollywood|scorecore/],
+    // Indian film and pop music, in any of its languages. Before hip hop and folk so "desi hip hop" counts as both.
+    ['bollywood', /bollywood|hindi|indian|\bdesi\b|punjabi|bhangra|filmi|tollywood|kollywood|tamil|telugu|\bsufi\b|ghazal|qawwali|carnatic|hindustani|bhojpuri|marathi|malayalam|kannada/],
     ['lo-fi', /lo-?fi|chillhop/],
     ['trip hop', /trip hop|trip-hop|bristol sound|portishead/],
     ['reggaeton', /reggaeton|urbano|latin trap|trap latino|perreo/],
+    // Samba, MPB, sertanejo and the rest of Brazil. Bossa nova keeps its own genre (below).
+    ['brazilian', /brazil|brasil|samba|\bmpb\b|sertanejo|forr[oó]|pagode|\bax[eé]\b|tropic[aá]lia|baile funk|funk carioca|carioca|choro/],
     ['trap', /\btrap\b|drill|cloud rap|phonk/],
     ['hip hop', /hip hop|hip-hop|\brap\b|grime|boom bap|crunk/],
     ['dancehall', /dancehall|ragga|soca/],
@@ -19,7 +25,8 @@
     ['amapiano', /amapiano|gqom|kwaito/],
     ['afrobeats', /afrobeat|afropop|afro pop|afro swing|amapiano|highlife|naija/],
     ['reggae', /reggae|\bdub\b|lovers rock/],
-    ['k-pop', /k-pop|kpop|korean|j-pop|city pop/],
+    ['j-pop', /j-pop|jpop|j-rock|jrock|j-rap|j-idol|city pop|anime|vocaloid|shibuya-kei|visual kei|enka|japanese/],
+    ['k-pop', /k-pop|kpop|korean|k-rap|k-indie|k-rock/],
     ['hyperpop', /hyperpop|pc music|digicore|glitchcore/],
     ['dance pop', /dance pop|europop|eurodance|hi-nrg/],
     ['synthwave', /synthwave|retrowave|outrun|darksynth/],
@@ -30,7 +37,7 @@
     ['drum and bass', /drum and bass|drum & bass|\bdnb\b|jungle|breakbeat/],
     ['idm', /\bidm\b|intelligent dance|glitch|braindance|electronica|hauntology|leftfield/],
     ['techno', /techno|acid house|detroit|industrial/],
-    ['metal', /metal|thrash|doom|deathcore/],
+    ['metal', /metal|thrash|doom|deathcore|djent|grindcore/],
     ['pop punk', /pop punk|pop-punk|easycore/],
     ['emo', /\bemo\b|screamo/],
     ['new wave', /new wave|post-punk|no wave|goth|darkwave|coldwave/],
@@ -48,7 +55,7 @@
     ['swing', /swing|big band|jive|lindy/],
     ['downtempo', /downtempo|balearic|nu jazz/],
     ['chillout', /chillout|chill out|chill-out|lounge|\bchill\b|easy listening/],
-    ['bossa nova', /bossa|samba|\bmpb\b/],
+    ['bossa nova', /bossa/],
     ['jazz', /jazz|bebop|\bbop\b|standards/],
     ['americana', /americana|alt-country|alt country|outlaw|roots rock|red dirt|texas country/],
     ['country', /country|bluegrass|nashville|honky|western/],
@@ -62,7 +69,7 @@
     ['alternative', /alternative|britpop|garage rock|art rock|art pop|new rave|\balt\b/],
     ['house', /house|garage|club|\bdance\b/],
     ['electronic', /electro|synth|wave/],
-    ['classical', /classical|baroque|orchestra|opera|symphon|chamber music|piano(?! rock| pop)|romantic era|choral|soundtrack|film score|string quartet|early music|minimalis/],
+    ['classical', /classical|baroque|orchestra|opera|symphon|chamber music|piano(?! rock| pop)|romantic era|choral|string quartet|early music|minimalis/],
     ['rock', /\brock\b|rock and roll|rock & roll|rockabilly|\bmod\b|surf/],
     ['pop', /\bpop\b|teen|boy band|girl group|bubblegum|top 40|adult contemporary/],
   ];

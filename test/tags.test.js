@@ -10,6 +10,14 @@ const cases = { 'Rock': ['rock'], 'Alternative & Punk': ['alternative', 'punk'],
   'R&B': ['r&b'], 'Singer/Songwriter': ['singer-songwriter'], 'Drum & Bass': ['drum and bass'], 'Pop/Rock': ['pop', 'rock'], 'IDM': ['idm'], 'Lo-Fi Chill': ['lo-fi'], 'Downtempo; Ambient': ['downtempo', 'ambient'], 'Synthwave': ['synthwave'], 'Shoegaze/Dream Pop': ['shoegaze'], 'Neo-Soul': ['neo soul'], 'Hyperpop': ['hyperpop'], 'Trip-Hop': ['trip hop'], 'Unknown': [], '': [] };
 for (const [tag, want] of Object.entries(cases)) assert.deepStrictEqual(GM.fromTag(tag), want, tag);
 ok('genre tags map to canonical genres (' + Object.keys(cases).length + ' cases)');
+// The genres added with the regrouped picker, as file taggers and music services name them.
+const more = { 'Soundtrack': ['soundtrack'], 'Showtunes': ['soundtrack'], 'Musical': ['soundtrack'], 'Bollywood': ['bollywood'], 'Punjabi': ['bollywood'], 'J-Pop': ['j-pop'], 'Anime': ['j-pop'], 'City Pop': ['j-pop'], 'K-Pop': ['k-pop'],
+  'Samba': ['brazilian'], 'MPB': ['brazilian'], 'Sertanejo': ['brazilian'], 'Bossa Nova': ['bossa nova'], 'Djent': ['metal'], 'Progressive Metal': ['metal'], 'Metal; Djent': ['metal'], 'Hip-Hop; R&B': ['hip hop', 'r&b'], 'Classical': ['classical'] };
+for (const [tag, want] of Object.entries(more)) assert.deepStrictEqual(GM.fromTag(tag), want, tag);
+const named = { 'djent': 'metal', 'orchestral soundtrack': 'soundtrack', 'movie tunes': 'soundtrack', 'video game music': 'soundtrack', 'desi hip hop': 'bollywood', 'japanese city pop': 'j-pop', 'j-rock': 'j-pop', 'korean pop': 'k-pop',
+  'funk carioca': 'brazilian', 'baile funk': 'brazilian', 'bossa nova': 'bossa nova', 'trap latino': 'reggaeton', 'indie rock': 'indie', 'classic rock': 'classic rock', 'soft rock': 'classic rock', 'modern country rock': 'country' };
+for (const [name, want] of Object.entries(named)) assert.strictEqual(GM.classify(name), want, name);
+ok('soundtrack, Bollywood, J-pop (apart from K-pop), Brazilian and djent tags map to their genres, and earlier rules still win where they should (' + (Object.keys(more).length + Object.keys(named).length) + ' cases)');
 assert.deepStrictEqual(Tags.fromFilename('03 - Artist Name - Song Title.mp3'), { artist: 'Artist Name', title: 'Song Title' });
 assert.deepStrictEqual(Tags.fromFilename('Just A Title.flac'), { title: 'Just A Title' }); ok('filenames are a fallback for title and artist');
 

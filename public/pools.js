@@ -14,11 +14,12 @@
     'punk': 'punk', 'pop punk': 'pop punk', 'new wave': 'new wave', 'metal': 'metal', 'emo': 'emo', 'shoegaze': 'shoegaze', 'post-rock': 'post-rock',
     'blues': 'blues', 'country': 'country', 'folk': 'folk', 'americana': 'americana', 'singer-songwriter': 'singer-songwriter',
     'jazz': 'jazz', 'swing': 'swing', 'bossa nova': 'bossa nova', 'soul': 'soul', 'r&b': 'r&b', 'funk': 'funk', 'disco': 'disco', 'gospel': 'gospel', 'neo soul': 'neo soul',
-    'pop': 'pop', 'dance pop': 'dance pop', 'synth pop': 'synthpop', 'k-pop': 'k-pop', 'hyperpop': 'hyperpop',
+    'pop': 'pop', 'dance pop': 'dance pop', 'synth pop': 'synthpop', 'k-pop': 'k-pop', 'j-pop': 'j-pop', 'hyperpop': 'hyperpop',
     'electronic': 'electronic', 'house': 'house', 'techno': 'techno', 'edm': 'edm', 'dubstep': 'dubstep', 'drum and bass': 'drum and bass', 'idm': 'idm', 'ambient': 'ambient',
     'downtempo': 'downtempo', 'chillout': 'chillout', 'lo-fi': 'lo-fi', 'trip hop': 'trip hop', 'synthwave': 'synthwave', 'chillwave': 'chillwave',
     'hip hop': 'hip hop', 'trap': 'trap', 'reggae': 'reggae', 'ska': 'ska', 'dancehall': 'dancehall', 'latin': 'latin', 'reggaeton': 'reggaeton', 'afrobeats': 'afrobeats', 'amapiano': 'amapiano',
-    'classical': 'classical', 'christmas': 'christmas', 'halloween': 'halloween',
+    'bollywood': 'bollywood', 'brazilian': 'mpb', // Spotify's own genre for Brazilian popular music is "mpb"
+    'classical': 'classical', 'soundtrack': 'soundtrack', 'christmas': 'christmas', 'halloween': 'halloween',
   };
   // Real compound genre names, most useful first. Each is tagged with every genre it names.
   var BRIDGES = [
@@ -28,6 +29,7 @@
     'house pop', 'electro pop', 'electro swing', 'lo-fi hip hop', 'lo-fi jazz', 'ambient house',
     'latin pop', 'latin rock', 'latin hip hop', 'reggae rock', 'ska punk', 'dancehall pop',
     'funk metal', 'alternative metal', 'gothic rock', 'synth rock', 'emo pop', 'pop punk emo', 'swing jazz', 'gospel blues', 'gospel soul',
+    'orchestral soundtrack', 'anime soundtrack', 'bollywood pop', 'desi hip hop', 'japanese rock', 'brazilian jazz', 'brazilian funk',
   ];
 
   var tagCache = {};
