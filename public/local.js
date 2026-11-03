@@ -40,7 +40,7 @@
   }
   // Storage can be blocked (private windows, site data off). Remembering is a convenience, so failures are ignored.
   function rememberFolder(h) { return idb(function (s) { return s.put(h, DB_KEY); }).catch(function () {}); }
-  function forgetFolder() { return idb(function (s) { return s.delete(DB_KEY); }).catch(function () {}); }
+  function forgetFolder() { return idb(function (s) { return s.delete(DB_KEY); }); }
   function recallFolder() { return idb(function (s) { return s.get(DB_KEY); }).then(function (h) { return h && h.kind === 'directory' ? h : null; }).catch(function () { return null; }); }
   // A saved handle keeps its folder but not its permission. Asking needs a click, so this is only called from one.
   async function canRead(h) {
@@ -139,7 +139,16 @@
   function folderInput(label, id, ctx, cls) { return pick(label, id, { webkitdirectory: '', directory: '' }, ctx, cls); }
   function button(label, id, cls, fn) { return el('button', { class: 'btn' + (cls ? ' ' + cls : ''), type: 'button', id: id, text: label, onclick: fn }); }
   function forgetButton(ctx) {
-    return button('Forget this folder', 'loc-forget', 'small', function () { S.remembered = null; forgetFolder(); ctx.rerender(); });
+    return button('Forget this folder', 'loc-forget', 'small', async function () {
+      try {
+        await forgetFolder();
+        S.remembered = null;
+        S.error = '';
+      } catch (e) {
+        S.error = 'Room Blend could not forget that folder. Check browser storage settings and try again.';
+      }
+      ctx.rerender();
+    });
   }
 
   var p = {
