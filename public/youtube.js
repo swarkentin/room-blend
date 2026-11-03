@@ -21,12 +21,17 @@
   function apiKey() { return lsGet(KEY).trim(); }
   function keyLooksRight(k) { return /^[A-Za-z0-9_-]{30,60}$/.test(k); }
 
+  function storedObject(key) {
+    try { return JSON.parse(lsGet(key) || '{}') || {}; } catch (e) { return {}; }
+  }
   function cacheGet(k) {
-    if (!cache) { try { cache = JSON.parse(lsGet(CACHE) || '{}') || {}; } catch (e) { cache = {}; } }
+    if (!cache) cache = storedObject(CACHE);
+    else cache = Object.assign({}, cache, storedObject(CACHE));
     return cache[k];
   }
   function cachePut(k, v) {
     cacheGet(k);
+    cache = Object.assign({}, cache, storedObject(CACHE));
     cache[k] = v;
     var keys = Object.keys(cache);
     if (keys.length > CACHE_MAX) keys.slice(0, keys.length - CACHE_MAX).forEach(function (x) { delete cache[x]; });
@@ -172,16 +177,22 @@
   }
 
   // ---------- songs by genre (playlists are cheap to read: about 1 unit per 50 songs, against 100 per search) ----------
-  var POOLS = 'rb-yt-pools', POOL_TTL = 7 * 86400000, pools = null;
+  var POOLS = 'rb-yt-pools', POOL_TTL = 7 * 86400000, POOL_MAX = 200, pools = null;
   function poolGet(k) {
-    if (!pools) { try { pools = JSON.parse(lsGet(POOLS) || '{}') || {}; } catch (e) { pools = {}; } }
-    var h = pools[k]; return h && Date.now() - h.at < POOL_TTL ? h.tracks : null;
+    if (!pools) pools = storedObject(POOLS);
+    pools = Object.assign({}, pools, storedObject(POOLS));
+    var h = pools[k];
+    if (!h || Date.now() - h.at >= POOL_TTL) return null;
+    h.usedAt = Date.now();
+    lsSet(POOLS, JSON.stringify(pools));
+    return h.tracks;
   }
   function poolPut(k, tracks) {
-    poolGet(k);
-    pools[k] = { at: Date.now(), tracks: tracks };
+    if (!pools) pools = storedObject(POOLS);
+    pools = Object.assign({}, pools, storedObject(POOLS));
+    pools[k] = { at: Date.now(), usedAt: Date.now(), tracks: tracks };
     var keys = Object.keys(pools);
-    if (keys.length > 80) keys.sort(function (a, b) { return pools[a].at - pools[b].at; }).slice(0, keys.length - 80).forEach(function (x) { delete pools[x]; });
+    if (keys.length > POOL_MAX) keys.sort(function (a, b) { return (pools[a].usedAt || pools[a].at) - (pools[b].usedAt || pools[b].at); }).slice(0, keys.length - POOL_MAX).forEach(function (x) { delete pools[x]; });
     lsSet(POOLS, JSON.stringify(pools));
   }
   function seconds(iso) { var m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso || ''); return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : 0; }
