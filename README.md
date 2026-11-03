@@ -8,7 +8,7 @@ Open the service, press **Start a room**, then choose where your music is:
 
 - **Spotify: my songs**: plays your own saved songs through your Premium account and re-reads them automatically, so the catalogue is as big as your library.
 - **Spotify**: plays through your Premium account, using Spotify's own songs for the genres in the room. A short guide helps you create your own free Spotify app (2 minutes).
-- **My music files**: pick a folder on your computer. Nothing is uploaded except song names and genres.
+- **My music files**: pick a folder on your computer. Nothing is uploaded except song names and genres. Chrome, Edge and Opera remember the folder, so after a reload you reopen it with one click.
 - **YouTube (free)**: plays songs in YouTube's own player, so no Premium and no files are needed. You bring a free Google API key (about 5 minutes, steps are on the host page and in `docs/SETUP.md`). It searches a second playlist for a genre only when the first has fewer than 12 usable songs. Results are cached in the host browser for a week; new lookups pause for the day if Google's daily quota is exhausted or rate limits persist, and uncached songs are skipped so playback can continue. The browser cache survives redeploys at the same site address, but is not shared with other browsers or devices.
 - **Navidrome / Subsonic**: connect your own music server.
 - **Holiday blends**: guests can pick Christmas or Halloween. Those songs play only while someone in the room has picked the holiday, and everyone else is served by the style of each song.
@@ -69,7 +69,7 @@ Spotify limits a development-mode app to five authorised users, and extended acc
 ## Tests
 
     npm test                    # engine, tag reader (needs ffmpeg), API
-    npm run test:browser        # Spotify (shared, own app, saved-songs sync), local files, Navidrome/Subsonic sync, join paths, genre picker. Needs Playwright, ffmpeg and Python OpenCV (CI installs these).
+    npm run test:browser        # Spotify (shared, own app, saved-songs sync), local files (folder input and the File System Access API), Navidrome/Subsonic sync, join paths, genre picker. Needs Playwright, ffmpeg and Python OpenCV (CI installs these).
 
 ## Not verified against real Spotify
 
