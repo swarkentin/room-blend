@@ -118,6 +118,28 @@ const yt = http.createServer((req, res) => {
     assert.ok(/^vid\d+$/.test(id1)); ok('a song was looked up and loaded into the player: ' + t1 + ' -> ' + id1);
     assert.ok(log.searches[0].includes(t1.split(' (')[0])); ok('the search used the song title and artist');
 
+    await host.click('#tv-mode');
+    const castPlayerRatio = await host.evaluate(() => {
+      const box = document.querySelector('#yt-holder').getBoundingClientRect();
+      return box.width / box.height;
+    });
+    assert.ok(Math.abs(castPlayerRatio - 16 / 9) < 0.02); ok('TV / cast view keeps the YouTube player in a widescreen frame');
+    assert.strictEqual(await host.evaluate(() => getComputedStyle(document.querySelector('.tv-cast-orb.orb-one')).animationName), 'cast-drift-one'); ok('TV / cast view animates a slow ambient background');
+    await host.emulateMedia({ reducedMotion: 'reduce' });
+    assert.strictEqual(await host.evaluate(() => getComputedStyle(document.querySelector('.tv-cast-orb.orb-one')).animationName), 'none'); ok('TV / cast background motion respects reduced-motion preferences');
+    await host.emulateMedia({ reducedMotion: 'no-preference' });
+    const titleSizing = await host.evaluate(() => {
+      const title = document.querySelector('#tv-cast-title');
+      const regularSize = parseFloat(getComputedStyle(title).fontSize);
+      title.classList.add('is-extra-long');
+      const longSize = parseFloat(getComputedStyle(title).fontSize);
+      const lineClamp = getComputedStyle(title).webkitLineClamp;
+      title.classList.remove('is-extra-long');
+      return { regularSize, longSize, lineClamp };
+    });
+    assert.ok(titleSizing.longSize < titleSizing.regularSize && titleSizing.lineClamp === '2'); ok('long TV / cast titles shrink and clamp so the artist and queue stay visible');
+    await host.click('#tv-cast-exit');
+
     // let the guest finish settling in (4 s) so the queue is stable, then end whatever is playing
     await new Promise((r) => setTimeout(r, 5500));
     const t2 = await nowTitle();

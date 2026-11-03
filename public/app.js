@@ -242,7 +242,15 @@
         '</aside>' +
       '</main>';
 
+    var tvCastBars = [];
+    for (var tvBar = 0; tvBar < 22; tvBar++) tvCastBars.push(h('span'));
     var tvCastView = h('div', { class: 'tv-cast', id: 'tv-cast-view', hidden: 'hidden' }, [
+      h('div', { class: 'tv-cast-atmosphere', 'aria-hidden': 'true' }, [
+        h('span', { class: 'tv-cast-orb orb-one' }),
+        h('span', { class: 'tv-cast-orb orb-two' }),
+        h('span', { class: 'tv-cast-orb orb-three' }),
+        h('div', { class: 'tv-cast-spectrum' }, tvCastBars),
+      ]),
       h('div', { class: 'tv-cast-join' }, [
         h('div', { id: 'tv-cast-qr', role: 'img', 'aria-label': 'QR code to join this room' }),
         h('p', { class: 'tv-cast-label', text: 'Scan to join' }),
@@ -267,6 +275,7 @@
     try { $('tv-cast-qr').innerHTML = window.QR.svg(joinUrl, { ecc: 'M', label: 'QR code to join room ' + code }); } catch (e) { $('tv-cast-qr').hidden = true; }
     function setTvMode(on) {
       document.body.classList.toggle('tv-cast-mode', on);
+      if (!on) document.body.classList.remove('tv-cast-playing');
       tvCastView.hidden = !on;
       $('tv-mode').setAttribute('aria-pressed', on ? 'true' : 'false');
       $('tv-mode').textContent = on ? 'Exit TV view' : 'TV / cast view';
@@ -430,8 +439,13 @@
     // ----- rendering -----
     function render(st) {
       S.st = st;
+      var castTitle = $('tv-cast-title');
+      var castTitleText = st.now ? st.now.track.title : 'Waiting for the first guest';
       $('tv-cast-room').textContent = st.name || 'Now playing';
-      $('tv-cast-title').textContent = st.now ? st.now.track.title : 'Waiting for the first guest';
+      castTitle.textContent = castTitleText;
+      castTitle.classList.toggle('is-long', castTitleText.length > 36);
+      castTitle.classList.toggle('is-extra-long', castTitleText.length > 64);
+      document.body.classList.toggle('tv-cast-playing', !!st.now);
       $('tv-cast-artist').textContent = st.now ? st.now.track.artist : '';
       $('tv-cast-meta').textContent = st.guests.filter(function (g) { return g.status === 'active'; }).length + ' listening · ' + (st.now ? (st.now.mode === 'rotate' ? 'taking turns' : 'blending everyone’s taste') : 'waiting for guests');
       $('tv-cast-genres').replaceChildren.apply($('tv-cast-genres'), st.now ? tagList(st.now.track.genres || []) : []);
