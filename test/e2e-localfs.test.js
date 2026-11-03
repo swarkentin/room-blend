@@ -88,6 +88,7 @@ const SEED = SONGS.map(([f]) => ({ path: 'Album/' + f, b64: b64(f) }))
     const t1 = await until(async () => { const t = await nowTitle(); return /^(Rock|Blues|Jazz|Mystery)/.test(t) ? t : ''; }, 12000, 'first song');
     assert.ok(/^Rock/.test(t1), 'a rock fan should hear rock first, got ' + t1); ok('a rock fan is played a rock song: ' + t1);
     assert.ok((await until(playingSrc, 12000, 'audio playing')).startsWith('blob:')); ok('the browser plays the file read through its handle (blob audio, currentTime advancing)');
+    await until(() => host.isVisible('#host-media'), 12000, 'local seek control');
     assert.strictEqual(await host.isVisible('#host-media'), true); ok('local playback exposes a host-side seek control');
     await host.evaluate(() => {
       const seek = document.querySelector('#host-seek');
