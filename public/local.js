@@ -87,7 +87,7 @@
   // items: [{ name, rel, file }] from an <input>, or [{ name, rel, handle }] from a directory handle.
   async function scan(items, ctx) {
     if (!items.length) { S.phase = 'idle'; S.error = 'No songs found. Choose a folder with mp3, m4a, flac, ogg, opus or wav files.'; ctx.rerender(); return; }
-    audio = audio || P.makeAudio(); audio.unlock(); audio.onended = function () { ctx.ended(); };
+    audio = audio || P.makeAudio(true); audio.unlock(); audio.onended = function () { ctx.ended(); };
     S.phase = 'scanning'; S.done = 0; S.total = items.length; S.error = ''; ctx.rerender();
     var out = new Array(items.length), next = 0, last = 0;
     async function worker() {
@@ -211,6 +211,8 @@
     },
     lastError: function () { return 'A song could not be played by this browser, so it was skipped.'; },
     pause: function () { audio && audio.pause(); }, resume: function () { audio && audio.resume(); }, stop: function () { audio && audio.stop(); revoke(); },
+    canSeek: function () { return !!audio; }, progress: function () { return audio ? audio.progress() : null; }, seek: function (seconds) { return audio && audio.seek(seconds); },
+    levels: function (count) { return audio ? audio.levels(count) : null; },
     reset: function () { revoke(); entries = []; files = new Map(); S.phase = 'idle'; },
   };
   P.register(p);

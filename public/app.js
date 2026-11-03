@@ -19,6 +19,11 @@
   }
   function $(id) { return document.getElementById(id); }
   function pct(v) { return Math.round(v * 100); }
+  function clock(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return '--:--';
+    seconds = Math.floor(seconds);
+    return Math.floor(seconds / 60) + ':' + ('0' + (seconds % 60)).slice(-2);
+  }
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
   function lsDel(k) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } }
@@ -219,7 +224,8 @@
           '<h2 class="now-title" id="now-title">Nothing yet</h2><p class="now-artist" id="now-artist">Waiting for the first guest.</p>' +
           '<div class="tags" id="now-genres"></div><p class="why" id="now-why"></p><div class="fits" id="now-fits"></div><p class="why" id="now-votes" style="margin:10px 0 0"></p>' +
           '<div class="controls" style="margin-top:16px"><button class="btn primary" type="button" id="btn-next">Next song</button>' +
-          '<button class="btn" type="button" id="btn-pause" hidden>Pause</button></div></div>' +
+          '<button class="btn" type="button" id="btn-pause" hidden>Pause</button></div>' +
+          '<div class="host-media" id="host-media" hidden><label class="sr" for="host-seek">Seek through the current song</label><input id="host-seek" type="range" min="0" max="0" step="0.1" value="0" aria-label="Seek through the current song"><div class="media-times"><span id="host-time">0:00</span><span id="host-duration">--:--</span></div></div></div>' +
           '<div class="panel" style="margin-top:28px"><div class="sec-h"><h2>Up next</h2><span class="meta"><span id="q-meta"></span> <button class="btn small" type="button" id="copy-queue">Copy list</button></span></div>' +
           '<p class="overlap" id="overlap"></p><ol class="queue" id="queue"></ol></div>' +
         '</section>' +
@@ -262,6 +268,10 @@
         h('p', { class: 'tv-cast-artist', id: 'tv-cast-artist' }),
         h('p', { class: 'tv-cast-meta', id: 'tv-cast-meta' }),
         h('div', { class: 'tags', id: 'tv-cast-genres' }),
+        h('div', { class: 'tv-cast-progress', id: 'tv-cast-progress', hidden: 'hidden', role: 'group', 'aria-label': 'Song progress' }, [
+          h('div', { class: 'tv-cast-progress-track', role: 'progressbar', 'aria-label': 'Song progress', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': '0' }, [h('div', { id: 'tv-cast-progress-bar' })]),
+          h('div', { class: 'tv-cast-times' }, [h('span', { id: 'tv-cast-time', text: '0:00' }), h('span', { id: 'tv-cast-duration', text: '--:--' })]),
+        ]),
         h('div', { class: 'tv-cast-next-wrap' }, [h('h2', { text: 'Coming up' }), h('ol', { id: 'tv-cast-next', class: 'tv-cast-next' })]),
       ]),
       h('button', { class: 'btn tv-cast-exit', id: 'tv-cast-exit', type: 'button', text: 'Exit TV view' }),
@@ -304,6 +314,8 @@
     $('btn-pause').addEventListener('click', function () {
       if (S.paused) { S.prov.resume(); S.paused = false; $('btn-pause').textContent = 'Pause'; } else { S.prov.pause(); S.paused = true; $('btn-pause').textContent = 'Resume'; }
     });
+    $('host-seek').addEventListener('input', function () { $('host-time').textContent = clock(Number(this.value)); });
+    $('host-seek').addEventListener('change', function () { if (S.prov && S.prov.seek) S.prov.seek(Number(this.value)); });
     function slider(id, key, scale) {
       $(id).addEventListener('input', function () { outputs(Object.assign({}, S.st && S.st.opts, (function () { var o = {}; o[key] = Number($(id).value) / scale; return o; })())); });
       $(id).addEventListener('change', function () { var o = {}; o[key] = Number($(id).value) / scale; post('opts', o); });
@@ -382,6 +394,54 @@
       $('btn-pause').hidden = !(P.ready() && P.kind !== 'manual');
     }
 
+    function castPalette(genres) {
+      var genre = (genres || []).join(' ').toLowerCase();
+      if (/electronic|dance|techno|house|ambient/.test(genre)) return ['#35d6c5', '#756bff'];
+      if (/rock|metal|punk|alternative/.test(genre)) return ['#ff6b74', '#8465ff'];
+      if (/jazz|blues|soul|funk|r&b/.test(genre)) return ['#ffc05c', '#ec6688'];
+      if (/hip.?hop|rap|reggae/.test(genre)) return ['#54d4ed', '#f079c2'];
+      if (/classical|folk|country|roots/.test(genre)) return ['#a7d66c', '#e9b65e'];
+      return ['#72dfd1', '#7776e8'];
+    }
+
+    function updateMedia() {
+      var P = S.prov, media = P && P.progress ? P.progress() : null;
+      var current = media && Number.isFinite(media.currentTime) ? Math.max(0, media.currentTime) : 0;
+      var duration = media && Number.isFinite(media.duration) && media.duration > 0 ? media.duration : 0;
+      var canSeek = !!(duration && P.canSeek && P.canSeek());
+      $('host-media').hidden = !canSeek;
+      if (canSeek) {
+        var seek = $('host-seek');
+        seek.max = String(duration);
+        if (document.activeElement !== seek) seek.value = String(Math.min(current, duration));
+        $('host-time').textContent = clock(document.activeElement === seek ? Number(seek.value) : current);
+        $('host-duration').textContent = clock(duration);
+      }
+      var castProgress = $('tv-cast-progress');
+      castProgress.hidden = !duration;
+      if (duration) {
+        var percent = Math.max(0, Math.min(100, current / duration * 100));
+        $('tv-cast-progress-bar').style.width = percent + '%';
+        var track = castProgress.querySelector('[role="progressbar"]');
+        track.setAttribute('aria-valuenow', String(Math.round(percent)));
+        $('tv-cast-time').textContent = clock(current);
+        $('tv-cast-duration').textContent = clock(duration);
+      }
+      if (!document.body.classList.contains('tv-cast-mode')) return;
+      var bars = $('tv-cast-view').querySelectorAll('.tv-cast-spectrum span');
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        for (var j = 0; j < bars.length; j++) bars[j].style.transform = 'scaleY(.12)';
+        return;
+      }
+      var levels = P && P.levels ? P.levels(bars.length) : null;
+      for (var i = 0; i < bars.length; i++) {
+        var fallback = media && !media.paused ? 0.18 + (Math.sin((current * 5 + i * 0.73) * (1 + (i % 5) * 0.11)) + 1) * 0.19 : 0.08;
+        var level = levels ? levels[i] : fallback;
+        bars[i].style.transform = 'scaleY(' + Math.max(0.08, Math.min(1, level)) + ')';
+      }
+    }
+    setInterval(updateMedia, 100);
+
     function trackFor(st) {
       var t = st.now.track;
       return Object.assign({}, t, { nativeId: st.source && st.source.kind === 'library' ? t.id.slice(1) : t.id });
@@ -447,6 +507,9 @@
       castTitle.classList.toggle('is-extra-long', castTitleText.length > 64);
       document.body.classList.toggle('tv-cast-playing', !!st.now);
       $('tv-cast-artist').textContent = st.now ? st.now.track.artist : '';
+      var palette = castPalette(st.now ? st.now.track.genres : []);
+      $('tv-cast-view').style.setProperty('--cast-a', palette[0]);
+      $('tv-cast-view').style.setProperty('--cast-b', palette[1]);
       $('tv-cast-meta').textContent = st.guests.filter(function (g) { return g.status === 'active'; }).length + ' listening · ' + (st.now ? (st.now.mode === 'rotate' ? 'taking turns' : 'blending everyone’s taste') : 'waiting for guests');
       $('tv-cast-genres').replaceChildren.apply($('tv-cast-genres'), st.now ? tagList(st.now.track.genres || []) : []);
       var tvNext = $('tv-cast-next'); tvNext.replaceChildren();
