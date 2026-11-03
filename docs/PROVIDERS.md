@@ -12,7 +12,7 @@ A host picks one source per room. The service does not stream audio and holds no
 | Source | Catalogue the room plays from | Who sets it up | Notes |
 |---|---|---|---|
 | Spotify | Songs Spotify files under each genre in the room (genre search), plus the built-in list only where that comes back thin | Host (own free Spotify app, or a shared one) | Premium needed. Songs are found by title and artist with a precise search, then a looser one; a result is accepted only if most of the title and part of the artist match, and covers, live and karaoke versions are rejected (`public/match.js`). |
-| My music files | The host's own folder | Nobody | Tags read in the browser. mp3, m4a, flac, ogg, opus, wav. Needs a genre tag per song, or the host assigns a genre to untagged ones. Re-pick the folder after a page reload. |
+| My music files | The host's own folder | Nobody | Tags read in the browser. mp3, m4a, flac, ogg, opus, wav. Needs a genre tag per song, or the host assigns a genre to untagged ones. In Chrome, Edge and Opera the folder is chosen through the File System Access API and remembered, so after a reload "Reopen" brings it back in one click (see below). Other browsers use a plain folder input and re-pick the folder after a reload. |
 | Navidrome / Subsonic | The host's whole server library | Host (server URL + login) | Works with Navidrome, Gonic, Airsonic-Advanced, Funkwhale and any Subsonic-compatible server. The server must allow requests from the page (CORS), and an https page cannot call a plain-http server unless it runs on the same computer. |
 | YouTube | A playlist per genre in the room, read and filtered; the built-in list only where that comes back thin | Host (free Google API key) | No Premium and no files. Plays in YouTube's embedded player, which must stay visible. Free YouTube may play ads. Playlist searches cost 100 of the free 10,000 daily units; a second search for a genre is made only if the first pool has fewer than 12 usable songs. Requests are serialized and paced. Results and the daily quota pause are stored in the host browser. Some videos block embedding and are skipped. The key stays in the host's browser. |
 | Spotify: my songs | The host's saved songs, genres from their artists | Host (own Spotify app, Premium) | Re-read every 30 minutes and on Sync now. Songs with no artist genre are left out. |
@@ -57,6 +57,15 @@ Not built because it cannot be tested or switched on without a paid Apple Develo
 - It is a **curated** source: search the Apple catalogue for each queued song (`/v1/catalog/{storefront}/search`), then `setQueue` and `play`. Catalogue songs carry `genreNames`, so it could also become a **library** source built from the host's library (`/v1/me/library/songs`), which would let the room play the host's own saved songs.
 - Guest taste import (Apple's "recently played") is possible but the API is reported incomplete for playlists, so manual genre picks stay the default.
 
+## Choosing a folder for "My music files"
+
+Audio never leaves the host's computer, so there is nothing to upload and nothing for the server to store or scan. There are two ways to choose the folder, and the panel offers whichever the browser supports:
+
+- **File System Access API** (Chrome, Edge, Opera; `showDirectoryPicker`). The browser asks to let the site "view" the folder. Room Blend walks it, reads each song's tags, and plays a song by reading its file from the folder handle when its turn comes. The handle is stored in this browser's IndexedDB (`rb-local`), so after a reload the panel offers **Reopen "<folder>"**. A saved handle keeps the folder but not the permission, so the browser may ask again; the reopen click is the gesture it needs. **Forget this folder** deletes the saved handle. Chrome refuses some broad folders (Documents, Downloads, the home folder); the panel says so and points to the older picker. If storage is blocked (a private window), the folder just is not remembered.
+- **Folder input** (`<input webkitdirectory>`, every browser, also offered as "older folder picker" where the API exists). Some browsers word this prompt as "upload this folder". That is the browser's standard text: the files are only read here. It cannot remember the folder, and iOS Safari has no folder choice at all, only "or choose files".
+
+Songs get the same ids either way (from the folder-relative path and file size), and a file that has moved or been deleted since the scan is skipped when its turn comes. A browser cannot watch a folder, so changes on disk are picked up by choosing or reopening the folder again.
+
 ## Artists and songs guests name
 
 A guest's named artists and songs are matched by plain text (`normKey`, `artistKeys`, `songKey` in `lib/engine.js`), so the same song found through Spotify, YouTube or a file lines up, and "Mark Ronson feat. Bruno Mars" answers to both names. The engine gives a named song a fit of 1.0 for that guest. In rotation it also adds 0.12 for a named song (0.06 for a named artist) to that guest's turn; in a blend it adds a nudge of at most 0.06, and only for songs the room would nearly accept (`U >= tau - 0.1`).
@@ -67,7 +76,7 @@ When a named artist is not in the room's songs, the room lists them in `wantArti
 
 ## Privacy
 
-Sent to the room's server: song titles, artists and genre tags (library sources), guests' picked genres. If a guest opts into MusicBrainz genre lookup, up to five names from their artist and song picks are also sent to MusicBrainz. Not sent: file contents, file paths, passwords, tokens. Spotify and Subsonic credentials stay in the host's browser (Subsonic passwords only in the tab's session storage).
+Sent to the room's server: song titles, artists and genre tags (library sources), guests' picked genres. If a guest opts into MusicBrainz genre lookup, up to five names from their artist and song picks are also sent to MusicBrainz. Not sent: file contents, file paths, passwords, tokens. A remembered music folder is a handle stored only in the host's own browser (IndexedDB); it is never sent anywhere. Spotify and Subsonic credentials stay in the host's browser (Subsonic passwords only in the tab's session storage).
 
 ## Genres
 
@@ -84,7 +93,7 @@ Room Blend uses 58 genres in 9 groups (Rock, Roots, Jazz and soul, Pop, Electron
 |---|---|
 | Navidrome / Subsonic | Every time the host connects, then every 15 minutes while the room is open, and on **Sync now** |
 | Spotify: my songs | When the host starts, then every 30 minutes, and on **Sync now** |
-| Your own files | When the host picks the folder (a browser cannot watch a folder, so pick it again to rescan) |
+| Your own files | When the host picks or reopens the folder (a browser cannot watch a folder, so choose or reopen it again to rescan) |
 | Built-in list | Fixed; it ships with the app |
 
 A refresh swaps in the new list but keeps the song that is playing and the songs already lined up, so nothing stops mid-song. It sends the whole list again (titles, artists, genres only), capped at 20,000 songs.
