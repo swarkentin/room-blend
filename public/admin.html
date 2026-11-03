@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Room Blend admin</title>
+<style>
+:root { color-scheme: dark; font: 16px system-ui, sans-serif; background: #14171c; color: #eef1f5; }
+body { max-width: 900px; margin: 0 auto; padding: 2rem 1rem; }
+h1 { margin-top: 0; } h2 { font-size: 1.1rem; margin-bottom: .5rem; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .75rem; }
+.card, pre { background: #20252c; border: 1px solid #343b45; border-radius: .6rem; padding: 1rem; }
+.value { display: block; font-size: 1.8rem; font-weight: 700; margin-top: .25rem; }
+.label { color: #aab4c1; font-size: .9rem; } section { margin: 2rem 0; }
+pre { overflow: auto; line-height: 1.5; } #error { color: #ff9a9a; }
+</style>
+</head>
+<body>
+<h1>Room Blend admin</h1>
+<p id="updated">Loading…</p>
+<p id="error" hidden></p>
+<section><h2>Current activity</h2><div id="current" class="grid"></div></section>
+<section><h2>Lifetime counters</h2><pre id="lifetime"></pre></section>
+<section><h2>Process</h2><pre id="process"></pre></section>
+<script src="/admin.js"></script>
+</body>
+</html>
