@@ -12,3 +12,5 @@ services:
         value: "1"
       - key: SPOTIFY_CLIENT_ID
         sync: false   # optional; leave empty and hosts bring their own Spotify app
+      - key: STATUS_KEY
+        sync: false   # required to open /admin and /status remotely; set a long random secret

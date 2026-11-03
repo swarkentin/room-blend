@@ -27,6 +27,7 @@ const TRUST_PROXY = /^(1|true|yes)$/i.test(process.env.TRUST_PROXY || '');
 const ROOMS_PER_IP_HOUR = Number(process.env.ROOMS_PER_IP_HOUR || 8);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const STATS_FILE = path.join(DATA_DIR, 'stats.json');
 const ROOM_TTL_MS = 24 * 3600 * 1000;
 const MAX_ROOMS = Number(process.env.MAX_ROOMS || 2000);
 
@@ -50,6 +51,33 @@ const subs = new Map(); // code -> Set of {res, role, guestId}
 const musicBrainz = createClient();
 const artistLookups = new Set();
 let saveTimer = null;
+let lifetimeCounters = Object.create(null);
+let statsBaseline = Object.create(null);
+
+function loadStats() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8'));
+    for (const [key, value] of Object.entries(saved.counters || {})) {
+      if (/^[a-zA-Z0-9_.-]+$/.test(key) && Number.isSafeInteger(value) && value >= 0) lifetimeCounters[key] = value;
+    }
+  } catch { /* first run or no persistent disk */ }
+}
+function saveStats() {
+  const current = L.snapshot().counters;
+  for (const [key, value] of Object.entries(current)) {
+    const previous = statsBaseline[key] || 0;
+    const delta = value - previous;
+    if (delta > 0) lifetimeCounters[key] = (lifetimeCounters[key] || 0) + delta;
+  }
+  statsBaseline = { ...current };
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(STATS_FILE + '.tmp', JSON.stringify({ counters: lifetimeCounters }));
+    fs.renameSync(STATS_FILE + '.tmp', STATS_FILE);
+  } catch (e) { L.warn('stats.save_failed', { message: e.message }); }
+}
+const statsTimer = setInterval(saveStats, 10000);
+statsTimer.unref();
 
 // ---------- persistence: only room identities, so a restart keeps codes and host keys ----------
 function loadRooms() {
@@ -464,7 +492,8 @@ function statusView() {
     guestsInRooms: guests, liveConnections: sse,
     memoryMB: { rss: Math.round(mem.rss / 1048576), heapUsed: Math.round(mem.heapUsed / 1048576) },
     eventLoopLagMs: lagMs,
-    counters: snap.counters, timers: snap.timers, topGenres: snap.topGenres, topSources: snap.topSources,
+    counters: snap.counters, lifetimeCounters: { ...lifetimeCounters, ...Object.fromEntries(Object.entries(snap.counters).map(([k, v]) => [k, (lifetimeCounters[k] || 0) + v - (statsBaseline[k] || 0)])) },
+    timers: snap.timers, topGenres: snap.topGenres, topSources: snap.topSources,
   };
 }
 
@@ -482,6 +511,16 @@ const server = http.createServer(async (req, res) => {
   }
   try {
     if (url.pathname === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }); return res.end('ok'); }
+    if (url.pathname === '/admin' || url.pathname === '/admin/') {
+      if (!statusAllowed(req, url)) { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('Not found'); }
+      const html = await fs.promises.readFile(path.join(PUBLIC_DIR, 'admin.html'), 'utf8');
+      res.writeHead(200, { 'Content-Type': MIME['.html'], 'Cache-Control': 'no-store', ...SECURITY });
+      return res.end(html);
+    }
+    if (url.pathname === '/admin/status') {
+      if (!statusAllowed(req, url)) { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('Not found'); }
+      return sendJson(res, 200, statusView());
+    }
     if (url.pathname === '/status') {
       if (!statusAllowed(req, url)) { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('Not found'); }
       return sendJson(res, 200, statusView());
@@ -508,6 +547,7 @@ clock.unref();
 if (require.main === module) {
   const level = L.configure();
   loadRooms();
+  loadStats();
   server.listen(PORT, '0.0.0.0', () => {
     L.info('server.start', { port: PORT, node: process.version, rooms: rooms.size, logLevel: level, trustProxy: TRUST_PROXY, publicUrl: !!PUBLIC_URL, ownSpotifyApp: !CLIENT_CONFIG.clientId });
     // A person running this in a terminal gets a plain sentence as well as the JSON line.
@@ -516,7 +556,7 @@ if (require.main === module) {
   // Crashes are logged before the process exits (a platform or Docker restarts it). Stopping saves the rooms first.
   process.on('uncaughtException', (e) => { L.error('process.crash', { message: String(e && e.message), stack: String(e && e.stack || '').split('\n').slice(1, 4).join(' | ') }); writeRooms(); process.exit(1); });
   process.on('unhandledRejection', (e) => { L.error('process.unhandled_rejection', { message: e instanceof Error ? e.message : String(e) }); });
-  const stop = (sig) => { L.info('server.stop', { signal: sig, rooms: rooms.size }); clearTimeout(saveTimer); writeRooms(); server.close(); setTimeout(() => process.exit(0), 300).unref(); };
+  const stop = (sig) => { L.info('server.stop', { signal: sig, rooms: rooms.size }); clearTimeout(saveTimer); clearInterval(statsTimer); saveStats(); writeRooms(); server.close(); setTimeout(() => process.exit(0), 300).unref(); };
   process.on('SIGTERM', () => stop('SIGTERM'));
   process.on('SIGINT', () => stop('SIGINT'));
 }

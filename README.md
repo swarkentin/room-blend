@@ -53,6 +53,12 @@ No settings are required. The address is picked up from the browser, so there is
 | `LOG_LEVEL` | `silent`, `error`, `warn`, `info` (default), or `debug` (adds one line per request). Logs are JSON lines: warnings and errors on stderr, the rest on stdout. They never contain names, picks, room codes, host keys or IP addresses. Rooms and visitors appear as short salted hashes. |
 | `STATUS_KEY` | `/status` shows rooms, guests, connections, timings, memory and top genres. By default it answers only on the machine itself. Set a key to read it remotely with `?key=...` or an `x-status-key` header. |
 
+### Private administrator dashboard
+
+Set `STATUS_KEY` to a long random value in the hosting provider's secret environment variables. Administrators can then open `/admin?key=...`; the page is not linked from the public app and shows current activity, process health, and privacy-safe lifetime counters. `/admin/status` and `/status` provide the same data as JSON. The key is separate from every room host key, and is never included in the public client configuration.
+
+The dashboard measures Room Blend application activity; Render's own service metrics (CPU, memory, bandwidth and deploy events) remain available in the Render dashboard. Lifetime counters are best-effort and need a persistent disk or external store: Render's Free plan has an ephemeral filesystem and loses them on restart or redeploy.
+
 `/healthz` answers `ok` for platform health checks.
 
 ### Why hosts bring their own Spotify app

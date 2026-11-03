@@ -58,6 +58,10 @@ function sse(path) {
   const cfg = await req('GET', '/config.js'); assert.ok(cfg.text.includes('window.CONFIG') && cfg.text.includes('"genres"'));
   assert.ok(!/secret/i.test(cfg.text)); ok('static routes, SPA fallback, traversal refused, config has no secrets');
   assert.ok((await req('GET', '/')).headers['content-security-policy']); ok('CSP header is set');
+  const adminPage = await req('GET', '/admin');
+  assert.strictEqual(adminPage.status, 200); assert.ok(adminPage.text.includes('Room Blend admin')); ok('private admin dashboard is available to local administrators');
+  const adminStats = await req('GET', '/admin/status');
+  assert.strictEqual(adminStats.status, 200); assert.ok(adminStats.json && adminStats.json.lifetimeCounters); ok('admin status includes current and lifetime counters');
 
   // rooms
   const mk = await req('POST', '/api/rooms'); const { code, hostKey } = mk.json;
