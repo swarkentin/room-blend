@@ -13,7 +13,7 @@
   var SEARCH_DAILY_LIMIT = 90, DISCOVERY_DAILY_LIMIT = 65, SEARCH_BUDGET_KEY = 'rb-yt-search-budget';
   var on = false, paused = true, busy = false, note = '', player = null, dock = null, cur = null, waiter = null, rctx = null, cache = null;
   var apiQueue = Promise.resolve(), apiRetryMs = 1000, playbackAttempt = 0;
-  var quotaPausedDay = '', API_INTERVAL_MS = 2000, MAX_RETRY_WAIT_MS = 5000, MIN_GENRE_TRACKS = 12;
+  var quotaPausedDay = '', API_INTERVAL_MS = Number.isFinite(Number(C.ytApiIntervalMs)) && Number(C.ytApiIntervalMs) >= 0 ? Number(C.ytApiIntervalMs) : 2000, MAX_RETRY_WAIT_MS = 5000, MIN_GENRE_TRACKS = 12;
 
   function lsGet(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
