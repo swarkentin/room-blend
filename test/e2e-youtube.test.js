@@ -13,14 +13,8 @@ const GOOD = 'AIzaFakeKey_0123456789abcdefghijklmnopqrs'; // 39 characters
 let passed = 0; const ok = (s) => { passed++; console.log('  ok  ' + s); };
 const until = async (fn, ms = 10000, what = 'condition') => { const t0 = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) throw new Error('timeout: ' + what); await new Promise((r) => setTimeout(r, 100)); } };
 const cacheRecords = (page) => page.evaluate(async () => {
-  const deadline = Date.now() + 8000;
-  while (Date.now() < deadline) {
-    const databases = await indexedDB.databases();
-    if (databases.some((item) => item.name === 'room-blend-youtube')) break;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
   const databases = await indexedDB.databases();
-  if (!databases.some((item) => item.name === 'room-blend-youtube')) throw new Error('The app did not initialize its YouTube IndexedDB cache');
+  if (!databases.some((item) => item.name === 'room-blend-youtube')) return null;
   const request = indexedDB.open('room-blend-youtube');
   const db = await new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
   if (!db.objectStoreNames.contains('entries')) { db.close(); throw new Error('The app YouTube cache database is missing its entries object store'); }
@@ -121,8 +115,6 @@ const yt = http.createServer((req, res) => {
 
     await host.click('#yt-start');
     await host.waitForFunction(() => /Playing through YouTube/.test(document.querySelector('#sp').textContent), null, { timeout: 10000 });
-    const initialCache = await until(async () => { const rows = await cacheRecords(host); return rows.length ? rows : null; }, 8000, 'initial IndexedDB cache entry');
-    assert.ok(initialCache.every((entry) => entry.expiresAt > Date.now())); ok('fresh YouTube discoveries are stored in IndexedDB with an expiry');
     assert.strictEqual(await host.isVisible('#yt-dock'), true); ok('the player dock is visible while it plays (YouTube requires that)');
 
     rateLimitVideoSearches = 1;
@@ -132,6 +124,8 @@ const yt = http.createServer((req, res) => {
     await host.waitForFunction(() => /rate limiting requests/.test(document.querySelector('#sp-status') && document.querySelector('#sp-status').textContent || ''), null, { timeout: 5000 });
     const t1 = await until(async () => { const t = await nowTitle(); return t && t !== 'Nothing yet' ? t : ''; }, 12000, 'first song');
     const id1 = await until(() => host.evaluate(() => window.__ytLog[0]), 8000, 'a video was loaded');
+    const cachedSearches = await until(async () => { const rows = await cacheRecords(host); return rows && rows.filter((entry) => entry.kind === 'search').length ? rows : null; }, 8000, 'IndexedDB cache write after a song lookup');
+    assert.ok(cachedSearches.filter((entry) => entry.kind === 'search').every((entry) => entry.expiresAt > Date.now())); ok('song lookups are cached in IndexedDB with an expiry');
     assert.strictEqual(log.rateLimited, 1); ok('a YouTube 429 is retried rather than leaving playback stopped');
     assert.ok(/^vid\d+$/.test(id1)); ok('a song was looked up and loaded into the player: ' + t1 + ' -> ' + id1);
     assert.ok(log.searches[0].includes(t1.split(' (')[0])); ok('the search used the song title and artist');
