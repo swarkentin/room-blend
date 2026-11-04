@@ -10,7 +10,7 @@
   'use strict';
   var P = window.Providers, C = window.CONFIG || {}, el = P.el, state = P.state;
   var KEY = 'rb-yt-key', CACHE = 'rb-yt-cache', CACHE_MAX = 3000, QUOTA_DAY = 'rb-yt-quota-day', API_NEXT = 'rb-yt-api-next';
-  var SEARCH_DAILY_LIMIT = 90, DISCOVERY_DAILY_LIMIT = 65, SEARCH_BUDGET_PREFIX = 'rb-yt-search-budget-';
+  var SEARCH_DAILY_LIMIT = 90, DISCOVERY_DAILY_LIMIT = 65, SEARCH_BUDGET_KEY = 'rb-yt-search-budget';
   var on = false, paused = true, busy = false, note = '', player = null, dock = null, cur = null, waiter = null, rctx = null, cache = null;
   var apiQueue = Promise.resolve(), apiRetryMs = 1000, playbackAttempt = 0;
   var quotaPausedDay = '', API_INTERVAL_MS = 2000, MAX_RETRY_WAIT_MS = 5000, MIN_GENRE_TRACKS = 12;
@@ -63,17 +63,13 @@
     return false;
   }
   function clearQuotaFuse() { quotaPausedDay = ''; lsDel(QUOTA_DAY); }
-  // Keep a per-key budget in host storage. Search.list has its own 100-request daily limit;
-  // hold back 25 calls for playback lookups and leave a small safety margin below Google's cap.
-  function keyFingerprint() {
-    var value = apiKey(), hash = 2166136261;
-    for (var i = 0; i < value.length; i++) { hash ^= value.charCodeAt(i); hash = Math.imul(hash, 16777619); }
-    return (hash >>> 0).toString(16);
-  }
+  // Search.list's 100-request daily limit is shared by API keys in the same Google Cloud project.
+  // Use one conservative browser-wide counter so switching keys cannot accidentally reset the local guard.
+  // Hold back 25 calls for playback lookups and leave a safety margin below Google's project cap.
   function searchBudget() {
-    var key = SEARCH_BUDGET_PREFIX + keyFingerprint(), value = storedObject(key), today = pacificDay();
+    var value = storedObject(SEARCH_BUDGET_KEY), today = pacificDay();
     if (value.day !== today) value = { day: today, count: 0, discovery: 0 };
-    return { key: key, value: value };
+    return { key: SEARCH_BUDGET_KEY, value: value };
   }
   function reserveSearch(purpose) {
     var budget = searchBudget(), value = budget.value;
