@@ -93,7 +93,7 @@ const decodeQr = (file) => execFileSync('python3', ['-c', [
     await tv.waitForFunction(() => document.querySelector('#tv-title').textContent !== 'Waiting for the first guest', null, { timeout: 12000 });
     const tvText = await tv.textContent('.tv'); assert.ok(tvText.includes(code) && /person|people/.test(tvText)); ok('the TV screen shows the code, headcount and now playing: ' + (await tv.textContent('#tv-title')));
     await tv.waitForFunction(() => { const qr = document.querySelector('#tv-qr svg'); return qr && qr.getBoundingClientRect().width >= 200 && qr.querySelector('path') && qr.querySelector('path').getAttribute('d').length > 0; });
-    assert.strictEqual(await tv.textContent('.tv-url'), `${APP.replace(/^https?:\\/\\//, '')}/${code}`);
+    assert.strictEqual(await tv.textContent('.tv-url'), `${APP.split('://')[1]}/${code}`);
     assert.ok(await tv.locator('#tv-qr svg path').count());
     ok('the TV screen displays the matching join URL and a generated QR code');
     assert.ok(!tvText.includes('rock')); ok('the TV shows nothing about individual guests');
