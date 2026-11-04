@@ -57,14 +57,14 @@
     var title = wt.length ? Math.max(0, inter / wt.length - 0.5 * (extra / Math.max(1, ct.length))) : 0;
     var bag = []; (cand.artists || []).forEach(function (a) { bag = bag.concat(core(a)); });
     var artist = coverage(artistWords(want.artist), bag);
-    var bad = (BAD.test(cand.title || '') || ARTIST_BAD.test((cand.artists || []).join(' '))) && !BAD.test(want.title || '');
+    var bad = (BAD.test(cand.title || '') || COVER.test(cand.title || '') || ARTIST_BAD.test((cand.artists || []).join(' '))) && !BAD.test(want.title || '') && !COVER.test(want.title || '');
     return { title: title, artist: artist, bad: bad, score: title * 2 + artist - (bad ? 1.5 : 0) + (cand.popularity ? cand.popularity / 1000 : 0) };
   }
   // Scores a video (YouTube): the title and channel name hold both song and artist, in any order.
   function scoreVideo(want, video) {
     var hay = core(video.title + ' ' + (video.channel || ''));
     var title = coverage(core(cleanTitle(want.title)), hay), artist = coverage(artistWords(want.artist), hay);
-    var bad = BAD.test(video.title || '') && !BAD.test(want.title || '');
+    var bad = (BAD.test(video.title || '') || COVER.test(video.title || '')) && !BAD.test(want.title || '') && !COVER.test(want.title || '');
     var official = /vevo|official|topic/i.test(video.channel || '') ? 0.2 : 0;
     return { title: title, artist: artist, bad: bad, score: title * 2 + artist - (bad ? 1.5 : 0) + official };
   }
