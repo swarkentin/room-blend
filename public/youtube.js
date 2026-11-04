@@ -344,6 +344,31 @@
     if (!want.length) return 0;
     return want.filter(function (w) { return have[w]; }).length / want.length;
   }
+  // A channel's uploads, credited to the artist as the guest typed them. A title "Artist - Song" loses the "Artist - " part.
+  async function uploadsOf(playlistId, name) {
+    var M = window.Match, who = name.replace(/^@/, '');
+    return readPlaylist(playlistId, function (title) {
+      var t = M.cleanTitle(title), m = /^(.+?)\s+[-\u2013\u2014|:]\s+(.+)$/.exec(t);
+      var song = m && (nameFit(who, m[1]) >= 0.99 || M.core(m[1]).join('') === M.core(who).join('')) ? M.cleanTitle(m[2]) : t;
+      return song && song.length < 100 ? { title: song, artist: name } : null;
+    }, 2);
+  }
+  // "@djcrocsnsocks" (or a youtube.com/@handle link) names one exact channel, so it is looked up directly: no guessing from a name.
+  // Costs about 1 unit to find the channel (a search costs 100), plus a few to read its uploads.
+  function handleOf(name) {
+    var m = /^\s*(?:https?:\/\/(?:www\.|m\.)?youtube\.com\/)?@([\w.\-]{3,30})\/?\s*$/i.exec(String(name || ''));
+    return m ? m[1] : '';
+  }
+  async function handleSongs(name, handle) {
+    var key = 'handle:' + handle.toLowerCase(), hit = await poolGet(key);
+    if (hit !== undefined) return hit;
+    var j = await yapi('/channels', { part: 'contentDetails', forHandle: '@' + handle });
+    var up = (((((j.items || [])[0] || {}).contentDetails || {}).relatedPlaylists || {}).uploads) || '';
+    if (!/^UU[\w-]{22}$/.test(up)) { await poolPut(key, []); return []; }
+    var out = await uploadsOf(up, name);
+    await poolPut(key, out);
+    return qualityOrder(out);
+  }
   // A smaller artist often has no "greatest hits" playlist but does have their own channel: find it and read its uploads.
   // Costs one search (100 units) and a few units to read; the result is remembered like any other pool.
   async function channelSongs(name) {
@@ -357,12 +382,7 @@
     });
     if (!best || bestFit < 0.99 || !/^UC[\w-]{22}$/.test(best)) { await poolPut(key, []); return []; }
     // Every channel's uploads are a playlist whose id is the channel id with UC changed to UU.
-    var M = window.Match;
-    var out = await readPlaylist('UU' + best.slice(2), function (title) {
-      var t = M.cleanTitle(title), m = /^(.+?)\s+[-\u2013\u2014|:]\s+(.+)$/.exec(t);
-      var song = m && nameFit(name, m[1]) >= 0.99 ? M.cleanTitle(m[2]) : t;
-      return song && song.length < 100 ? { title: song, artist: name } : null;
-    }, 2);
+    var out = await uploadsOf('UU' + best.slice(2), name);
     await poolPut(key, out);
     return qualityOrder(out);
   }
@@ -504,6 +524,8 @@
     // A named artist: one playlist search ("<artist> greatest hits"); the room keeps only that artist's songs.
     artistTracks: async function (name, genre) {
       try {
+        var handle = handleOf(name);
+        if (handle) return qualityOrder((await handleSongs(name, handle)).map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: [genre] }; }));
         var got = (await poolQuery({ q: name + ' greatest hits', tags: [genre] })).filter(function (t) { return nameFit(name, t.artist) >= 0.99; });
         if (!got.length) got = await channelSongs(name);
         return qualityOrder(got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: [genre] }; }));

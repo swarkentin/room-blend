@@ -26,7 +26,7 @@ const cacheRecord = async (page, id) => {
   return records && records.find((record) => record.id === id);
 };
 
-const log = { searches: [], badKey: 0, params: [], plSearches: [], chSearches: [], plItems: 0, videoCalls: 0, rateLimited: 0, apiRequests: 0, apiAt: [] };
+const log = { searches: [], badKey: 0, params: [], plSearches: [], chSearches: [], handles: [], plItems: 0, videoCalls: 0, rateLimited: 0, apiRequests: 0, apiAt: [] };
 let quotaOut = false, rateLimitQuotaOut = false, poolOn = false, rateLimitVideoSearches = 0;
 // a playlist of song videos for "jazz songs": three good ones, 14 filler songs, and entries that must be filtered out
 const VIDEOS = {}, PLITEMS = [];
@@ -68,6 +68,10 @@ const yt = http.createServer((req, res) => {
     return res.end(JSON.stringify({ error: { code: 429, errors: [{ reason: 'userRateLimitExceeded' }] } }));
   }
   if (u.pathname.startsWith('/youtube/v3/') && quotaOut) return send(403, 'application/json', JSON.stringify({ error: { code: 403, errors: [{ reason: 'quotaExceeded' }] } }));
+  if (u.pathname === '/youtube/v3/channels') {
+    const h = u.searchParams.get('forHandle'); log.handles.push(h);
+    return send(200, 'application/json', JSON.stringify({ items: h === '@djcrocsnsocks' ? [{ contentDetails: { relatedPlaylists: { uploads: 'UU' + CHAN.slice(2) } } }] : [] }));
+  }
   if (u.pathname === '/youtube/v3/search' && u.searchParams.get('type') === 'channel') {
     const q = u.searchParams.get('q'); log.chSearches.push(q);
     return send(200, 'application/json', JSON.stringify({ items: q === 'DJ Crocs & Socks' ? [{ id: { channelId: 'UCother00000000000000000a' }, snippet: { channelTitle: 'Totally Different' } }, { id: { channelId: CHAN }, snippet: { channelTitle: 'DJ Crocs n Socks' } }] : [] }));
@@ -278,6 +282,17 @@ const yt = http.createServer((req, res) => {
     assert.ok(djPool && djPool.tracks.length === 2 && djPool.tracks.every((t) => t.artist === 'DJ Crocs & Socks')); ok('the channel whose name matches (not "Totally Different") gave two songs, credited to the artist as named');
     assert.ok(djPool.tracks.some((t) => t.title === 'Sock Hop Anthem') && djPool.tracks.some((t) => t.title === 'Slide Into Friday')); ok('a title with "Artist - " in front loses it; plain titles stay as they are');
     await until(() => host.evaluate(() => /Sock Hop Anthem|Slide Into Friday/.test([...document.querySelectorAll('#queue .qrow')].map((e) => e.textContent).join(' ') + document.querySelector('#now-title').textContent)), 10000, 'dj in lineup'); ok('the artist\'s songs reach the lineup');
+
+    // ---- an @handle names one exact channel: looked up directly, never searched by name ----
+    const chBefore = log.chSearches.length;
+    const dj2 = await host.evaluate(async (c) => { const r = await fetch('/api/rooms/' + c + '/guests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Dex', genres: ['jazz'], artists: ['@djcrocsnsocks'] }) }); return r.ok ? r.json() : null; }, codeNow);
+    assert.ok(dj2 && dj2.guestId);
+    await until(() => log.handles.includes('@djcrocsnsocks'), 14000, 'handle lookup'); ok('an @handle is looked up as that exact channel');
+    const handleRec = await until(() => cacheRecord(host, 'pool:handle:djcrocsnsocks'), 8000, 'handle pool cached');
+    assert.strictEqual(handleRec.value.length, 2); assert.ok(handleRec.value.every((t) => t.artist === '@djcrocsnsocks')); ok('its uploads become songs credited to the handle as typed');
+    assert.strictEqual(log.chSearches.length, chBefore); assert.ok(!log.plSearches.some((q) => /^@djcrocsnsocks/.test(q))); ok('no channel or playlist name search is spent on a handle');
+    const dexSeen = await host.evaluate(async ({ c, g }) => (await (await fetch('/api/rooms/' + c + '/search?q=' + encodeURIComponent('sock hop'), { headers: { 'x-guest-id': g.guestId, 'x-guest-key': g.guestKey } })).json()), { c: codeNow, g: dj2 });
+    assert.ok(dexSeen.songs.some((x) => x.source !== 'musicbrainz' && x.artist === '@djcrocsnsocks' && /Sock Hop/.test(x.title))); ok('the room holds the handle\'s songs, so the guest\'s pick matches them');
 
     // Keep a broad set of genre pools and merge updates made by another host tab.
     const cacheWriter = await ctx.newPage();
