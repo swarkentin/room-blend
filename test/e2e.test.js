@@ -132,7 +132,7 @@ const until = async (fn, ms = 8000, what = 'condition') => { const t0 = Date.now
 
     // ---- jukebox song autocomplete is advisory and works for both host and guest ----
     const suggestion = { songs: [{ title: 'Tears in the Rain', artist: 'Vangelis', source: 'musicbrainz' }] };
-    const searchPath = (url) => url.pathname === '/api/rooms/' + code + '/search' && url.searchParams.has('q');
+    const searchPath = (url) => url.pathname === '/api/rooms/' + code + '/search' && (url.searchParams.has('q') || url.searchParams.has('title') || url.searchParams.has('artist'));
     await g1.route(searchPath, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(suggestion) }));
     await g1.fill('#guest-request-title', 'Tears');
     await g1.waitForSelector('#guest-request-form .song-suggestion');
