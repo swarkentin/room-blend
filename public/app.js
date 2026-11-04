@@ -288,7 +288,7 @@
     var H = { 'x-host-key': key };
     var post = function (p, body) { return http('POST', '/api/rooms/' + code + '/host/' + p, body || {}, H); };
     var joinUrl = (C.publicUrl || location.origin) + '/' + code;
-    var S = { st: null, prov: null, reup: 0, srcSig: '', playing: null, status: '', busy: false, extrasBusy: false, tried: {}, paused: false, snapshotTimer: null, snapshotBusy: false, snapshotWantedVersion: -1, snapshotSavedVersion: -1 };
+    var S = { st: null, prov: null, reup: 0, srcSig: '', playing: null, status: '', busy: false, extrasBusy: false, tried: {}, paused: false, snapshotTimer: null, snapshotBusy: false, snapshotWantedVersion: -1, snapshotSavedVersion: -1, snapshotEpoch: 0, recovering: false };
     var addPicked = [];
 
     function scheduleRoomSnapshot(version) {
@@ -297,20 +297,23 @@
       clearTimeout(S.snapshotTimer);
       S.snapshotTimer = setTimeout(async function () {
         if (S.snapshotBusy) return;
+        var epoch = S.snapshotEpoch;
         S.snapshotBusy = true;
         var result = null;
         try {
           result = await http('GET', '/api/rooms/' + code + '/host/snapshot', null, H);
-          if (result.ok && result.data && typeof result.data.snapshot === 'string') {
+          if (epoch === S.snapshotEpoch && result.ok && result.data && typeof result.data.snapshot === 'string') {
             if (await writeRoomSnapshot(code, result.data.snapshot, result.data.version)) S.snapshotSavedVersion = result.data.version;
           }
         } catch (e) { /* a later room update or reload will retry */ }
         finally {
-          S.snapshotBusy = false;
-          // If the room changed while this checkpoint was in flight, take one more snapshot.
-          if (S.snapshotWantedVersion > S.snapshotSavedVersion) {
-            var delay = result && result.ok && result.data && S.snapshotWantedVersion > result.data.version ? 0 : 5000;
-            S.snapshotTimer = setTimeout(function () { scheduleRoomSnapshot(S.snapshotWantedVersion); }, delay);
+          if (epoch === S.snapshotEpoch) {
+            S.snapshotBusy = false;
+            // If the room changed while this checkpoint was in flight, take one more snapshot.
+            if (S.snapshotWantedVersion > S.snapshotSavedVersion) {
+              var delay = result && result.ok && result.data && S.snapshotWantedVersion > result.data.version ? 0 : 5000;
+              S.snapshotTimer = setTimeout(function () { scheduleRoomSnapshot(S.snapshotWantedVersion); }, delay);
+            }
           }
         }
       }, 500);
@@ -795,12 +798,23 @@
       var body = { hostKey: key, token: snap.token, version: snap.version, name: snap.name, discoverable: snap.discoverable, opts: snap.opts };
       if (saved && typeof saved.snapshot === 'string') body.snapshot = saved.snapshot;
       var r = await http('POST', '/api/rooms/' + code + '/restore', body);
+      // If a stored checkpoint is corrupt or from an unsupported schema, keep the signed room identity
+      // and settings rather than abandoning the room entirely.
+      if (!r.ok && r.status === 400 && body.snapshot) {
+        delete body.snapshot;
+        r = await http('POST', '/api/rooms/' + code + '/restore', body);
+      }
       if (r.ok) return 'back';
       return r.status >= 500 || r.status === 429 ? 'wait' : 'gone';
     }
     function roomEnded() {
       lsDel('rb-host-' + code); lsDel('rb-snap-' + code); deleteRoomSnapshot(code);
       app.replaceChildren(h('div', { class: 'wrap' }, [h('div', { class: 'hero' }, [h('h1', { text: 'This room has ended' }), h('p', { class: 'lead', text: 'A room can only be reopened for a while after its host last used it.' }), h('a', { class: 'btn primary', href: '/', text: 'Start a new room' })])]));
+    }
+    function resetAfterRestore() {
+      S.reup = 0; S.tried = {}; S.playing = null; S.srcSig = '';
+      clearTimeout(S.snapshotTimer);
+      S.snapshotEpoch++; S.snapshotBusy = false; S.snapshotSavedVersion = -1; S.snapshotWantedVersion = -1;
     }
     async function reconnect() {
       try {
@@ -810,15 +824,30 @@
         var back = await restoreRoom();
         if (back === 'wait') return setTimeout(connect, 3000);
         if (back === 'gone') return roomEnded();
-        // The new room knows nothing about the music source yet, so let the source set itself up again.
-        S.reup = 0; S.tried = {}; S.playing = null; S.srcSig = ''; S.snapshotSavedVersion = -1; S.snapshotWantedVersion = -1;
+        resetAfterRestore();
         connect();
       } catch (e) { setTimeout(connect, 3000); } // offline or mid-restart: try again
     }
     function connect() {
       if (es) es.close();
       es = new EventSource('/api/rooms/' + code + '/events?key=' + encodeURIComponent(key));
-      es.onmessage = function (m) { try { render(JSON.parse(m.data)); } catch (e) { console.error(e); } };
+      es.onmessage = function (m) {
+        try {
+          var st = JSON.parse(m.data);
+          if (st.recoveryNeeded) {
+            if (S.recovering) return;
+            S.recovering = true; es.close();
+            restoreRoom().then(function (back) {
+              S.recovering = false;
+              if (back === 'back') { resetAfterRestore(); connect(); }
+              else if (back === 'wait') setTimeout(connect, 3000);
+              else roomEnded();
+            }).catch(function () { S.recovering = false; setTimeout(connect, 3000); });
+            return;
+          }
+          render(st);
+        } catch (e) { console.error(e); }
+      };
       es.onerror = function () { if (es.readyState === EventSource.CLOSED) reconnect(); };
     }
     connect();
