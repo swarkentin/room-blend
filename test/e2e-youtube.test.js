@@ -214,6 +214,15 @@ const yt = http.createServer((req, res) => {
     const seen = await host.evaluate(async ({ c, z }) => { const f = async (q) => (await fetch('/api/rooms/' + c + '/search?q=' + encodeURIComponent(q), { headers: { 'x-guest-id': z.guestId, 'x-guest-key': z.guestKey } })).json(); return { zed: await f('zed song'), zedArtist: await f('zed obscure'), other: await f('not zed') }; }, { c: codeNow, z: zoe });
     assert.strictEqual(seen.zed.songs.filter((song) => song.source !== 'musicbrainz').length, 2); assert.ok(seen.zedArtist.artists.some((a) => a.name === 'Zed Obscure' && a.songs === 2)); assert.ok(!seen.other.songs.some((x) => x.source !== 'musicbrainz' && /Not Zed/.test(x.title)) && !seen.other.artists.some((a) => a.source !== 'musicbrainz' && /Someone Else/.test(a.name))); ok("the room has Zed Obscure's two songs and not the other artist's song from that playlist")
 
+    // Era picks retain their decade signal instead of becoming only generic genre searches.
+    const eraGuest = await host.evaluate(async (c) => {
+      const r = await fetch('/api/rooms/' + c + '/guests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Era Fan', genres: ['80s'] }) });
+      return r.ok ? r.json() : null;
+    }, codeNow);
+    assert.ok(eraGuest && eraGuest.guestId);
+    await until(() => log.plSearches.includes('80s classic rock songs') && log.plSearches.includes('80s new wave songs'), 20000, 'era-specific playlist searches');
+    ok('an 80s pick triggers decade-qualified searches for representative genres');
+
     // Keep a broad set of genre pools and merge updates made by another host tab.
     const cacheWriter = await ctx.newPage();
     await cacheWriter.goto(APP);
