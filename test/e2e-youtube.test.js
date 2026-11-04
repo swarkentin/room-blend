@@ -21,6 +21,11 @@ const cacheRecords = (page) => page.evaluate(async () => {
   return await new Promise((resolve, reject) => { const tx = db.transaction('entries', 'readonly'), r = tx.objectStore('entries').getAll(); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
 });
 
+const cacheRecord = async (page, id) => {
+  const records = await cacheRecords(page);
+  return records && records.find((record) => record.id === id);
+};
+
 const log = { searches: [], badKey: 0, params: [], plSearches: [], plItems: 0, videoCalls: 0, rateLimited: 0, apiRequests: 0, apiAt: [] };
 let quotaOut = false, rateLimitQuotaOut = false, poolOn = false, rateLimitVideoSearches = 0;
 // a playlist of song videos for "jazz songs": three good ones, 14 filler songs, and entries that must be filtered out
