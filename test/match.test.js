@@ -20,6 +20,7 @@ assert.ok(accepts(want('Rock and Roll', 'Led Zeppelin'), sp('Rock & Roll', ['Led
 assert.ok(accepts(want('September', 'Earth, Wind and Fire'), sp('September', ['Earth, Wind & Fire'])));
 assert.ok(accepts(want('Alive', 'Pearl Jam'), sp('Alive - Remastered', ['Pearl Jam'])));
 assert.ok(accepts(want('Cover Me', 'Bruce Springsteen'), sp('Cover Me', ['Bruce Springsteen'])));
+assert.ok(accepts(want('Live and Let Die', 'Wings'), sp('Live and Let Die', ['Wings'])));
 assert.ok(accepts(want('Heart-Shaped Box', 'Nirvana'), sp('Heart Shaped Box', ['Nirvana'])));
 assert.ok(accepts(want('Mas Que Nada', 'Sérgio Mendes'), sp('Mas Que Nada', ['Sergio Mendes', 'Brasil 66'])));
 assert.ok(accepts(want('Beauty and the Beast', 'The Beatles'), sp('Beauty and the Beast', ['Beatles'])));
@@ -53,6 +54,7 @@ assert.strictEqual(M.rank(want('Creep', 'Radiohead'), vids, (x) => x, M.scoreVid
 assert.ok(M.isBad('Radiohead - Creep (Lyric Video)'));
 assert.ok(M.isBad('Radiohead - Creep (Fan Cover)'));
 assert.ok(!M.isBad('Cover Me'));
+assert.ok(!M.isBad('Wings - Live and Let Die'));
 assert.ok(M.isBad('Radiohead - Creep (Official Remix)'));
 assert.ok(!M.isBad('Radiohead - Creep (Official Audio)'));
 ok('videos: official uploads rank first; covers, remixes, live and lyric versions are rejected');
