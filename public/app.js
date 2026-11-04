@@ -656,7 +656,7 @@
         }
       });
       (st.wantGenres || []).forEach(function (genre, index) {
-        if (S.tried[genre]) return;
+        if (S.tried[genre] || (S.retryAt && S.retryAt[genre] > Date.now())) return;
         var fans = guests.filter(function (g) { return expandedPicks(g).indexOf(genre) >= 0; }).length;
         // Prefer genres requested by more people; preserve server order as a stable tie-break.
         tasks.push({ type: 'genre', key: genre, genre: genre, score: 100 + fans * 10 - index / 1000 });
@@ -678,6 +678,9 @@
         } else {
           var tracks = [];
           try { tracks = await P.extras(task.genre, partnersOf(st)) || []; } catch (e) { tracks = []; }
+          // The daily quota stopped the search. Do not mark the genre as searched and empty (that would switch on built-in songs
+          // that need a search to play): keep whatever the browser already knew, and ask again in 10 minutes.
+          if (tracks.incomplete) { S.tried[task.key] = false; (S.retryAt = S.retryAt || {})[task.key] = Date.now() + 10 * 60 * 1000; if (!tracks.length) return; }
           await post('extras', { genre: task.genre, tracks: tracks, pool: !!P.pool && tracks.length > 0, source: P.id });
         }
       } finally {

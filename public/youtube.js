@@ -76,7 +76,7 @@
         var all = store.getAll();
         all.onsuccess = function () {
           var matching = all.result.filter(function (x) { return x.kind === kind; });
-          var limit = kind === 'pool' ? 400 : CACHE_MAX;
+          var limit = kind === 'pool' ? 1500 : kind === 'lib' ? 300 : CACHE_MAX;
           if (matching.length > limit) matching.sort(function (a, b) { return a.usedAt - b.usedAt; }).slice(0, matching.length - limit).forEach(function (x) { store.delete(x.id); });
         };
         tx.oncomplete = resolve; tx.onerror = function () { reject(tx.error); }; tx.onabort = function () { reject(tx.error); };
@@ -269,6 +269,8 @@
       var cachedIds = Array.isArray(hit) ? hit : (hit ? [hit] : []);
       return qualityOrder(cachedIds, function (id) { return id; });
     }
+    var known = await libFind(track); // already found while reading a playlist: no search needed
+    if (known) { await cachePut('search:' + ck, [known], 'search', 30); return [known]; }
     var M = window.Match, q = M.cleanTitle(track.title) + ' ' + M.cleanArtist(track.artist);
     var j = await yapi('/search', { part: 'snippet', type: 'video', videoEmbeddable: 'true', videoSyndicated: 'true', maxResults: 8, q: q }, isCurrent);
     var items = (j.items || []).filter(function (it) { return it && it.id && it.id.videoId; });
@@ -280,6 +282,56 @@
     var ranked = await qualityOrder(matches, function (id) { return id; });
     await cachePut('search:' + ck, ranked, 'search', ranked.length ? 30 : 0.25);
     return ranked;
+  }
+
+
+  // ---------- the song library: every playable song ever found, kept per genre in this browser ----------
+  // A song found by genre already carries its video id, and the embedded player needs no API quota, so anything in here
+  // plays even after the day's search quota is gone. It tops up genres for free, and resolves a song that has no id yet
+  // (a built-in song, a named pick) without spending a 100-unit search.
+  var LIB_PER_GENRE = 600, LIB_TTL_DAYS = 120, LIB_FILL = 80, libQueue = Promise.resolve(), libIndexCache = null;
+  function libAdd(tracks) {
+    var byGenre = {};
+    (tracks || []).forEach(function (t) { if (t && t.id) (t.genres || []).slice(0, 3).forEach(function (g) { (byGenre[g] = byGenre[g] || []).push(t); }); });
+    var job = libQueue.then(async function () {
+      for (var g in byGenre) {
+        var have = (await cacheGet('lib:' + g)) || [], ids = {}, merged = [];
+        have.concat(byGenre[g].map(function (t) { return { title: t.title, artist: t.artist, id: t.id, genres: (t.genres || []).slice(0, 3), quality: t.quality || 0 }; })).forEach(function (t) {
+          if (ids[t.id]) return; ids[t.id] = 1; merged.push(t);
+        });
+        merged.sort(function (a, b) { return (b.quality || 0) - (a.quality || 0); });
+        await cachePut('lib:' + g, merged.slice(0, LIB_PER_GENRE), 'lib', LIB_TTL_DAYS);
+      }
+      libIndexCache = null;
+    }).catch(function () {});
+    libQueue = job;
+    return job;
+  }
+  async function libKeep(tracks) { await libAdd(tracks); return tracks; }
+  async function libGenre(g) { return (await cacheGet('lib:' + g)) || []; }
+  // The library as a lookup by plain title and artist words ("take five|dave brubeck quartet").
+  async function libIndex() {
+    if (libIndexCache) return libIndexCache;
+    var M = window.Match, idx = Object.create(null), db = await openCacheDb();
+    var records = [];
+    if (db) records = await new Promise(function (resolve) {
+      var req = db.transaction(DB_STORE, 'readonly').objectStore(DB_STORE).getAll();
+      req.onsuccess = function () { resolve((req.result || []).filter(function (x) { return x.kind === 'lib' && x.expiresAt > Date.now(); })); };
+      req.onerror = function () { resolve([]); };
+    });
+    Object.keys(cacheMemory).forEach(function (k) { if (/^lib:/.test(k) && cacheMemory[k].expiresAt > Date.now()) records.push(cacheMemory[k]); });
+    records.forEach(function (r) { (r.value || []).forEach(function (t) { var k = libKey(M, t.title, t.artist); if (k && !idx[k]) idx[k] = t.id; }); });
+    libIndexCache = idx;
+    return idx;
+  }
+  function libKey(M, title, artist) {
+    var a = M.core(M.cleanTitle(title)).join(' '), b = M.core(M.cleanArtist(artist)).join(' ');
+    return a && b ? a + '|' + b : '';
+  }
+  async function libFind(track) {
+    var M = window.Match, k = libKey(M, track.title, track.artist);
+    if (!k) return '';
+    return (await libIndex())[k] || '';
   }
 
   // ---------- songs by genre (playlist reads and video details use 1 quota unit per request; search has its own daily call cap) ----------
@@ -356,7 +408,7 @@
     if (hit !== undefined) return hit;
     var pl = await playlistFor(q.q);
     if (!pl) { await poolPut(q.q, []); return []; }
-    var out = await readPlaylist(pl, function (title, channel) { return parseVideo({ title: title, channel: channel }); }, 2);
+    var out = await readPlaylist(pl, function (title, channel) { return parseVideo({ title: title, channel: channel }); }, 4); // reading is 1 unit a page (a search is 100), so read deep
     await poolPut(q.q, out);
     return qualityOrder(out);
   }
@@ -374,7 +426,7 @@
       var t = M.cleanTitle(title), m = /^(.+?)\s+[-\u2013\u2014|:]\s+(.+)$/.exec(t);
       var song = m && (nameFit(who, m[1]) >= 0.99 || M.core(m[1]).join('') === M.core(who).join('')) ? M.cleanTitle(m[2]) : t;
       return song && song.length < 100 ? { title: song, artist: name } : null;
-    }, 2, true); // a channel the guest picked on purpose: keep its mixes, remixes and longer tracks (up to 20 minutes)
+    }, 6, true); // a channel the guest picked on purpose: keep its mixes, remixes and longer tracks (up to 20 minutes)
     return withTypicalGenre(out);
   }
   // A video with no genre clues gets the genre most of the channel's other videos point to.
@@ -534,16 +586,25 @@
     canExtras: function () { return on; },
     cacheInfo: async function () { var db = await openCacheDb(); if (!db) return { mode: 'memory', warning: cacheWarning }; return new Promise(function (resolve) { var tx = db.transaction(DB_STORE, 'readonly'), req = tx.objectStore(DB_STORE).getAll(); req.onsuccess = function () { var rows = req.result.filter(function (x) { return x.expiresAt > Date.now(); }), pools = rows.filter(function (x) { return x.kind === 'pool'; }), feedback = rows.filter(function (x) { return x.kind === 'quality'; }); resolve({ mode: 'indexeddb', pools: pools.length, poolTracks: pools.reduce(function (n, x) { return n + (Array.isArray(x.value) ? x.value.length : 0); }, 0), searches: rows.filter(function (x) { return x.kind === 'search'; }).length, ratedVideos: feedback.length, playbackSuccesses: feedback.reduce(function (n, x) { return n + (x.value.successes || 0); }, 0), playbackFailures: feedback.reduce(function (n, x) { return n + (x.value.failures || 0); }, 0), warning: cacheWarning }); }; req.onerror = function () { resolve({ mode: 'indexeddb', warning: cacheWarning }); }; }); },
     extras: async function (genre, partners) {
-      var out = [], seen = {};
+      var out = [], seen = {}, incomplete = false;
       try {
         var qs = window.Pools.queries(genre, 4, partners);
         for (var i = 0; i < qs.length; i++) {
           var got = await poolQuery(qs[i]);
-          got.forEach(function (t) { if (!seen[t.id]) { seen[t.id] = 1; out.push({ title: t.title, artist: t.artist, id: t.id, genres: qs[i].tags }); } });
+          got.forEach(function (t) { if (!seen[t.id]) { seen[t.id] = 1; out.push({ title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: qs[i].tags }); } });
           if (out.length >= MIN_GENRE_TRACKS) break;
         }
-      } catch (e) { note = e.message; if (rctx) rctx.status(e.message); }
-      return qualityOrder(out);
+      } catch (e) { note = e.message; incomplete = !!(e.quotaExceeded || e.budgetLimited); if (rctx) rctx.status(e.message); }
+      await libAdd(out);
+      // Top up from everything this browser has ever found for the genre. Free, and it still works when the quota is gone.
+      if (out.length < LIB_FILL) {
+        (await libGenre(genre)).forEach(function (t) {
+          if (out.length < LIB_FILL && !seen[t.id]) { seen[t.id] = 1; out.push({ title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: t.genres && t.genres.length ? t.genres : [genre] }); }
+        });
+      }
+      var ordered = await qualityOrder(out);
+      ordered.incomplete = incomplete; // the quota stopped discovery: the host asks again later
+      return ordered;
     },
     // Era-qualified searches keep decade picks meaningful after the room expands them into genres.
     // Each query is cached like every other playlist, and tags only the genre it actually searched.
@@ -557,10 +618,10 @@
     artistTracks: async function (name, genre) {
       try {
         var handle = handleOf(name);
-        if (handle) return qualityOrder((await handleSongs(name, handle)).map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: t.genres && t.genres.length ? t.genres : [genre] }; }));
+        if (handle) return qualityOrder(await libKeep((await handleSongs(name, handle)).map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: t.genres && t.genres.length ? t.genres : [genre] }; })));
         var got = (await poolQuery({ q: name + ' greatest hits', tags: [genre] })).filter(function (t) { return nameFit(name, t.artist) >= 0.99; });
         if (!got.length) got = await channelSongs(name);
-        return qualityOrder(got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: t.genres && t.genres.length ? t.genres : [genre] }; }));
+        return qualityOrder(await libKeep(got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: t.genres && t.genres.length ? t.genres : [genre] }; })));
       } catch (e) { note = e.message; if (rctx) rctx.status(e.message); return []; }
     },
     ready: function () { return on; },

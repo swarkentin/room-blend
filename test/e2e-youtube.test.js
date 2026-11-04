@@ -334,7 +334,7 @@ const yt = http.createServer((req, res) => {
     assert.strictEqual(await host.evaluate(() => localStorage.getItem('rb-yt-quota-day') !== null), true); ok('quota exhaustion is saved in browser storage');
     const beforeCached = log.apiRequests;
     const cachedJazz = await host.evaluate(async () => window.Providers.get('youtube').extras('jazz', []));
-    assert.strictEqual(cachedJazz.length, 17); assert.strictEqual(log.apiRequests, beforeCached); ok('cached genre songs remain available after quota exhaustion');
+    assert.ok(cachedJazz.length >= 17 && cachedJazz.length <= 80); assert.strictEqual(log.apiRequests, beforeCached); ok('cached genre songs remain available after quota exhaustion (the 17 from the playlist, plus anything else this browser found for jazz)');
     const beforeBlocked = log.apiRequests;
     await host.evaluate(async () => window.Providers.get('youtube').extras('hip hop', []));
     assert.strictEqual(log.apiRequests, beforeBlocked); ok('uncached lookups stop locally after quota exhaustion');
@@ -342,6 +342,12 @@ const yt = http.createServer((req, res) => {
     assert.strictEqual(skipped, null); assert.strictEqual(log.apiRequests, beforeBlocked); ok('songs needing new lookups are skipped so quota exhaustion cannot stall the queue');
     const cachedVideo = await host.evaluate(async () => window.Providers.get('youtube').play({ title: 'Cached playlist song', artist: 'Dave Brubeck', nid: 'plA1' }));
     assert.strictEqual(cachedVideo, true); assert.strictEqual(log.apiRequests, beforeBlocked); ok('known playlist video IDs still play while the Search API quota is paused');
+    const libGospel = await host.evaluate(async () => { const r = await window.Providers.get('youtube').extras('gospel', []); return { n: r.length, incomplete: !!r.incomplete, ids: r.every((t) => !!t.id) }; });
+    assert.ok(libGospel.n > 0 && libGospel.ids && libGospel.incomplete); assert.strictEqual(log.apiRequests, beforeBlocked); ok('a genre that cannot be searched today is filled from songs this browser found earlier, and flagged to be asked again later');
+    const libNone = await host.evaluate(async () => { const r = await window.Providers.get('youtube').extras('hip hop', []); return { n: r.length, incomplete: !!r.incomplete }; });
+    assert.ok(libNone.incomplete); ok('a genre with nothing known yet is flagged to be asked again, not treated as empty');
+    const viaLibrary = await host.evaluate(async () => window.Providers.get('youtube').play({ title: 'Zed Song One', artist: 'Zed Obscure' }));
+    assert.strictEqual(viaLibrary, true); assert.strictEqual(log.apiRequests, beforeBlocked); ok('a song with no video id yet is found in the library and plays with no search, even with the quota gone');
     rateLimitQuotaOut = false;
     await host.reload(); await host.waitForSelector('#sp');
     assert.ok(/searches are paused until midnight Pacific/.test(await host.textContent('#sp'))); ok('the host sees the quota pause after reloading');
