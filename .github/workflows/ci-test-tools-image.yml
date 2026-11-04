@@ -37,4 +37,4 @@ jobs:
           context: .
           file: .github/ci-test-tools/Dockerfile
           push: true
-          tags: ghcr.io/${{ github.repository }}/ci-test-tools:playwright-1.64.1
+          tags: ghcr.io/swarkentin/room-blend-ci-test-tools:playwright-1.64.1
