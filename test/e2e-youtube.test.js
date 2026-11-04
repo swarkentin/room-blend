@@ -40,7 +40,7 @@ addVid('plA6', 'So What', 'Miles Davis - Topic', 'PT9M22S');
 addVid('plA7', 'Dave Brubeck - Take Five (Cover Version)', 'Fan Covers', 'PT5M24S');
 addVid('plA8', 'Nina Simone - Feeling Good (Official Remix)', 'Remix Channel', 'PT2M55S');
 addVid('plA9', 'Ella Fitzgerald - Cheek to Cheek (Lyric Video)', 'Fan Lyrics', 'PT4M0S');
-for (let i = 0; i < 11; i++) addVid('plB' + i, 'Pool Artist ' + i + ' - Pool Tune ' + i + ' (Official Video)', 'Pool Artist ' + i, 'PT3M30S');
+for (let i = 0; i < 14; i++) addVid('plB' + i, 'Pool Artist ' + i + ' - Pool Tune ' + i + ' (Official Video)', 'Pool Artist ' + i, 'PT3M30S');
 const ZITEMS = [['plZ1', 'Zed Obscure - Zed Song One'], ['plZ2', 'Zed Obscure - Zed Song Two'], ['plZ3', 'Someone Else - Not Zed']].map(([id, title]) => { VIDEOS[id] = { id, snippet: { title, channelTitle: title.split(' - ')[0] }, contentDetails: { duration: 'PT3M10S' }, status: { embeddable: true, privacyStatus: 'public' } }; return { snippet: { title, resourceId: { videoId: id } } }; });
 PLITEMS.push({ snippet: { title: 'Private video', resourceId: { videoId: 'plPriv' } } });
 const SMALLITEMS = PLITEMS.slice(0, 6);
@@ -216,7 +216,7 @@ const yt = http.createServer((req, res) => {
     assert.ok(log.plItems === 1 && log.videoCalls === 1); ok('reading the playlist took one call for its songs and one for their details (about 2 quota units, not 100 per song)');
     const stored = await until(() => cacheRecord(host, 'pool:jazz'), 8000, 'pool cached');
     const titles = stored.value.map((t) => t.artist + ' - ' + t.title);
-    assert.strictEqual(stored.value.length, 14); assert.ok(stored.expiresAt - stored.at >= 29 * 86400000); ok('14 usable songs were kept and successful pools are cached for 30 days');
+    assert.strictEqual(stored.value.length, 17); assert.ok(stored.expiresAt - stored.at >= 29 * 86400000); ok('17 usable songs were kept and successful pools are cached for 30 days');
     await host.waitForFunction(() => /14 tracks/.test(document.querySelector('#yt-catalogue-status') && document.querySelector('#yt-catalogue-status').textContent || ''), null, { timeout: 8000 });
     ok('the host catalogue coverage count refreshes when discovery adds a pool');
     assert.ok(titles.includes('Dave Brubeck - Take Five') && titles.includes('Nina Simone - Feeling Good') && titles.includes('Miles Davis - So What')); ok('artist and title are read from "Artist - Song (Official Audio)" and from a "- Topic" channel');
