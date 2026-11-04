@@ -114,7 +114,7 @@ function hostState(code, key) {
   const { code, hostKey } = made.json;
   const H = { 'x-host-key': hostKey };
   assert.strictEqual((await req('POST', `/api/rooms/${code}/host/room`, { name: 'Friday patio', discoverable: false }, H)).status, 200);
-  assert.strictEqual((await req('POST', `/api/rooms/${code}/host/opts`, { tau: 0.7, doze: 45 }, H)).status, 200);
+  assert.strictEqual((await req('POST', `/api/rooms/${code}/host/opts`, { tau: 0.7, doze: 45, settle: 0 }, H)).status, 200);
   const joined = await req('POST', `/api/rooms/${code}/guests`, { name: 'Persistent guest', genres: ['rock'] });
   assert.strictEqual(joined.status, 200);
   const guestHeaders = { 'x-guest-id': joined.json.guestId, 'x-guest-key': joined.json.guestKey };
