@@ -306,6 +306,9 @@ async function api(req, res, url) {
       if (body.opts && typeof body.opts === 'object') nr.setOpts(body.opts);
     }
     rooms.set(code, nr);
+    for (const guest of nr.guests.values()) {
+      if (guest.lookupGenres && !guest.genres.length && ['idle', 'pending'].includes(guest.genreLookupStatus)) enrichGuestGenres(code, nr, guest);
+    }
     saveRooms();
     L.count('rooms.restored');
     L.info('room.restored', { room: L.roomTag(code), rooms: rooms.size });
