@@ -49,7 +49,9 @@ No settings are required. The address is picked up from the browser, so there is
 | `PUBLIC_URL` | Address friends should open. Only needed for the laptop + tunnel setup below. |
 | `SPOTIFY_CLIENT_ID` | A Spotify app for everyone to use. See the note below before you rely on it. |
 | `MAX_ROOMS`, `ROOMS_PER_IP_HOUR` | Capacity (2000) and how many rooms one visitor may start per hour (8). |
-| `DATA_DIR` | Where room codes and host keys survive restarts. Live state is rebuilt when people reconnect. |
+| `SESSION_SECRET` | Signs the receipts a host's browser keeps so a room can be restored after a restart or redeploy, even with no disk. `render.yaml` generates one. Any long random string works. |
+| `RESTORE_DAYS` | How long after the host last opened a room it can still be restored (30). |
+| `DATA_DIR` | Where room codes and host keys are also kept across restarts when the host has a real disk. Live state is rebuilt when people reconnect. |
 | `LOG_LEVEL` | `silent`, `error`, `warn`, `info` (default), or `debug` (adds one line per request). Logs are JSON lines: warnings and errors on stderr, the rest on stdout. They never contain names, picks, room codes, host keys or IP addresses. Rooms and visitors appear as short salted hashes. |
 | `STATUS_KEY` | `/status` shows rooms, guests, connections, timings, memory and top genres. By default it answers only on the machine itself. Set a key to read it remotely with `?key=...` or an `x-status-key` header. |
 
@@ -62,7 +64,7 @@ Spotify limits a development-mode app to five authorised users, and extended acc
 ## Free ways to run it
 
 - **Your laptop plus a Cloudflare Tunnel** (free, always HTTPS): `node server.js` then `cloudflared tunnel --url http://localhost:3000`. Set `PUBLIC_URL` to the tunnel address so join links and QR codes use it. The host opens `http://127.0.0.1:3000` themselves, which Spotify accepts for login. Best for testing with friends tonight.
-- **Render free web service**: `render.yaml` is included (New > Blueprint). Free services sleep after 15 minutes with no incoming requests (the host page pings every 5 minutes while a room is open), wake in about a minute, have no persistent disk, and can be restarted at any time, which forgets rooms. 750 free hours a month covers one always-on service. See `docs/SETUP.md` section 5.
+- **Render free web service**: `render.yaml` is included (New > Blueprint). Free services sleep after 15 minutes with no incoming requests (the host page pings every 5 minutes while a room is open), wake in about a minute, have no persistent disk, and can be restarted at any time. Rooms survive that anyway: the host's browser keeps a signed receipt and brings the same room back (same code, name and settings) the next time it connects, and listeners' picks are kept on their own phones. This needs the `SESSION_SECRET` that `render.yaml` generates. 750 free hours a month covers one always-on service. See `docs/SETUP.md` section 5.
 - **Oracle Cloud Always Free VM**: genuinely always on, but you manage a small Linux server (install Node or Docker, put Caddy in front for HTTPS). Availability varies by region.
 - **Railway** gives a one-time trial credit; **Fly.io** (`fly.toml` included) asks for a card and costs a few dollars a month. Serverless platforms (Vercel, Netlify, Workers) are not suitable: this needs a long-running server.
 

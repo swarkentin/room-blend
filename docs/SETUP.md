@@ -70,11 +70,14 @@ There is nothing to switch on. Every press of **Start a room** creates a separat
   |---|---|---|
   | `MAX_ROOMS` | 2000 | Most rooms at once. |
   | `ROOMS_PER_IP_HOUR` | 8 | Rooms one device may start per hour. Raise it if you create many test rooms (`ROOMS_PER_IP_HOUR=100`). |
-  | `DATA_DIR` | `./data` | Where room codes, host keys and room settings are saved so rooms survive a restart. |
+  | `DATA_DIR` | `./data` | Where room codes, host keys and room settings are saved so rooms survive a restart, when the host has a real disk. |
+  | `SESSION_SECRET` | made on first start | Signs the restore receipts described below. Set it on hosts with no disk (Render sets it for you). |
+  | `RESTORE_DAYS` | 30 | How long after the host last opened a room it can still be restored. |
   | `LOG_LEVEL` | `info` | `silent`, `error`, `warn`, `info` or `debug`. JSON lines, with no names, picks, codes, keys or IPs. |
   | `STATUS_KEY` | none | Lets you read `/status` from outside with `?key=` or an `x-status-key` header. Without it, only the machine itself can. |
 
   A room holds at most 40 guests. Idle rooms are cleaned up automatically.
+- **Surviving restarts and redeploys.** The host's browser keeps a signed receipt for its room (the room's name, settings and a proof from the server). If the server restarts and forgets the room, the host page hands the receipt back and the server rebuilds the same room: same code, same host key, same name and settings. Guests reconnect on their own, and their genres, artists and songs are kept in their own browsers, so a new room starts with their last picks already filled in. This works on hosts with no disk, because the server only has to remember `SESSION_SECRET`. Keep that value stable: changing it makes old receipts stop working. Restoring needs the host to open the room again from the same browser; for a room that should also come back for a host on another device, give the server a disk (`DATA_DIR`).
 - **What is stored.** The data folder holds room codes, host keys, room settings and the room's network label. It does not hold guest names, picks or listening history, which live in memory only and are rebuilt when people reconnect. Delete the data folder to forget all rooms.
 - **Keep it private on your network.** Anyone on the same network who has a room code can join that room. For a stricter setup, run it on a network you control, or put it behind HTTPS and your own access rules.
 
@@ -82,7 +85,7 @@ There is nothing to switch on. Every press of **Start a room** creates a separat
 
 - **Quick test with friends elsewhere:** `cloudflared tunnel --url http://localhost:3000`, then start the server with `PUBLIC_URL` set to the tunnel address and `TRUST_PROXY=1`. The host still opens `http://127.0.0.1:3000` themselves.
 - **Always-on hosting:** Docker (`docker build -t room-blend . && docker run -p 8080:8080 -v rb-data:/data room-blend`), Render (`render.yaml`), or Fly.io (`fly.toml`). Put the data folder on a volume. See the README section "Free ways to run it".
-- **Render, free:** push the folder to a GitHub repo, then on render.com choose New, Blueprint, and pick the repo (`render.yaml` is included). Set `PUBLIC_URL` to the `https://your-name.onrender.com` address Render gives you. Limits of the free plan: it sleeps after 15 minutes with no incoming requests and takes about a minute to wake; it has no persistent disk, so a restart or redeploy forgets every room (hosts start a new one); it can be restarted at any time; and 750 free hours a month is enough for one always-on service. The host page sends a small request every 5 minutes while open, so a room in use stays awake. The first visitor after a sleep waits about a minute. Spotify login will not work on the Render address (Spotify only allows `127.0.0.1` over plain http), so use YouTube, files or manual mode there, or open the host page through your own HTTPS address with your Spotify app set up for it.
+- **Render, free:** push the folder to a GitHub repo, then on render.com choose New, Blueprint, and pick the repo (`render.yaml` is included). Set `PUBLIC_URL` to the `https://your-name.onrender.com` address Render gives you. Limits of the free plan: it sleeps after 15 minutes with no incoming requests and takes about a minute to wake; it has no persistent disk, so a restart or redeploy forgets the live room, which the host's browser then restores (see section 4; `render.yaml` generates the `SESSION_SECRET` this needs, and on a service you already created you add it under Environment); it can be restarted at any time; and 750 free hours a month is enough for one always-on service. The host page sends a small request every 5 minutes while open, so a room in use stays awake. The first visitor after a sleep waits about a minute. Spotify login will not work on the Render address (Spotify only allows `127.0.0.1` over plain http), so use YouTube, files or manual mode there, or open the host page through your own HTTPS address with your Spotify app set up for it.
 - Set `TRUST_PROXY=1` only when a proxy sits in front of Node. Leave it off when Node is reached directly, or visitors could fake their address.
 
 ## Settings reference
@@ -92,7 +95,7 @@ There is nothing to switch on. Every press of **Start a room** creates a separat
 | `PORT` | 3000 | Port to listen on. |
 | `PUBLIC_URL` | the browser's address | Address friends should open. Needed on a home network and behind tunnels. |
 | `TRUST_PROXY` | off | Use the proxy's visitor address. |
-| `MAX_ROOMS`, `ROOMS_PER_IP_HOUR`, `DATA_DIR` | see above | Capacity and storage. |
+| `MAX_ROOMS`, `ROOMS_PER_IP_HOUR`, `DATA_DIR`, `SESSION_SECRET`, `RESTORE_DAYS` | see above | Capacity, storage and room restore. |
 | `SPOTIFY_CLIENT_ID` | none | A shared Spotify app, only if you have extended access. |
 | `DISCONNECT_GRACE_MS` | 180000 | How long a dropped connection stays counted. |
 | `DOZE_DEFAULT_MIN` | 30 | Minutes a locked phone stays counted. |

@@ -9,6 +9,8 @@
 //   MAX_ROOMS            total rooms kept at once (default 2000)
 //   ROOMS_PER_IP_HOUR    new rooms one visitor may start per hour (default 8)
 //   DATA_DIR             where room identities are kept across restarts (default ./data)
+//   SESSION_SECRET       signs the receipts a host's browser uses to restore its room after a restart (set it on Render)
+//   RESTORE_DAYS         how long after the host last opened a room it can still be restored (default 30)
 //   MUSICBRAINZ_SEARCH_DISABLED=1 to keep artist/song searches local (offline or test use)
 //   LOG_LEVEL            debug, info (default), warn, error or silent. JSON lines; info to stdout, warn and error to stderr
 //   STATUS_KEY           secret for GET /status?key=... (counts, timings, memory). Without it /status answers only on this machine
@@ -20,6 +22,7 @@ const Engine = require('./lib/engine');
 const { Room, rid } = require('./lib/room');
 const L = require('./lib/log');
 const { createClient } = require('./lib/musicbrainz');
+const Restore = require('./lib/restore');
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
@@ -46,6 +49,19 @@ const CLIENT_CONFIG = {
   genreLegacy: Engine.LEGACY_GROUPS,
   beatMs: Number(process.env.BEAT_MS) || 60000,
 };
+
+// Restore receipts (see lib/restore.js): lets a host's browser bring its room back after a restart or redeploy wipes the server.
+let restorer = null;
+function getRestorer() {
+  if (!restorer) {
+    const { secret, source } = Restore.resolveSecret({ envSecret: process.env.SESSION_SECRET, dataDir: DATA_DIR });
+    restorer = Restore.create(secret, Number(process.env.RESTORE_DAYS || 30));
+    if (source === 'memory') L.warn('restore.secret_ephemeral', { hint: 'Set SESSION_SECRET (or use a persistent DATA_DIR) so hosts can restore rooms after a restart' });
+    else L.info('restore.ready', { secret: source, days: restorer.days });
+  }
+  return restorer;
+}
+const hostViewOf = (room) => Object.assign(room.hostView(), { restoreToken: getRestorer().issue(room.code, room.hostKey) });
 
 const rooms = new Map();
 const subs = new Map(); // code -> Set of {res, role, guestId}
@@ -221,7 +237,7 @@ function push(code) {
   const room = rooms.get(code), set = subs.get(code);
   if (!room || !set) return;
   for (const s of set) {
-    const view = s.role === 'host' ? room.hostView() : s.role === 'screen' ? room.screenView() : room.guestView(s.guestId);
+    const view = s.role === 'host' ? hostViewOf(room) : s.role === 'screen' ? room.screenView() : room.guestView(s.guestId);
     s.res.write(`data: ${JSON.stringify(view)}\n\n`);
   }
 }
@@ -256,6 +272,33 @@ async function api(req, res, url) {
     return sendJson(res, 200, { rooms: out.slice(0, 5) });
   }
   const code = (parts[1] || '').toUpperCase();
+
+  // POST /api/rooms/:code/restore  -> a host's browser brings back a room the server forgot (restart, redeploy, sleep).
+  // The signed receipt proves this server issued that host key for that code, so nobody can claim a code they were never given.
+  if (parts[0] === 'rooms' && parts[2] === 'restore' && parts.length === 3 && m === 'POST') {
+    const body = await readBody(req);
+    const hostKey = typeof body.hostKey === 'string' ? body.hostKey : '';
+    if (!/^[A-HJ-NP-Z2-9]{5}$/.test(code) || !/^[A-Za-z0-9_-]{16,64}$/.test(hostKey) || !getRestorer().verify(code, hostKey, body.token)) {
+      L.count('rooms.restore_refused');
+      return sendJson(res, 403, { error: 'This room cannot be restored.' });
+    }
+    const existing = rooms.get(code);
+    if (existing) {
+      if (safeEq(existing.hostKey, hostKey)) return sendJson(res, 200, { ok: true, restored: false });
+      return sendJson(res, 409, { error: 'That room code is in use.' });
+    }
+    if (rooms.size >= MAX_ROOMS) { L.count('limits.full'); return sendJson(res, 503, { error: 'The service is full right now. Try again later.' }); }
+    const nr = new Room(code, hostKey);
+    nr.netKey = netKeyOf(ip);
+    nr.setInfo({ name: body.name, discoverable: body.discoverable });
+    if (body.opts && typeof body.opts === 'object') nr.setOpts(body.opts);
+    rooms.set(code, nr);
+    saveRooms();
+    L.count('rooms.restored');
+    L.info('room.restored', { room: L.roomTag(code), rooms: rooms.size });
+    return sendJson(res, 200, { ok: true, restored: true });
+  }
+
   const room = rooms.get(code);
   if (parts[0] !== 'rooms' || !room) return sendJson(res, 404, { error: 'room not found' });
   room.touchedAt = Date.now();
@@ -282,7 +325,7 @@ async function api(req, res, url) {
     if (!subs.has(code)) subs.set(code, new Set());
     subs.get(code).add(sub);
     if (guest) room.setConnected(guest.id, true);
-    res.write(`retry: 2000\ndata: ${JSON.stringify(role === 'host' ? room.hostView() : role === 'screen' ? room.screenView() : room.guestView(guest.id))}\n\n`);
+    res.write(`retry: 2000\ndata: ${JSON.stringify(role === 'host' ? hostViewOf(room) : role === 'screen' ? room.screenView() : room.guestView(guest.id))}\n\n`);
     const ka = setInterval(() => res.write(': keepalive\n\n'), 15000);
     req.on('close', () => {
       clearInterval(ka); subs.get(code)?.delete(sub);
@@ -510,6 +553,7 @@ clock.unref();
 if (require.main === module) {
   const level = L.configure();
   loadRooms();
+  getRestorer(); // logs now whether hosts will be able to restore rooms after a restart
   server.listen(PORT, '0.0.0.0', () => {
     L.info('server.start', { port: PORT, node: process.version, rooms: rooms.size, logLevel: level, trustProxy: TRUST_PROXY, publicUrl: !!PUBLIC_URL, ownSpotifyApp: !CLIENT_CONFIG.clientId });
     // A person running this in a terminal gets a plain sentence as well as the JSON line.

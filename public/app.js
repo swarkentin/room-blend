@@ -27,6 +27,25 @@
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
   function lsDel(k) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } }
+
+  // A host's room survives a server restart because this browser keeps a signed receipt for it (name, settings, and the
+  // server's proof that it issued this room's host key). When the server has forgotten the room, the receipt brings it back.
+  // The key is 'rb-snap-' and not 'rb-host-...', because the landing page treats every 'rb-host-' key as a room to list.
+  function readSnap(code) { try { var s = JSON.parse(lsGet('rb-snap-' + code) || 'null'); return s && typeof s.token === 'string' ? s : null; } catch (e) { return null; } }
+  function saveSnap(code, st) {
+    if (!st || !st.restoreToken) return;
+    var next = JSON.stringify({ token: st.restoreToken, name: st.name || '', discoverable: st.discoverable !== false, opts: st.opts || {} });
+    if (lsGet('rb-snap-' + code) !== next) lsSet('rb-snap-' + code, next);
+  }
+
+  // A listener's picks follow them from room to room (they are kept in this browser, so a server restart cannot lose them).
+  function readPrefs() { try { var p = JSON.parse(lsGet('rb-prefs') || 'null'); return p && typeof p === 'object' ? p : null; } catch (e) { return null; } }
+  function savePrefs(r) {
+    if (!r) return;
+    var genres = (r.genres || []).slice(0, 4), artists = (r.artists || []).slice(0, 5), songs = (r.songs || []).slice(0, 5);
+    if (!genres.length && !artists.length && !songs.length) return; // never replace a good profile with an empty one
+    lsSet('rb-prefs', JSON.stringify({ genres: genres, artists: artists, songs: songs, lookupGenres: !!r.lookupGenres }));
+  }
   async function http(method, url, body, headers, keepalive) {
     var r = await fetch(url, { keepalive: !!keepalive, method: method, headers: Object.assign(body ? { 'Content-Type': 'application/json' } : {}, headers || {}), body: body ? JSON.stringify(body) : undefined });
     var data = null; try { data = await r.json(); } catch (e) { /* none */ }
@@ -181,15 +200,21 @@
 
     // Rooms this browser already belongs to or runs.
     var codes = hostRooms.map(function (c) { return { c: c, host: true }; }).concat(guestRooms.map(function (c) { return { c: c, host: false }; }));
-    Promise.all(codes.map(function (x) { return http('GET', '/api/rooms/' + x.c).then(function (r) { return r.ok ? Object.assign({ name: r.data.name }, x) : null; }); })).then(function (list) {
+    Promise.all(codes.map(function (x) {
+      return http('GET', '/api/rooms/' + x.c).then(function (r) {
+        if (r.ok) return Object.assign({ name: r.data.name }, x);
+        // The server forgot a room this browser hosts (restart or redeploy): it still opens, and comes back with its settings.
+        var snap = r.status === 404 && x.host ? readSnap(x.c) : null;
+        return snap ? Object.assign({ name: snap.name, saved: true }, x) : null;
+      });
+    })).then(function (list) {
       list = list.filter(Boolean);
-      codes.forEach(function (x) { /* tidy up rooms that no longer exist */ });
       if (!list.length) return;
       mine.hidden = false;
       mine.replaceChildren.apply(mine, [h('h2', { text: 'Your rooms' })].concat(list.map(function (x) {
         return h('a', { class: 'roomlink', href: (x.host ? '/host/' : '/r/') + x.c }, [
           h('span', { class: 'rl-name', text: x.name || 'Room ' + x.c }),
-          h('span', { class: 'rl-meta', text: (x.host ? 'You are the host' : 'You are a guest') + ' · ' + x.c }),
+          h('span', { class: 'rl-meta', text: (x.host ? (x.saved ? 'Your saved room' : 'You are the host') : 'You are a guest') + ' · ' + x.c }),
           h('span', { class: 'btn small', text: x.host ? 'Open' : 'Rejoin' }),
         ]);
       })));
@@ -507,6 +532,7 @@
     // ----- rendering -----
     function render(st) {
       S.st = st;
+      saveSnap(code, st);
       var castTitle = $('tv-cast-title');
       var castTitleText = st.now ? st.now.track.title : 'Waiting for the first guest';
       $('tv-cast-room').textContent = st.name || 'Now playing';
@@ -612,17 +638,40 @@
     }
 
     renderSource();
-    var es;
+    var es, lastRestore = 0;
+    // The server forgot this room (restart, redeploy, or it slept). Hand back the receipt to get the same room and settings.
+    // Returns 'back' (the room is back), 'wait' (could not tell yet, try again soon), or 'gone' (no receipt, or the server refused it).
+    async function restoreRoom() {
+      var snap = readSnap(code);
+      if (!snap) return 'gone';
+      if (Date.now() - lastRestore < 5000) return 'wait';
+      lastRestore = Date.now();
+      var r = await http('POST', '/api/rooms/' + code + '/restore', { hostKey: key, token: snap.token, name: snap.name, discoverable: snap.discoverable, opts: snap.opts });
+      if (r.ok) return 'back';
+      return r.status >= 500 || r.status === 429 ? 'wait' : 'gone';
+    }
+    function roomEnded() {
+      lsDel('rb-host-' + code); lsDel('rb-snap-' + code);
+      app.replaceChildren(h('div', { class: 'wrap' }, [h('div', { class: 'hero' }, [h('h1', { text: 'This room has ended' }), h('p', { class: 'lead', text: 'A room can only be reopened for a while after its host last used it.' }), h('a', { class: 'btn primary', href: '/', text: 'Start a new room' })])]));
+    }
+    async function reconnect() {
+      try {
+        var r = await http('GET', '/api/rooms/' + code);
+        if (r.status >= 500) return setTimeout(connect, 3000); // the server is still starting up
+        if (r.status !== 404) return;
+        var back = await restoreRoom();
+        if (back === 'wait') return setTimeout(connect, 3000);
+        if (back === 'gone') return roomEnded();
+        // The new room knows nothing about the music source yet, so let the source set itself up again.
+        S.reup = 0; S.tried = {}; S.playing = null; S.srcSig = '';
+        connect();
+      } catch (e) { setTimeout(connect, 3000); } // offline or mid-restart: try again
+    }
     function connect() {
+      if (es) es.close();
       es = new EventSource('/api/rooms/' + code + '/events?key=' + encodeURIComponent(key));
       es.onmessage = function (m) { try { render(JSON.parse(m.data)); } catch (e) { console.error(e); } };
-      es.onerror = function () {
-        if (es.readyState === EventSource.CLOSED) {
-          http('GET', '/api/rooms/' + code).then(function (r) {
-            if (r.status === 404) { lsDel('rb-host-' + code); app.replaceChildren(h('div', { class: 'wrap' }, [h('div', { class: 'hero' }, [h('h1', { text: 'This room has ended' }), h('p', { class: 'lead', text: 'Rooms close after a day of nobody using them.' }), h('a', { class: 'btn primary', href: '/', text: 'Start a new room' })])])); }
-          });
-        }
-      };
+      es.onerror = function () { if (es.readyState === EventSource.CLOSED) reconnect(); };
     }
     connect();
   }
@@ -631,8 +680,9 @@
   function guestView(code) {
     var regKey = 'rb-guest-' + code;
     var reg = null; try { reg = JSON.parse(lsGet(regKey) || 'null'); } catch (e) { reg = null; }
+    function saveReg() { lsSet(regKey, JSON.stringify(reg)); savePrefs(reg); }
     var params = new URLSearchParams(location.search);
-    var es = null, st = null, findOpen = Object.create(null);
+    var es = null, st = null, findOpen = Object.create(null), goneAt = 0;
 
     app.replaceChildren(h('div', { class: 'wrap guest-wrap' }, [
       h('header', { class: 'top' }, [h('div', null, [h('h1', { id: 'gv-title-h', text: 'Room ' + code }), h('p', { id: 'g-sub', text: 'Pick genres, or name artists and songs you like. The room\'s music shifts to fit everyone who is here.' })])]),
@@ -645,13 +695,20 @@
       if (r.ok && r.data && r.data.name && $('gv-title-h')) { $('gv-title-h').textContent = r.data.name; document.title = r.data.name + ' on Room Blend'; }
     });
     function showForm(editing, note) {
-      var picked = reg ? reg.genres.slice() : [];
+      // Joining a new room starts from what this person picked last time (kept in this browser), so they only change what is different.
+      var prefs = reg ? null : readPrefs();
+      var known = function (g) { return typeof g === 'string' && (C.genres.indexOf(g) >= 0 || !!(C.genreAliases && Object.prototype.hasOwnProperty.call(C.genreAliases, g))); };
+      var picked = reg ? reg.genres.slice() : prefs && Array.isArray(prefs.genres) ? prefs.genres.filter(known).slice(0, 4) : [];
       var nameIn = h('input', { type: 'text', id: 'gv-name', maxlength: '20', placeholder: 'First name or nickname', autocomplete: 'given-name', value: reg ? reg.name : (lsGet('rb-name') || '') });
       var picker = h('div', { class: 'chips', id: 'gv-picker' });
-      var hint = h('p', { class: 'hint', id: 'gv-hint', role: 'status', text: note || '' });
-      var named = { artists: reg && reg.artists ? reg.artists.slice() : [], songs: reg && reg.songs ? reg.songs.slice() : [] };
+      var named = {
+        artists: reg && reg.artists ? reg.artists.slice() : prefs && Array.isArray(prefs.artists) ? prefs.artists.slice(0, 5) : [],
+        songs: reg && reg.songs ? reg.songs.slice() : prefs && Array.isArray(prefs.songs) ? prefs.songs.slice(0, 5) : [],
+      };
+      var reused = !editing && !reg && !!(picked.length || named.artists.length || named.songs.length);
+      var hint = h('p', { class: 'hint', id: 'gv-hint', role: 'status', text: note || (reused ? 'Filled in from your last room. Change anything you like, then join.' : '') });
       var np = editing ? null : namedPicker(named, function () { hint.textContent = ''; });
-      var lookupInput = editing ? null : h('input', { type: 'checkbox', id: 'gv-mb-lookup-join', checked: reg && reg.lookupGenres ? 'checked' : null });
+      var lookupInput = editing ? null : h('input', { type: 'checkbox', id: 'gv-mb-lookup-join', checked: (reg && reg.lookupGenres) || (!reg && prefs && prefs.lookupGenres) ? 'checked' : null });
       var lookupChoice = lookupInput ? h('label', { class: 'hint' }, [lookupInput, ' Use MusicBrainz to improve artist genre guesses. Up to five names from your artist and song picks are sent to MusicBrainz.']) : null;
       var importBox = null;
       if (C.clientId && !editing) {
@@ -681,12 +738,12 @@
         if (editing && reg) {
           var r = await http('PATCH', '/api/rooms/' + code + '/guests/' + reg.id, { name: name, genres: picked }, { 'x-guest-id': reg.id, 'x-guest-key': reg.key });
           if (!r.ok) { hint.textContent = 'Could not save. Try again.'; return; }
-          reg.name = name; reg.genres = picked.slice(); lsSet(regKey, JSON.stringify(reg)); showLive();
+          reg.name = name; reg.genres = picked.slice(); saveReg(); showLive();
         } else {
           var j = await http('POST', '/api/rooms/' + code + '/guests', { name: name, genres: picked, artists: named.artists, songs: named.songs, lookupGenres: !!(lookupInput && lookupInput.checked), since: (reg && reg.since) || undefined });
           if (j.status === 404) { return roomGone(); }
           if (!j.ok) { hint.textContent = 'Could not join. Try again.'; return; }
-          reg = { id: j.data.guestId, key: j.data.guestKey, name: name, genres: picked.slice(), artists: named.artists.slice(), songs: named.songs.slice(), lookupGenres: !!(lookupInput && lookupInput.checked), since: (reg && reg.since) || j.data.since || Date.now() }; lsSet(regKey, JSON.stringify(reg));
+          reg = { id: j.data.guestId, key: j.data.guestKey, name: name, genres: picked.slice(), artists: named.artists.slice(), songs: named.songs.slice(), lookupGenres: !!(lookupInput && lookupInput.checked), since: (reg && reg.since) || j.data.since || Date.now() }; saveReg();
           history.replaceState(null, '', '/r/' + code); showLive();
         }
       });
@@ -863,8 +920,8 @@
       var meta = h('span', { class: 'meta', id: 'gv-picks-n' });
       var holder = { get artists() { return reg.artists || []; }, set artists(v) { reg.artists = v; }, get songs() { return reg.songs || []; }, set songs(v) { reg.songs = v; } };
       function count() { var n = holder.artists.length + holder.songs.length; meta.textContent = n ? n + ' added' : ''; }
-      var lookupInput = h('input', { type: 'checkbox', id: 'gv-mb-lookup-live', checked: reg.lookupGenres ? 'checked' : null, onchange: function () { reg.lookupGenres = lookupInput.checked; lsSet(regKey, JSON.stringify(reg)); patch({ lookupGenres: reg.lookupGenres }); } });
-      var pk = namedPicker(holder, function () { lsSet(regKey, JSON.stringify(reg)); patch({ artists: reg.artists, songs: reg.songs }); count(); }, function () { return !(reg.genres && reg.genres.length); });
+      var lookupInput = h('input', { type: 'checkbox', id: 'gv-mb-lookup-live', checked: reg.lookupGenres ? 'checked' : null, onchange: function () { reg.lookupGenres = lookupInput.checked; saveReg(); patch({ lookupGenres: reg.lookupGenres }); } });
+      var pk = namedPicker(holder, function () { saveReg(); patch({ artists: reg.artists, songs: reg.songs }); count(); }, function () { return !(reg.genres && reg.genres.length); });
       picksSection.refresh = function () { lookupInput.checked = !!reg.lookupGenres; pk.refresh(); count(); };
       count();
       return h('div', { id: 'gv-picks' }, [
@@ -922,7 +979,7 @@
       var msg = $('gv-played-msg'), add = (t.genres || []).filter(function (g) { return reg.genres.indexOf(g) < 0; })[0];
       if (!add) { msg.textContent = 'Its genres are already in your picks.'; return; }
       var picks = reg.genres.slice(); if (picks.length >= 4) picks.pop(); picks.push(add);
-      reg.genres = picks; lsSet(regKey, JSON.stringify(reg)); patch({ genres: picks });
+      reg.genres = picks; saveReg(); patch({ genres: picks });
       msg.textContent = 'Added ' + add + ' to your picks. The room will start to include it.';
     }
     function songRow(t, withMore) {
@@ -970,8 +1027,8 @@
       (s.next || []).forEach(function (n) { ol.appendChild(h('li', { class: 'nextrow' }, [document.createTextNode(n.title + ' '), h('span', { text: n.artist + (n.mine ? ' (your turn)' : '') })])); });
       if (!s.next || !s.next.length) ol.appendChild(h('li', { class: 'nextrow' }, [h('span', { text: 'Nothing lined up yet.' })]));
       var me = s.me;
-      if (me && reg && typeof me.lookupGenres === 'boolean' && me.lookupGenres !== !!reg.lookupGenres) { reg.lookupGenres = me.lookupGenres; lsSet(regKey, JSON.stringify(reg)); if (picksSection.refresh) picksSection.refresh(); }
-      if (me && Array.isArray(me.artists) && reg) { var ch = JSON.stringify([me.artists, me.songs]) !== JSON.stringify([reg.artists || [], reg.songs || []]); if (ch) { reg.artists = me.artists; reg.songs = me.songs; lsSet(regKey, JSON.stringify(reg)); if (picksSection.refresh) picksSection.refresh(); } }
+      if (me && reg && typeof me.lookupGenres === 'boolean' && me.lookupGenres !== !!reg.lookupGenres) { reg.lookupGenres = me.lookupGenres; saveReg(); if (picksSection.refresh) picksSection.refresh(); }
+      if (me && Array.isArray(me.artists) && reg) { var ch = JSON.stringify([me.artists, me.songs]) !== JSON.stringify([reg.artists || [], reg.songs || []]); if (ch) { reg.artists = me.artists; reg.songs = me.songs; saveReg(); if (picksSection.refresh) picksSection.refresh(); } }
       renderPlayed(s);
       $('gv-ask').hidden = !(me && me.ask && !me.away);
       $('gv-sit').setAttribute('aria-pressed', me && me.sit ? 'true' : 'false');
@@ -993,10 +1050,19 @@
       es.onerror = async function () {
         if (es.readyState !== EventSource.CLOSED) return;
         // Server restarted or dropped us: check the room, then rejoin quietly with the same picks.
-        var r = await http('GET', '/api/rooms/' + code);
-        if (r.status === 404) return roomGone();
-        var j = await http('POST', '/api/rooms/' + code + '/guests', { name: reg.name, genres: reg.genres, since: reg.since, artists: reg.artists, songs: reg.songs, lookupGenres: !!reg.lookupGenres });
-        if (j.ok) { reg.id = j.data.guestId; reg.key = j.data.guestKey; lsSet(regKey, JSON.stringify(reg)); connect(); }
+        var r;
+        try { r = await http('GET', '/api/rooms/' + code); } catch (e) { return setTimeout(connect, 4000); } // offline or mid-restart
+        if (r.status === 404) {
+          // A restart empties the room until its host's page brings it back, which usually takes seconds. Keep trying for a few minutes.
+          if (!goneAt) goneAt = Date.now();
+          if (Date.now() - goneAt > 5 * 60 * 1000) return roomGone();
+          if ($('gv-me')) $('gv-me').textContent = 'The room is restarting. Reconnecting you…';
+          return setTimeout(connect, 4000);
+        }
+        goneAt = 0;
+        var j;
+        try { j = await http('POST', '/api/rooms/' + code + '/guests', { name: reg.name, genres: reg.genres, since: reg.since, artists: reg.artists, songs: reg.songs, lookupGenres: !!reg.lookupGenres }); } catch (e) { return setTimeout(connect, 4000); }
+        if (j.ok) { reg.id = j.data.guestId; reg.key = j.data.guestKey; saveReg(); connect(); }
         else setTimeout(connect, 3000);
       };
     }
