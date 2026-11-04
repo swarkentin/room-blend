@@ -41,6 +41,8 @@ const CLIENT_CONFIG = {
   sdkUrl: process.env.SPOTIFY_SDK_URL || 'https://sdk.scdn.co/spotify-player.js',
   ytApiBase: process.env.YOUTUBE_API_BASE || 'https://www.googleapis.com/youtube/v3',
   ytIframeUrl: process.env.YOUTUBE_IFRAME_URL || 'https://www.youtube.com/iframe_api',
+  // Override the browser-side YouTube request spacing in tests; production defaults to 2 seconds.
+  ytApiIntervalMs: Number.isFinite(Number(process.env.YOUTUBE_API_INTERVAL_MS)) && process.env.YOUTUBE_API_INTERVAL_MS !== '' && Number(process.env.YOUTUBE_API_INTERVAL_MS) >= 0 ? Number(process.env.YOUTUBE_API_INTERVAL_MS) : 2000,
   genres: Engine.GENRES,
   genreGroups: Engine.GENRE_GROUPS,
   genreAliases: Engine.GENRE_ALIASES,
