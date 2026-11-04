@@ -82,6 +82,8 @@ function loadRooms() {
       room.touchedAt = r.touchedAt;
       room.name = r.name || ''; room.discoverable = r.discoverable !== false; room.netKey = r.netKey || '';
       if (r.opts) Object.assign(room.opts, r.opts);
+      // The disk file preserves room identity only. The host browser restores the encrypted live-state checkpoint.
+      room.recoveryNeeded = true;
       rooms.set(room.code, room);
     }
   } catch { /* first run */ }
@@ -286,12 +288,10 @@ async function api(req, res, url) {
       return sendJson(res, 403, { error: 'This room cannot be restored.' });
     }
     const existing = rooms.get(code);
-    if (existing) {
-      if (safeEq(existing.hostKey, hostKey)) return sendJson(res, 200, { ok: true, restored: false });
-      return sendJson(res, 409, { error: 'That room code is in use.' });
-    }
-    if (rooms.size >= MAX_ROOMS) { L.count('limits.full'); return sendJson(res, 503, { error: 'The service is full right now. Try again later.' }); }
-    const nr = new Room(code, hostKey);
+    if (existing && !safeEq(existing.hostKey, hostKey)) return sendJson(res, 409, { error: 'That room code is in use.' });
+    if (existing && !existing.recoveryNeeded) return sendJson(res, 200, { ok: true, restored: false });
+    if (!existing && rooms.size >= MAX_ROOMS) { L.count('limits.full'); return sendJson(res, 503, { error: 'The service is full right now.' }); }
+    const nr = existing || new Room(code, hostKey);
     nr.netKey = netKeyOf(ip);
     if (body.snapshot !== undefined) {
       const snapshot = getRestorer().decryptSnapshot(code, hostKey, body.snapshot);
@@ -308,6 +308,7 @@ async function api(req, res, url) {
       nr.setInfo({ name: body.name, discoverable: body.discoverable });
       if (body.opts && typeof body.opts === 'object') nr.setOpts(body.opts);
     }
+    nr.recoveryNeeded = false;
     rooms.set(code, nr);
     for (const guest of nr.guests.values()) {
       if (guest.lookupGenres && !guest.genres.length && ['idle', 'pending'].includes(guest.genreLookupStatus)) enrichGuestGenres(code, nr, guest);
