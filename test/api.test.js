@@ -117,6 +117,7 @@ function sse(path) {
   assert.strictEqual(hostAdded.status, 200);
   const withHost = await host.waitFor((s) => s.requests && s.requests.some((x) => x.title === 'Host selection'));
   assert.ok(withHost.requests.some((x) => x.requester === 'Host'));
+  for (const request of withHost.requests) await req('POST', `/api/rooms/${code}/host/requests`, { remove: true, id: request.id }, H);
   assert.strictEqual((await req('POST', `/api/rooms/${code}/host/requests`, { remove: true, id: 'missing' }, H)).status, 404);
   ok('guest requests accept arbitrary songs, enforce a host-toggleable limit, and host can add/remove requests');
 
