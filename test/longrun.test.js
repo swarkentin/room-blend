@@ -30,4 +30,11 @@ ok('a view stays a few kilobytes however long the room has run');
 const ids = r.history.slice(-30).map((h) => h.track.id);
 assert.ok(new Set(ids).size > 15, 'recent songs are not all repeats');
 ok('songs still do not repeat back to back after trimming');
+{
+  const { cleanArtists } = require('../lib/room.js');
+  assert.deepStrictEqual(cleanArtists(['https://www.youtube.com/@djcrocsnsocks', 'Someone Else']), ['@djcrocsnsocks', 'Someone Else']);
+  assert.deepStrictEqual(cleanArtists(['https://youtube.com/@DJCrocsNSocks/?si=abc', '@djcrocsnsocks']), ['@DJCrocsNSocks'], 'a link and the bare handle are one artist');
+  assert.deepStrictEqual(cleanArtists(['https://example.com/@djcrocsnsocks']).length, 1);
+  ok('a pasted YouTube channel link is stored as the @handle, and matches the bare handle');
+}
 console.log(`\n${n} checks passed`);

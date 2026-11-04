@@ -41,7 +41,7 @@ addVid('plA7', 'Dave Brubeck - Take Five (Cover Version)', 'Fan Covers', 'PT5M24
 addVid('plA8', 'Nina Simone - Feeling Good (Official Remix)', 'Remix Channel', 'PT2M55S');
 addVid('plA9', 'Ella Fitzgerald - Cheek to Cheek (Lyric Video)', 'Fan Lyrics', 'PT4M0S');
 for (let i = 0; i < 14; i++) addVid('plB' + i, 'Pool Artist ' + i + ' - Pool Tune ' + i + ' (Official Video)', 'Pool Artist ' + i, 'PT3M30S');
-const CHAN = 'UCdjcrocs0123456789abcde', CITEMS = [['chC1', 'Sock Hop Anthem'], ['chC2', 'DJ Crocs n Socks - Slide Into Friday']].map(([id, title]) => { VIDEOS[id] = { id, snippet: { title, channelTitle: 'DJ Crocs n Socks' }, contentDetails: { duration: 'PT3M20S' }, status: { embeddable: true, privacyStatus: 'public' } }; return { snippet: { title, resourceId: { videoId: id } } }; });
+const CHAN = 'UCdjcrocs0123456789abcde', CITEMS = [['chC1', 'Sock Hop Anthem'], ['chC2', 'DJ Crocs n Socks - Slide Into Friday'], ['chC3', 'Night Drive (Club Remix)']].map(([id, title]) => { VIDEOS[id] = { id, snippet: { title, channelTitle: 'DJ Crocs n Socks' }, contentDetails: { duration: id === 'chC3' ? 'PT12M5S' : 'PT3M20S' }, status: { embeddable: true, privacyStatus: 'public' } }; return { snippet: { title, resourceId: { videoId: id } } }; });
 const ZITEMS = [['plZ1', 'Zed Obscure - Zed Song One'], ['plZ2', 'Zed Obscure - Zed Song Two'], ['plZ3', 'Someone Else - Not Zed']].map(([id, title]) => { VIDEOS[id] = { id, snippet: { title, channelTitle: title.split(' - ')[0] }, contentDetails: { duration: 'PT3M10S' }, status: { embeddable: true, privacyStatus: 'public' } }; return { snippet: { title, resourceId: { videoId: id } } }; });
 PLITEMS.push({ snippet: { title: 'Private video', resourceId: { videoId: 'plPriv' } } });
 const SMALLITEMS = PLITEMS.slice(0, 6);
@@ -279,7 +279,7 @@ const yt = http.createServer((req, res) => {
     assert.ok(dj && dj.guestId);
     await until(() => log.chSearches.includes('DJ Crocs & Socks'), 14000, 'artist channel search'); ok('no playlist found, so the host looks for the artist\'s own YouTube channel');
     const djRec = await until(() => cacheRecord(host, 'pool:channel:dj crocs & socks'), 8000, 'channel pool cached'), djPool = { tracks: djRec.value };
-    assert.ok(djPool && djPool.tracks.length === 2 && djPool.tracks.every((t) => t.artist === 'DJ Crocs & Socks')); ok('the channel whose name matches (not "Totally Different") gave two songs, credited to the artist as named');
+    assert.ok(djPool && djPool.tracks.length === 3 && djPool.tracks.every((t) => t.artist === 'DJ Crocs & Socks')); ok('the channel whose name matches (not "Totally Different") gave three songs, credited to the artist as named');
     assert.ok(djPool.tracks.some((t) => t.title === 'Sock Hop Anthem') && djPool.tracks.some((t) => t.title === 'Slide Into Friday')); ok('a title with "Artist - " in front loses it; plain titles stay as they are');
     await until(() => host.evaluate(() => /Sock Hop Anthem|Slide Into Friday/.test([...document.querySelectorAll('#queue .qrow')].map((e) => e.textContent).join(' ') + document.querySelector('#now-title').textContent)), 10000, 'dj in lineup'); ok('the artist\'s songs reach the lineup');
 
@@ -289,7 +289,7 @@ const yt = http.createServer((req, res) => {
     assert.ok(dj2 && dj2.guestId);
     await until(() => log.handles.includes('@djcrocsnsocks'), 14000, 'handle lookup'); ok('an @handle is looked up as that exact channel');
     const handleRec = await until(() => cacheRecord(host, 'pool:handle:djcrocsnsocks'), 8000, 'handle pool cached');
-    assert.strictEqual(handleRec.value.length, 2); assert.ok(handleRec.value.every((t) => t.artist === '@djcrocsnsocks')); ok('its uploads become songs credited to the handle as typed');
+    assert.strictEqual(handleRec.value.length, 3); assert.ok(handleRec.value.every((t) => t.artist === '@djcrocsnsocks')); assert.ok(handleRec.value.some((t) => t.title === 'Night Drive (Club Remix)')); ok('its uploads become songs credited to the handle as typed, including a 12-minute remix that other lookups would skip');
     assert.strictEqual(log.chSearches.length, chBefore); assert.ok(!log.plSearches.some((q) => /^@djcrocsnsocks/.test(q))); ok('no channel or playlist name search is spent on a handle');
     const dexSeen = await host.evaluate(async ({ c, g }) => (await (await fetch('/api/rooms/' + c + '/search?q=' + encodeURIComponent('sock hop'), { headers: { 'x-guest-id': g.guestId, 'x-guest-key': g.guestKey } })).json()), { c: codeNow, g: dj2 });
     assert.ok(dexSeen.songs.some((x) => x.source !== 'musicbrainz' && x.artist === '@djcrocsnsocks' && /Sock Hop/.test(x.title))); ok('the room holds the handle\'s songs, so the guest\'s pick matches them');

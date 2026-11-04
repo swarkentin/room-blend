@@ -306,7 +306,7 @@
     return ((good[0] || items[0] || {}).id || {}).playlistId || '';
   }
   // Reads a playlist's videos and keeps single, embeddable songs. parse(title, channel) returns {title, artist} or null.
-  async function readPlaylist(pl, parse, pages) {
+  async function readPlaylist(pl, parse, pages, loose) {
     var M = window.Match, ids = [], token = '';
     for (var page = 0; page < pages; page++) {
       var p = { part: 'snippet', maxResults: 50, playlistId: pl }; if (token) p.pageToken = token;
@@ -319,7 +319,7 @@
       var v = await yapi('/videos', { part: 'snippet,contentDetails,status', id: ids.slice(i, i + 50).join(',') });
       (v.items || []).forEach(function (it) {
         var st = it.status || {}, sn = it.snippet || {}, d = seconds((it.contentDetails || {}).duration);
-        if (st.embeddable !== true || st.privacyStatus !== 'public' || d < 60 || d > 600 || M.isBad(sn.title)) return;
+        if (st.embeddable !== true || st.privacyStatus !== 'public' || d < 60 || d > (loose ? 1200 : 600) || (!loose && M.isBad(sn.title))) return;
         var t = parse(sn.title, sn.channelTitle);
         if (!t || seen[it.id]) return;
         seen[it.id] = 1; out.push({ title: t.title, artist: t.artist, id: it.id, quality: M.scoreVideo(t, { title: sn.title, channel: sn.channelTitle }).score });
@@ -351,7 +351,7 @@
       var t = M.cleanTitle(title), m = /^(.+?)\s+[-\u2013\u2014|:]\s+(.+)$/.exec(t);
       var song = m && (nameFit(who, m[1]) >= 0.99 || M.core(m[1]).join('') === M.core(who).join('')) ? M.cleanTitle(m[2]) : t;
       return song && song.length < 100 ? { title: song, artist: name } : null;
-    }, 2);
+    }, 2, true); // a channel the guest picked on purpose: keep its mixes, remixes and longer tracks (up to 20 minutes)
   }
   // "@djcrocsnsocks" (or a youtube.com/@handle link) names one exact channel, so it is looked up directly: no guessing from a name.
   // Costs about 1 unit to find the channel (a search costs 100), plus a few to read its uploads.
@@ -366,6 +366,7 @@
     var up = (((((j.items || [])[0] || {}).contentDetails || {}).relatedPlaylists || {}).uploads) || '';
     if (!/^UU[\w-]{22}$/.test(up)) { await poolPut(key, []); return []; }
     var out = await uploadsOf(up, name);
+    if (!out.length) { note = 'Found the YouTube channel ' + name + ', but none of its videos can be used (they must be public, embeddable and 1 to 20 minutes long).'; if (rctx) rctx.status(note); }
     await poolPut(key, out);
     return qualityOrder(out);
   }
