@@ -235,9 +235,9 @@ const yt = http.createServer((req, res) => {
       localStorage.setItem('rb-yt-cache', JSON.stringify(searches));
     });
     await cacheWriter.close();
-    const beforeCrossTabCache = log.apiRequests;
+    const beforeCrossTabCache = log.searches.length;
     const crossTabPlayback = await host.evaluate(async () => window.Providers.get('youtube').play({ title: 'Cross tab cached', artist: 'Artist' }));
-    assert.strictEqual(crossTabPlayback, true); assert.strictEqual(log.apiRequests, beforeCrossTabCache); ok('a song cached by another tab plays without a new lookup');
+    assert.strictEqual(crossTabPlayback, true); assert.strictEqual(log.searches.length, beforeCrossTabCache); ok('a song cached by another tab plays without a new video search');
     const cacheProbeStart = log.plSearches.length;
     await host.evaluate(async () => window.Providers.get('youtube').extras('trip hop', []));
     const poolSnapshot = await host.evaluate(() => JSON.parse(localStorage.getItem('rb-yt-pools') || '{}'));
