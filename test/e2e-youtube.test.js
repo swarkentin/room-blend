@@ -80,7 +80,7 @@ const yt = http.createServer((req, res) => {
 
 (async () => {
   await new Promise((r) => yt.listen(YT_PORT, '127.0.0.1', r));
-  const srv = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: Object.assign({}, process.env, { PORT: APP_PORT, SPOTIFY_CLIENT_ID: '', DATA_DIR: path.join(os.tmpdir(), 'rb-yt-' + Date.now()), YOUTUBE_API_BASE: YT + '/youtube/v3', YOUTUBE_IFRAME_URL: YT + '/iframe_api' }), stdio: ['ignore', 'ignore', 'inherit'] });
+  const srv = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: Object.assign({}, process.env, { PORT: APP_PORT, SPOTIFY_CLIENT_ID: '', DATA_DIR: path.join(os.tmpdir(), 'rb-yt-' + Date.now()), YOUTUBE_API_BASE: YT + '/youtube/v3', YOUTUBE_IFRAME_URL: YT + '/iframe_api', YOUTUBE_API_INTERVAL_MS: '20' }), stdio: ['ignore', 'ignore', 'inherit'] });
   await until(() => new Promise((r) => http.get(APP, () => r(true)).on('error', () => r(false))), 8000, 'server up');
   const browser = await chromium.launch();
   const errors = [];
