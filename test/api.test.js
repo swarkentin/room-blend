@@ -107,7 +107,7 @@ function sse(path) {
   assert.strictEqual(rq2.status, 200);
   assert.strictEqual((await req('POST', `/api/rooms/${code}/request`, { title: 'Third song', artist: 'Third artist' }, A)).status, 400, 'default per-guest limit is two');
   const requestState = await host.waitFor((s) => s.requests && s.requests.length === 2);
-  assert.strictEqual(requestState.requests[0].requester, 'Maya b');
+  assert.strictEqual(requestState.requests[0].requester, 'Mayab');
   assert.strictEqual((await req('POST', `/api/rooms/${code}/host/opts`, { requestLimitEnabled: false }, H)).status, 200);
   assert.strictEqual((await req('POST', `/api/rooms/${code}/request`, { title: 'Third song', artist: 'Third artist' }, A)).status, 200);
   const unlimited = await host.waitFor((s) => s.requests && s.requests.length === 3);
