@@ -59,7 +59,8 @@ function hostState(code, key) {
   assert.deepStrictEqual(R.decryptSnapshot('ABCDE', 'k'.repeat(32), encrypted), sample);
   assert.strictEqual(R.decryptSnapshot('ABCDF', 'k'.repeat(32), encrypted), null, 'ciphertext is bound to the room code');
   assert.strictEqual(R.decryptSnapshot('ABCDE', 'j'.repeat(32), encrypted), null, 'ciphertext is bound to the host key');
-  assert.strictEqual(R.decryptSnapshot('ABCDE', 'k'.repeat(32), encrypted.slice(0, -1) + (encrypted.endsWith('A') ? 'B' : 'A')), null, 'tampering is detected');
+  const tamperedParts = encrypted.split('.'); tamperedParts[3] = (tamperedParts[3][0] === 'A' ? 'B' : 'A') + tamperedParts[3].slice(1);
+  assert.strictEqual(R.decryptSnapshot('ABCDE', 'k'.repeat(32), tamperedParts.join('.')), null, 'tampering is detected');
   ok('room snapshots are encrypted, authenticated and bound to their room and host');
 
   const sourceRoom = new Room('ABCDE', 'k'.repeat(32));
