@@ -287,7 +287,7 @@
     var hit = await cacheGet('pool:' + k);
     return hit === undefined ? undefined : qualityOrder(hit);
   }
-  async function poolPut(k, tracks) { return await cachePut('pool:' + k, tracks, 'pool', tracks.length ? 30 : 0.5); }
+  async function poolPut(k, tracks) { var saved = await cachePut('pool:' + k, tracks, 'pool', tracks.length ? 30 : 0.5); if (rctx && rctx.rerender) rctx.rerender(); return saved; }
   function seconds(iso) { var m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso || ''); return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : 0; }
   // "Artist - Song (Official Video)" on a channel, or "Song" on the artist's "Artist - Topic" channel.
   function parseVideo(v) {
