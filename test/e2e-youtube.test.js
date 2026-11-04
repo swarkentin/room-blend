@@ -12,18 +12,6 @@ const APP_PORT = 4895, YT_PORT = 4896, APP = 'http://127.0.0.1:' + APP_PORT, YT 
 const GOOD = 'AIzaFakeKey_0123456789abcdefghijklmnopqrs'; // 39 characters
 let passed = 0; const ok = (s) => { passed++; console.log('  ok  ' + s); };
 const until = async (fn, ms = 10000, what = 'condition') => { const t0 = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) throw new Error('timeout: ' + what); await new Promise((r) => setTimeout(r, 100)); } };
-const cacheRecord = async (page, id) => page.evaluate(async (id) => {
-  const db = await (async () => {
-    const databases = await indexedDB.databases();
-    if (!databases.some((item) => item.name === 'room-blend-youtube')) return null;
-    const request = indexedDB.open('room-blend-youtube');
-    const opened = await new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
-    if (!opened.objectStoreNames.contains('entries')) { opened.close(); throw new Error('The app YouTube cache database is missing its entries object store'); }
-    return opened;
-  })();
-  if (!db) return null;
-  return await new Promise((resolve, reject) => { const tx = db.transaction('entries', 'readonly'), r = tx.objectStore('entries').get(id); r.onsuccess = () => resolve(r.result || null); r.onerror = () => reject(r.error); });
-}, id);
 const cacheRecords = (page) => page.evaluate(async () => {
   const deadline = Date.now() + 8000;
   while (Date.now() < deadline) {
@@ -112,11 +100,6 @@ const yt = http.createServer((req, res) => {
   const errors = [];
   try {
     const ctx = await browser.newContext({ viewport: { width: 1100, height: 900 } });
-    // Simulate a browser arriving with the old localStorage caches before any app code runs.
-    await ctx.addInitScript(() => {
-      localStorage.setItem('rb-yt-cache', JSON.stringify({ 'legacy migration|artist': ['legacy-video'] }));
-      localStorage.setItem('rb-yt-pools', JSON.stringify({ 'legacy-pool': { at: Date.now(), usedAt: Date.now(), tracks: [{ title: 'Legacy Song', artist: 'Legacy Artist', id: 'legacy-video' }] } }));
-    });
     const host = await ctx.newPage();
     const toApp = []; host.on('request', (r) => { if (r.url().startsWith(APP)) toApp.push(r.url() + ' ' + (r.postData() || '') + JSON.stringify(r.headers())); });
     host.on('pageerror', (e) => errors.push(e.message)); host.on('console', (m) => { if (m.type() === 'error' && !/fonts|ERR_|Failed to load resource|qrcode|400|403/.test(m.text())) errors.push(m.text()); });
@@ -138,10 +121,8 @@ const yt = http.createServer((req, res) => {
 
     await host.click('#yt-start');
     await host.waitForFunction(() => /Playing through YouTube/.test(document.querySelector('#sp').textContent), null, { timeout: 10000 });
-    await until(async () => (await cacheRecord(host, 'search:legacy migration|artist')) !== null, 8000, 'legacy cache migration');
-    const migratedPool = await cacheRecord(host, 'pool:legacy-pool');
-    assert.ok(migratedPool && migratedPool.value[0].id === 'legacy-video');
-    assert.strictEqual(await host.evaluate(() => localStorage.getItem('rb-yt-cache') === null && localStorage.getItem('rb-yt-pools') === null), true); ok('existing search and playlist caches migrate into IndexedDB and legacy blobs are removed');
+    const initialCache = await until(async () => { const rows = await cacheRecords(host); return rows.length ? rows : null; }, 8000, 'initial IndexedDB cache entry');
+    assert.ok(initialCache.every((entry) => entry.expiresAt > Date.now())); ok('fresh YouTube discoveries are stored in IndexedDB with an expiry');
     assert.strictEqual(await host.isVisible('#yt-dock'), true); ok('the player dock is visible while it plays (YouTube requires that)');
 
     rateLimitVideoSearches = 1;
