@@ -75,6 +75,20 @@ function hostState(code, key) {
   assert.strictEqual(restoredRoom.voteCounts(sourceRoom.nowItem.track.id).up, 1);
   ok('room snapshots restore guest identity, picks, playback, votes and cold presence');
 
+  const discoveryRoom = new Room('ABCDG', 'd'.repeat(32));
+  discoveryRoom.addGuest('Discovery guest', ['rock'], { immediate: true });
+  discoveryRoom.addExtras('rock', [{ id: 'video-123', title: 'Discovered song', artist: 'Discovery artist', genres: ['rock'] }], { pool: true, source: 'youtube' });
+  const discoveryRestored = new Room('ABCDG', 'd'.repeat(32));
+  assert.ok(discoveryRestored.restoreSnapshot(discoveryRoom.snapshot()));
+  assert.strictEqual(discoveryRestored.poolMode, true);
+  assert.ok(discoveryRestored.searched.has('rock'));
+  assert.ok(discoveryRestored.extra.some((t) => t.title === 'Discovered song' && t.nid === 'video-123'));
+  assert.ok(discoveryRestored.catalog.tracks.some((t) => t.title === 'Discovered song'));
+  assert.strictEqual(discoveryRestored.served[discoveryRoom.active()[0].id], discoveryRoom.served[discoveryRoom.active()[0].id]);
+  ok('catalogue pools, discovery progress and fairness counters survive recovery');
+
+
+
   const libraryRoom = new Room('ABCDF', 'z'.repeat(32));
   libraryRoom.addGuest('Library guest', ['rock'], { immediate: true });
   const libraryTracks = [{ id: 'song-1', title: 'Library song', artist: 'Artist', genres: ['rock'] }, { id: 'song-2', title: 'Next song', artist: 'Artist', genres: ['rock'] }];
