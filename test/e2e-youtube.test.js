@@ -8,7 +8,7 @@ const assert = require('assert');
 const { spawn } = require('child_process');
 const { chromium } = require('playwright');
 
-const APP_PORT = 4895, YT_PORT = 4896, APP = 'http://127.0.0.1:' + APP_PORT, YT = 'http://127.0.0.1:' + YT_PORT, TEST_API_INTERVAL_MS = 20;
+const APP_PORT = 4895, YT_PORT = 4896, APP = 'http://127.0.0.1:' + APP_PORT, YT = 'http://127.0.0.1:' + YT_PORT, TEST_API_INTERVAL_MS = 100;
 const GOOD = 'AIzaFakeKey_0123456789abcdefghijklmnopqrs'; // 39 characters
 let passed = 0; const ok = (s) => { passed++; console.log('  ok  ' + s); };
 const until = async (fn, ms = 10000, what = 'condition') => { const t0 = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) throw new Error('timeout: ' + what); await new Promise((r) => setTimeout(r, 100)); } };
@@ -314,7 +314,7 @@ const yt = http.createServer((req, res) => {
     const afterReload = log.apiRequests;
     await host.evaluate(async () => window.Providers.get('youtube').extras('hip hop', []));
     assert.strictEqual(log.apiRequests, afterReload); ok('the quota fuse survives a host-page reload');
-    assert.ok(log.apiAt.slice(1).every((at, i) => at - log.apiAt[i] >= TEST_API_INTERVAL_MS - 5)); ok('YouTube Data API requests respect the configured pacing interval across the test session');
+    assert.ok(log.apiAt.slice(1).every((at, i) => at - log.apiAt[i] >= TEST_API_INTERVAL_MS - 20)); ok('YouTube Data API requests respect the configured pacing interval across the test session');
     poolOn = false;
 
     // switching away hides the player; removing the key forgets it

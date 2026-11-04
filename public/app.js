@@ -775,7 +775,7 @@
       var hint = h('p', { class: 'hint', id: 'gv-hint', role: 'status', text: note || (reused ? 'Filled in from your last room. Change anything you like, then join.' : '') });
       var np = editing ? null : namedPicker(named, function () { hint.textContent = ''; });
       var lookupInput = editing ? null : h('input', { type: 'checkbox', id: 'gv-mb-lookup-join', checked: (reg && reg.lookupGenres) || (!reg && prefs && prefs.lookupGenres) ? 'checked' : null });
-      var lookupChoice = lookupInput ? h('label', { class: 'hint' }, [lookupInput, ' Use MusicBrainz to improve artist genre guesses. Up to five names from your artist and song picks are sent to MusicBrainz.']) : null;
+      var lookupChoice = lookupInput ? h('label', { class: 'hint' }, [lookupInput, ' Look up MusicBrainz genres for up to five artists you named, including artists on your song picks. Only artist names are sent for this extra lookup.']) : null;
       var importBox = null;
       if (C.clientId && !editing) {
         importBox = h('div', { class: 'import' }, [
