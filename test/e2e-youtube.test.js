@@ -237,13 +237,14 @@ const yt = http.createServer((req, res) => {
     // Keep a broad set of genre pools and merge updates made by another host tab.
     const cacheWriter = await ctx.newPage();
     await cacheWriter.goto(APP);
-    await cacheWriter.evaluate(() => {
+    await cacheWriter.evaluate(() => new Promise((resolve, reject) => {
       const dbRequest = indexedDB.open('room-blend-youtube', 1);
       dbRequest.onupgradeneeded = () => dbRequest.result.createObjectStore('entries', { keyPath: 'id' });
       dbRequest.onsuccess = () => {
         const db = dbRequest.result, tx = db.transaction('entries', 'readwrite'), store = tx.objectStore('entries'), now = Date.now();
         for (let i = 0; i < 100; i++) store.put({ id: 'pool:other-tab-pool-' + i, kind: 'pool', value: [], at: now, usedAt: now, expiresAt: now + 30 * 86400000 });
         store.put({ id: 'search:cross tab cached|artist', kind: 'search', value: ['plA1'], at: now, usedAt: now, expiresAt: now + 30 * 86400000 });
+        tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
       };
     });
     await cacheWriter.close();
