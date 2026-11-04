@@ -83,7 +83,13 @@
   }
   async function deleteRoomSnapshot(code) {
     var db = await openRoomDb(); if (!db) return;
-    try { db.transaction(ROOM_STORE, 'readwrite').objectStore(ROOM_STORE).delete(code); } catch (e) { /* ignore */ }
+    return new Promise(function (resolve) {
+      try {
+        var tx = db.transaction(ROOM_STORE, 'readwrite');
+        tx.objectStore(ROOM_STORE).delete(code);
+        tx.oncomplete = tx.onerror = tx.onabort = function () { resolve(); };
+      } catch (e) { resolve(); }
+    });
   }
 
   // The host's browser keeps the signed receipt plus the latest encrypted state. The key is 'rb-snap-' and not
@@ -809,7 +815,10 @@
       if (!r.ok && r.status === 400 && body.snapshot) {
         delete body.snapshot;
         r = await http('POST', '/api/rooms/' + code + '/restore', body);
-        if (r.ok) S.status = 'The saved room checkpoint could not be read. The room was reopened with its name and settings only.';
+        if (r.ok) {
+          await deleteRoomSnapshot(code);
+          S.status = 'The saved room checkpoint could not be read. The room was reopened with its name and settings only.';
+        }
       }
       if (r.ok) return 'back';
       return r.status >= 500 || r.status === 429 ? 'wait' : 'gone';
