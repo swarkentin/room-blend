@@ -11,7 +11,7 @@
   var P = window.Providers, C = window.CONFIG || {}, el = P.el, state = P.state;
   var KEY = 'rb-yt-key', LEGACY_CACHE = 'rb-yt-cache', LEGACY_POOLS = 'rb-yt-pools', CACHE_MAX = 3000, QUOTA_DAY = 'rb-yt-quota-day', API_NEXT = 'rb-yt-api-next';
   var DB_NAME = 'room-blend-youtube', DB_VERSION = 1, DB_STORE = 'entries', DB_MIGRATION = 'rb-yt-idb-migrated';
-  var cacheDbPromise = null, cacheMemory = Object.create(null), cacheMode = 'indexeddb', cacheWarning = '';
+  var cacheDbPromise = null, cacheMemory = Object.create(null), cacheWarning = '';
   var SEARCH_DAILY_LIMIT = 90, DISCOVERY_DAILY_LIMIT = 65, SEARCH_BUDGET_KEY = 'rb-yt-search-budget';
   var on = false, paused = true, busy = false, note = '', player = null, dock = null, cur = null, waiter = null, rctx = null;
   var apiQueue = Promise.resolve(), apiRetryMs = 1000, playbackAttempt = 0;
@@ -27,7 +27,7 @@
     try { return JSON.parse(lsGet(key) || '{}') || {}; } catch (e) { return {}; }
   }
   function openCacheDb() {
-    if (!window.indexedDB) return Promise.reject(new Error('IndexedDB is unavailable'));
+    if (!window.indexedDB) { cacheWarning = 'Persistent browser storage is unavailable; discoveries will only be cached until this tab closes.'; return Promise.resolve(null); }
     if (!cacheDbPromise) cacheDbPromise = new Promise(function (resolve, reject) {
       var request = indexedDB.open(DB_NAME, DB_VERSION);
       request.onupgradeneeded = function () {
@@ -56,7 +56,7 @@
         lsDel(LEGACY_CACHE); lsDel(LEGACY_POOLS); lsSet(DB_MIGRATION, '1');
       }
       return db;
-    }).catch(function (error) {
+    }).catch(function () {
       var now = Date.now(), oldSearch = storedObject(LEGACY_CACHE), oldPools = storedObject(LEGACY_POOLS);
       Object.keys(oldSearch).forEach(function (key) {
         var value = oldSearch[key], ttl = Array.isArray(value) && value.length ? 30 : 0.25;
@@ -74,12 +74,11 @@
     return cacheDbPromise;
   }
   async function cacheGet(id) {
+    var local = cacheMemory[id];
+    if (local && local.expiresAt > Date.now()) { local.usedAt = Date.now(); return local.value; }
+    if (local) delete cacheMemory[id];
     var db = await openCacheDb();
-    if (!db) {
-      var local = cacheMemory[id];
-      if (!local || local.expiresAt <= Date.now()) { delete cacheMemory[id]; return undefined; }
-      local.usedAt = Date.now(); return local.value;
-    }
+    if (!db) return undefined;
     return new Promise(function (resolve) {
       var tx = db.transaction(DB_STORE, 'readwrite'), store = tx.objectStore(DB_STORE), request = store.get(id);
       request.onsuccess = function () {
