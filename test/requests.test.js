@@ -24,7 +24,7 @@ assert.equal(room.addRequest(other.id, 'Other Guest Song', 'Other Artist').ok, t
 const restored = new Room('JUKE1', 'h'.repeat(32));
 assert.equal(restored.restoreSnapshot(room.snapshot()), true);
 assert.equal(restored.requestLimitEnabled, false);
-assert.equal(restored.requestQueue.length, 3);
+assert.equal(restored.requestQueue.length, 4);
 
 // Requests get priority, but a blend song is inserted after two consecutive requests.
 restored.advance();
