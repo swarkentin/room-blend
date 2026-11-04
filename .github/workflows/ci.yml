@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  checks:
+  unit:
     runs-on: ubuntu-latest
 
     steps:
@@ -23,20 +23,43 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Install browser test system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes ffmpeg python3-opencv
-
-      - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
-
       - name: Run unit and API checks
         run: npm test
 
-      - name: Run Playwright browser checks
-        run: npm run test:browser
+  browser:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    # Keep this image version in sync with the Playwright version in package-lock.json.
+    # It includes Chromium and all of its Linux system dependencies.
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install media and QR test tools
+        if: matrix.shard != 3
+        run: |
+          apt-get update
+          apt-get install --yes ffmpeg python3-opencv
+
+      - name: Run Playwright browser shard
+        run: npm run test:browser:${{ matrix.shard }}

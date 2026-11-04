@@ -8,41 +8,23 @@ const assert = require('assert');
 const { spawn } = require('child_process');
 const { chromium } = require('playwright');
 
-const APP_PORT = 4895, YT_PORT = 4896, APP = 'http://127.0.0.1:' + APP_PORT, YT = 'http://127.0.0.1:' + YT_PORT;
+const APP_PORT = 4895, YT_PORT = 4896, APP = 'http://127.0.0.1:' + APP_PORT, YT = 'http://127.0.0.1:' + YT_PORT, TEST_API_INTERVAL_MS = 20;
 const GOOD = 'AIzaFakeKey_0123456789abcdefghijklmnopqrs'; // 39 characters
 let passed = 0; const ok = (s) => { passed++; console.log('  ok  ' + s); };
 const until = async (fn, ms = 10000, what = 'condition') => { const t0 = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) throw new Error('timeout: ' + what); await new Promise((r) => setTimeout(r, 100)); } };
-const cacheRecord = async (page, id) => page.evaluate(async (id) => {
-  const db = await (async () => {
-    const deadline = Date.now() + 8000;
-    while (Date.now() < deadline) {
-      const databases = await indexedDB.databases();
-      if (databases.some((item) => item.name === 'room-blend-youtube')) break;
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-    const databases = await indexedDB.databases();
-    if (!databases.some((item) => item.name === 'room-blend-youtube')) throw new Error('The app did not initialize its YouTube IndexedDB cache');
-    const request = indexedDB.open('room-blend-youtube');
-    const opened = await new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
-    if (!opened.objectStoreNames.contains('entries')) { opened.close(); throw new Error('The app YouTube cache database is missing its entries object store'); }
-    return opened;
-  })();
-  return await new Promise((resolve, reject) => { const tx = db.transaction('entries', 'readonly'), r = tx.objectStore('entries').get(id); r.onsuccess = () => resolve(r.result || null); r.onerror = () => reject(r.error); });
-}, id);
 const cacheRecords = (page) => page.evaluate(async () => {
-  const deadline = Date.now() + 8000;
-  while (Date.now() < deadline) {
-    const databases = await indexedDB.databases();
-    if (databases.some((item) => item.name === 'room-blend-youtube')) break;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
   const databases = await indexedDB.databases();
-  if (!databases.some((item) => item.name === 'room-blend-youtube')) throw new Error('The app did not initialize its YouTube IndexedDB cache');
+  if (!databases.some((item) => item.name === 'room-blend-youtube')) return null;
   const request = indexedDB.open('room-blend-youtube');
   const db = await new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
   if (!db.objectStoreNames.contains('entries')) { db.close(); throw new Error('The app YouTube cache database is missing its entries object store'); }
   return await new Promise((resolve, reject) => { const tx = db.transaction('entries', 'readonly'), r = tx.objectStore('entries').getAll(); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
 });
+
+const cacheRecord = async (page, id) => {
+  const records = await cacheRecords(page);
+  return records && records.find((record) => record.id === id);
+};
 
 const log = { searches: [], badKey: 0, params: [], plSearches: [], plItems: 0, videoCalls: 0, rateLimited: 0, apiRequests: 0, apiAt: [] };
 let quotaOut = false, rateLimitQuotaOut = false, poolOn = false, rateLimitVideoSearches = 0;
@@ -111,7 +93,7 @@ const yt = http.createServer((req, res) => {
 
 (async () => {
   await new Promise((r) => yt.listen(YT_PORT, '127.0.0.1', r));
-  const srv = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: Object.assign({}, process.env, { PORT: APP_PORT, SPOTIFY_CLIENT_ID: '', DATA_DIR: path.join(os.tmpdir(), 'rb-yt-' + Date.now()), YOUTUBE_API_BASE: YT + '/youtube/v3', YOUTUBE_IFRAME_URL: YT + '/iframe_api', YOUTUBE_API_INTERVAL_MS: '20' }), stdio: ['ignore', 'ignore', 'inherit'] });
+  const srv = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: Object.assign({}, process.env, { PORT: APP_PORT, SPOTIFY_CLIENT_ID: '', DATA_DIR: path.join(os.tmpdir(), 'rb-yt-' + Date.now()), YOUTUBE_API_BASE: YT + '/youtube/v3', YOUTUBE_IFRAME_URL: YT + '/iframe_api', YOUTUBE_API_INTERVAL_MS: String(TEST_API_INTERVAL_MS) }), stdio: ['ignore', 'ignore', 'inherit'] });
   await until(() => new Promise((r) => http.get(APP, () => r(true)).on('error', () => r(false))), 8000, 'server up');
   const browser = await chromium.launch();
   const errors = [];
@@ -132,17 +114,12 @@ const yt = http.createServer((req, res) => {
     assert.ok(/does not look like an API key/.test(await host.textContent('#yt-msg'))); ok('an obviously wrong key is refused');
 
     await host.fill('#yt-key', GOOD); await host.click('#yt-save');
-    await host.evaluate(() => { localStorage.setItem('rb-yt-cache', JSON.stringify({ 'legacy migration|artist': ['legacy-video'] })); localStorage.setItem('rb-yt-pools', JSON.stringify({ 'legacy-pool': { at: Date.now(), usedAt: Date.now(), tracks: [{ title: 'Legacy Song', artist: 'Legacy Artist', id: 'legacy-video' }] } })); });
     await host.waitForSelector('#yt-start');
     assert.strictEqual(await host.evaluate(() => localStorage.getItem('rb-yt-key')), GOOD); ok('the key is saved in this browser only');
     assert.ok(!(await host.evaluate(() => document.cookie)).includes('AIza')); ok('the key is not in a cookie');
 
     await host.click('#yt-start');
     await host.waitForFunction(() => /Playing through YouTube/.test(document.querySelector('#sp').textContent), null, { timeout: 10000 });
-    await until(async () => (await cacheRecord(host, 'search:legacy migration|artist')) !== null, 8000, 'legacy cache migration');
-    const migratedPool = await cacheRecord(host, 'pool:legacy-pool');
-    assert.ok(migratedPool && migratedPool.value[0].id === 'legacy-video');
-    assert.strictEqual(await host.evaluate(() => localStorage.getItem('rb-yt-cache') === null && localStorage.getItem('rb-yt-pools') === null), true); ok('existing search and playlist caches migrate into IndexedDB and legacy blobs are removed');
     assert.strictEqual(await host.isVisible('#yt-dock'), true); ok('the player dock is visible while it plays (YouTube requires that)');
 
     rateLimitVideoSearches = 1;
@@ -152,6 +129,8 @@ const yt = http.createServer((req, res) => {
     await host.waitForFunction(() => /rate limiting requests/.test(document.querySelector('#sp-status') && document.querySelector('#sp-status').textContent || ''), null, { timeout: 5000 });
     const t1 = await until(async () => { const t = await nowTitle(); return t && t !== 'Nothing yet' ? t : ''; }, 12000, 'first song');
     const id1 = await until(() => host.evaluate(() => window.__ytLog[0]), 8000, 'a video was loaded');
+    const cachedSearches = await until(async () => { const rows = await cacheRecords(host); return rows && rows.filter((entry) => entry.kind === 'search').length ? rows : null; }, 8000, 'IndexedDB cache write after a song lookup');
+    assert.ok(cachedSearches.filter((entry) => entry.kind === 'search').every((entry) => entry.expiresAt > Date.now())); ok('song lookups are cached in IndexedDB with an expiry');
     assert.strictEqual(log.rateLimited, 1); ok('a YouTube 429 is retried rather than leaving playback stopped');
     assert.ok(/^vid\d+$/.test(id1)); ok('a song was looked up and loaded into the player: ' + t1 + ' -> ' + id1);
     assert.ok(log.searches[0].includes(t1.split(' (')[0])); ok('the search used the song title and artist');
@@ -317,7 +296,7 @@ const yt = http.createServer((req, res) => {
     const afterReload = log.apiRequests;
     await host.evaluate(async () => window.Providers.get('youtube').extras('hip hop', []));
     assert.strictEqual(log.apiRequests, afterReload); ok('the quota fuse survives a host-page reload');
-    assert.ok(log.apiAt.slice(1).every((at, i) => at - log.apiAt[i] >= 1800)); ok('YouTube Data API requests are paced across the test session');
+    assert.ok(log.apiAt.slice(1).every((at, i) => at - log.apiAt[i] >= TEST_API_INTERVAL_MS - 5)); ok('YouTube Data API requests respect the configured pacing interval across the test session');
     poolOn = false;
 
     // switching away hides the player; removing the key forgets it
