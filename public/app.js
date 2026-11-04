@@ -1229,14 +1229,22 @@
         // Server restarted or dropped us: check the room, then rejoin quietly with the same picks.
         var r;
         try { r = await http('GET', '/api/rooms/' + code); } catch (e) { return setTimeout(connect, 4000); } // offline or mid-restart
-        if (r.status === 404) {
-          // A restart empties the room until its host's page brings it back, which usually takes seconds. Keep trying for a few minutes.
+        if (r.status >= 500 || r.status === 429) return setTimeout(connect, 4000);
+        if (r.status === 404 || (r.ok && r.data && r.data.recoveryNeeded)) {
+          // A restart empties the room until its host's page brings it back. Keep trying for a few minutes.
           if (!goneAt) goneAt = Date.now();
           if (Date.now() - goneAt > 5 * 60 * 1000) return roomGone();
           if ($('gv-me')) $('gv-me').textContent = 'The room is restarting. Reconnecting you…';
           return setTimeout(connect, 4000);
         }
         goneAt = 0;
+        // The host may already have restored us with our original credentials. Check before creating
+        // a new guest, otherwise a reconnect racing the host would create a duplicate guest.
+        var check;
+        try { check = await http('POST', '/api/rooms/' + code + '/guests/' + reg.id + '/here', { idleSec: 0, hidden: document.visibilityState === 'hidden' }, auth()); }
+        catch (e) { return setTimeout(connect, 4000); }
+        if (check.ok) { connect(); return; }
+        if (check.status >= 500 || check.status === 429) return setTimeout(connect, 4000);
         var j;
         try { j = await http('POST', '/api/rooms/' + code + '/guests', { name: reg.name, genres: reg.genres, since: reg.since, artists: reg.artists, songs: reg.songs, lookupGenres: !!reg.lookupGenres }); } catch (e) { return setTimeout(connect, 4000); }
         if (j.ok) { reg.id = j.data.guestId; reg.key = j.data.guestKey; saveReg(); connect(); }
