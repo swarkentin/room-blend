@@ -308,7 +308,10 @@
         finally {
           S.snapshotBusy = false;
           // If the room changed while this checkpoint was in flight, take one more snapshot.
-          if (result && result.ok && result.data && S.snapshotWantedVersion > result.data.version) scheduleRoomSnapshot(S.snapshotWantedVersion);
+          if (S.snapshotWantedVersion > S.snapshotSavedVersion) {
+            var delay = result && result.ok && result.data && S.snapshotWantedVersion > result.data.version ? 0 : 5000;
+            S.snapshotTimer = setTimeout(function () { scheduleRoomSnapshot(S.snapshotWantedVersion); }, delay);
+          }
         }
       }, 500);
     }
