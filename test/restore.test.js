@@ -9,6 +9,7 @@ const os = require('os');
 const path = require('path');
 const Restore = require('../lib/restore.js');
 const { server, rooms } = require('../server.js');
+const { Room } = require('../lib/room.js');
 
 let base, passed = 0;
 const ok = (n) => { passed++; console.log('  ok  ' + n); };
@@ -52,6 +53,58 @@ function hostState(code, key) {
   assert.ok(!R.verify('ABCDE', 'k'.repeat(32), t, now + 31 * DAY), 'expires after the window');
   assert.strictEqual(R.issue('ABCDE', 'k'.repeat(32), now), R.issue('ABCDE', 'k'.repeat(32), now + 1000), 'one receipt per day');
   assert.ok(R.verify('ABCDE', 'k'.repeat(32), R.issue('ABCDE', 'k'.repeat(32), now + 20 * DAY), now + 45 * DAY), 'a fresh receipt extends the window');
+  const sample = { schema: 1, name: 'Private room state', guests: [{ id: 'g12345678', key: 'a'.repeat(32), name: 'Guest' }] };
+  const encrypted = R.encryptSnapshot('ABCDE', 'k'.repeat(32), sample);
+  assert.ok(!encrypted.includes('Private room state') && !encrypted.includes('a'.repeat(32)), 'snapshot content is opaque');
+  assert.deepStrictEqual(R.decryptSnapshot('ABCDE', 'k'.repeat(32), encrypted), sample);
+  assert.strictEqual(R.decryptSnapshot('ABCDF', 'k'.repeat(32), encrypted), null, 'ciphertext is bound to the room code');
+  assert.strictEqual(R.decryptSnapshot('ABCDE', 'j'.repeat(32), encrypted), null, 'ciphertext is bound to the host key');
+  const tamperedParts = encrypted.split('.'); tamperedParts[3] = (tamperedParts[3][0] === 'A' ? 'B' : 'A') + tamperedParts[3].slice(1);
+  assert.strictEqual(R.decryptSnapshot('ABCDE', 'k'.repeat(32), tamperedParts.join('.')), null, 'tampering is detected');
+  ok('room snapshots are encrypted, authenticated and bound to their room and host');
+
+  const sourceRoom = new Room('ABCDE', 'k'.repeat(32));
+  const guest = sourceRoom.addGuest('Restored guest', ['rock'], { immediate: true });
+  sourceRoom.vote(guest.id, 'up');
+  const restoredRoom = new Room('ABCDE', 'k'.repeat(32));
+  assert.ok(restoredRoom.restoreSnapshot(sourceRoom.snapshot()));
+  assert.strictEqual(restoredRoom.guests.get(guest.id).key, guest.key);
+  assert.strictEqual(restoredRoom.guests.get(guest.id).connected, false, 'presence does not survive a restart');
+  assert.strictEqual(restoredRoom.guests.get(guest.id).lostAt > 0, true, 'a reconnect grace period starts');
+  assert.strictEqual(restoredRoom.nowItem.track.id, sourceRoom.nowItem.track.id);
+  assert.strictEqual(restoredRoom.voteCounts(sourceRoom.nowItem.track.id).up, 1);
+  ok('room snapshots restore guest identity, picks, playback, votes and cold presence');
+
+  const discoveryRoom = new Room('ABCDG', 'd'.repeat(32));
+  discoveryRoom.addGuest('Discovery guest', ['rock'], { immediate: true });
+  discoveryRoom.addExtras('rock', [{ id: 'video-123', title: 'Discovered song', artist: 'Discovery artist', genres: ['rock'] }], { pool: true, source: 'youtube' });
+  const discoveryRestored = new Room('ABCDG', 'd'.repeat(32));
+  assert.ok(discoveryRestored.restoreSnapshot(discoveryRoom.snapshot()));
+  assert.strictEqual(discoveryRestored.poolMode, true);
+  assert.ok(discoveryRestored.searched.has('rock'));
+  assert.ok(discoveryRestored.extra.some((t) => t.title === 'Discovered song' && t.nid === 'video-123'));
+  assert.ok(discoveryRestored.catalog.tracks.some((t) => t.title === 'Discovered song'));
+  assert.strictEqual(discoveryRestored.served[discoveryRoom.active()[0].id], discoveryRoom.served[discoveryRoom.active()[0].id]);
+  ok('catalogue pools, discovery progress and fairness counters survive recovery');
+
+
+
+  const libraryRoom = new Room('ABCDF', 'z'.repeat(32));
+  libraryRoom.addGuest('Library guest', ['rock'], { immediate: true });
+  const libraryTracks = [{ id: 'song-1', title: 'Library song', artist: 'Artist', genres: ['rock'] }, { id: 'song-2', title: 'Next song', artist: 'Artist', genres: ['rock'] }];
+  libraryRoom.setLibrary('local', 'My music files', libraryTracks);
+  const playingId = libraryRoom.nowItem.track.id;
+  const libraryRestored = new Room('ABCDF', 'z'.repeat(32));
+  assert.ok(libraryRestored.restoreSnapshot(libraryRoom.snapshot()));
+  assert.strictEqual(libraryRestored.library, null, 'the host-owned 20,000-track library is not copied into the snapshot');
+  assert.strictEqual(libraryRestored.libraryNeedsReconnect, true);
+  assert.strictEqual(libraryRestored.nowItem.track.id, playingId, 'the current track survives while the provider reconnects');
+  libraryRestored.setLibrary('local', 'My music files', libraryTracks, true);
+  assert.strictEqual(libraryRestored.nowItem.track.id, playingId, 'reconnecting the same library keeps the current track');
+  ok('large host libraries are reloaded by the provider without losing current playback');
+
+
+
   ok('receipts are bound to code, host key and secret, and expire');
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rb-secret-'));
@@ -75,7 +128,16 @@ function hostState(code, key) {
   const { code, hostKey } = made.json;
   const H = { 'x-host-key': hostKey };
   assert.strictEqual((await req('POST', `/api/rooms/${code}/host/room`, { name: 'Friday patio', discoverable: false }, H)).status, 200);
-  assert.strictEqual((await req('POST', `/api/rooms/${code}/host/opts`, { tau: 0.7, doze: 45 }, H)).status, 200);
+  assert.strictEqual((await req('POST', `/api/rooms/${code}/host/opts`, { tau: 0.7, doze: 45, settle: 0 }, H)).status, 200);
+  const joined = await req('POST', `/api/rooms/${code}/guests`, { name: 'Persistent guest', genres: ['rock'] });
+  assert.strictEqual(joined.status, 200);
+  const guestHeaders = { 'x-guest-id': joined.json.guestId, 'x-guest-key': joined.json.guestKey };
+  assert.strictEqual((await req('POST', `/api/rooms/${code}/vote`, { v: 'up' }, guestHeaders)).status, 200);
+  assert.strictEqual((await req('GET', `/api/rooms/${code}/host/snapshot`)).status, 401, 'guests cannot fetch room snapshots');
+  const checkpoint = await req('GET', `/api/rooms/${code}/host/snapshot`, undefined, H);
+  assert.strictEqual(checkpoint.status, 200);
+  assert.ok(typeof checkpoint.json.snapshot === 'string');
+  assert.ok(!checkpoint.json.snapshot.includes('Persistent guest') && !checkpoint.json.snapshot.includes(joined.json.guestKey), 'the checkpoint contains no readable guest data');
   const before = await hostState(code, hostKey);
   assert.ok(/^\d+\.[A-Za-z0-9_-]{43}$/.test(before.restoreToken), 'the host view carries a receipt');
   assert.strictEqual(before.name, 'Friday patio');
@@ -84,7 +146,7 @@ function hostState(code, key) {
   ok('the host gets a receipt and guests do not');
 
   // What the host page stores, then a restart that forgets the room.
-  const receipt = { hostKey, token: before.restoreToken, name: before.name, discoverable: before.discoverable, opts: before.opts };
+  const receipt = { hostKey, token: before.restoreToken, name: before.name, discoverable: before.discoverable, opts: before.opts, snapshot: checkpoint.json.snapshot };
   rooms.delete(code);
   assert.strictEqual((await req('GET', `/api/rooms/${code}`)).status, 404);
 
@@ -96,6 +158,10 @@ function hostState(code, key) {
   assert.strictEqual((await req('GET', `/api/rooms/${code}`)).status, 404, 'refused restores create nothing');
   ok('bad, moved and expired receipts are refused');
 
+  const badSnapshot = await req('POST', `/api/rooms/${code}/restore`, Object.assign({}, receipt, { snapshot: 'v1.invalid' }));
+  assert.strictEqual(badSnapshot.status, 400, 'a damaged encrypted snapshot is refused');
+  assert.strictEqual((await req('GET', `/api/rooms/${code}`)).status, 404, 'a damaged snapshot does not create a partial room');
+
   const back = await req('POST', `/api/rooms/${code}/restore`, receipt);
   assert.strictEqual(back.status, 200);
   assert.strictEqual(back.json.restored, true);
@@ -106,8 +172,27 @@ function hostState(code, key) {
   assert.strictEqual(after.discoverable, false);
   assert.strictEqual(after.opts.tau, 0.7);
   assert.strictEqual(after.opts.doze, 45);
+  assert.ok(after.guests.some((g) => g.id === joined.json.guestId && g.name === 'Persistent guest'), 'the guest identity and name are restored');
+  const restoredGuest = rooms.get(code).guests.get(joined.json.guestId);
+  assert.strictEqual(restoredGuest.key, joined.json.guestKey, 'the guest credential is restored');
+  assert.strictEqual(restoredGuest.connected, false, 'restored guests start disconnected');
+  assert.strictEqual(rooms.get(code).voteCounts(rooms.get(code).nowItem.track.id).up, 1, 'the current vote is restored');
+  assert.strictEqual((await req('PATCH', `/api/rooms/${code}/guests/${joined.json.guestId}`, { sit: true }, guestHeaders)).status, 200, 'the existing guest credential reconnects');
   assert.strictEqual((await req('POST', `/api/rooms/${code}/host/advance`, {}, H)).status, 200, 'the same host key still runs the room');
-  ok('a valid receipt brings back the same room, name, settings and host key');
+  ok('an encrypted checkpoint restores guest identities, credentials, picks, votes and the room state');
+
+  // A persistent DATA_DIR can restore the room identity before the host reconnects.
+  const diskSkeleton = new Room(code, hostKey);
+  diskSkeleton.name = 'Friday patio'; diskSkeleton.recoveryNeeded = true;
+  rooms.set(code, diskSkeleton);
+  const skeletonView = await hostState(code, hostKey);
+  assert.strictEqual(skeletonView.recoveryNeeded, true, 'the host is told that disk-loaded live state needs recovery');
+  const diskBack = await req('POST', `/api/rooms/${code}/restore`, receipt);
+  assert.strictEqual(diskBack.status, 200);
+  assert.strictEqual(diskBack.json.restored, true, 'a valid snapshot hydrates an existing disk-loaded room');
+  assert.strictEqual(rooms.get(code).recoveryNeeded, false);
+  assert.ok(rooms.get(code).guests.has(joined.json.guestId));
+  ok('disk-loaded room identities are hydrated from the host snapshot');
 
   const again = await req('POST', `/api/rooms/${code}/restore`, receipt);
   assert.strictEqual(again.status, 200);

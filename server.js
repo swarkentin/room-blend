@@ -50,6 +50,7 @@ const CLIENT_CONFIG = {
   genreSynonyms: Engine.GENRE_SYNONYMS,
   genreLegacy: Engine.LEGACY_GROUPS,
   beatMs: Number(process.env.BEAT_MS) || 60000,
+  restoreDays: Math.max(1, Math.floor(Number(process.env.RESTORE_DAYS) || 30)),
 };
 
 // Restore receipts (see lib/restore.js): lets a host's browser bring its room back after a restart or redeploy wipes the server.
@@ -81,6 +82,8 @@ function loadRooms() {
       room.touchedAt = r.touchedAt;
       room.name = r.name || ''; room.discoverable = r.discoverable !== false; room.netKey = r.netKey || '';
       if (r.opts) Object.assign(room.opts, r.opts);
+      // The disk file preserves room identity only. The host browser restores the encrypted live-state checkpoint.
+      room.recoveryNeeded = true;
       rooms.set(room.code, room);
     }
   } catch { /* first run */ }
@@ -278,23 +281,39 @@ async function api(req, res, url) {
   // POST /api/rooms/:code/restore  -> a host's browser brings back a room the server forgot (restart, redeploy, sleep).
   // The signed receipt proves this server issued that host key for that code, so nobody can claim a code they were never given.
   if (parts[0] === 'rooms' && parts[2] === 'restore' && parts.length === 3 && m === 'POST') {
-    const body = await readBody(req);
+    const body = await readBody(req, 9 * 1024 * 1024);
     const hostKey = typeof body.hostKey === 'string' ? body.hostKey : '';
     if (!/^[A-HJ-NP-Z2-9]{5}$/.test(code) || !/^[A-Za-z0-9_-]{16,64}$/.test(hostKey) || !getRestorer().verify(code, hostKey, body.token)) {
       L.count('rooms.restore_refused');
       return sendJson(res, 403, { error: 'This room cannot be restored.' });
     }
     const existing = rooms.get(code);
-    if (existing) {
-      if (safeEq(existing.hostKey, hostKey)) return sendJson(res, 200, { ok: true, restored: false });
-      return sendJson(res, 409, { error: 'That room code is in use.' });
-    }
-    if (rooms.size >= MAX_ROOMS) { L.count('limits.full'); return sendJson(res, 503, { error: 'The service is full right now. Try again later.' }); }
-    const nr = new Room(code, hostKey);
+    if (existing && !safeEq(existing.hostKey, hostKey)) return sendJson(res, 409, { error: 'That room code is in use.' });
+    if (existing && !existing.recoveryNeeded) return sendJson(res, 200, { ok: true, restored: false });
+    if (!existing && rooms.size >= MAX_ROOMS) { L.count('limits.full'); return sendJson(res, 503, { error: 'The service is full right now.' }); }
+    const nr = existing || new Room(code, hostKey);
     nr.netKey = netKeyOf(ip);
-    nr.setInfo({ name: body.name, discoverable: body.discoverable });
-    if (body.opts && typeof body.opts === 'object') nr.setOpts(body.opts);
+    if (body.snapshot !== undefined) {
+      const snapshot = getRestorer().decryptSnapshot(code, hostKey, body.snapshot);
+      if (!snapshot || !nr.restoreSnapshot(snapshot)) {
+        L.count('rooms.restore_snapshot_refused');
+        return sendJson(res, 400, { error: 'The saved room state is invalid or could not be decrypted.' });
+      }
+      // The small receipt metadata is updated on every host render. Only apply it when it is newer than this checkpoint.
+      if (Number.isInteger(body.version) && body.version > nr.version) {
+        nr.setInfo({ name: body.name, discoverable: body.discoverable });
+        if (body.opts && typeof body.opts === 'object' && !Array.isArray(body.opts)) nr.setOptsWithoutRebuild(body.opts);
+      }
+    } else {
+      nr.setInfo({ name: body.name, discoverable: body.discoverable });
+      if (body.opts && typeof body.opts === 'object') nr.setOpts(body.opts);
+    }
+    nr.recoveryNeeded = false;
     rooms.set(code, nr);
+    notify(code);
+    for (const guest of nr.guests.values()) {
+      if (guest.lookupGenres && !guest.genres.length && ['idle', 'pending'].includes(guest.genreLookupStatus)) enrichGuestGenres(code, nr, guest);
+    }
     saveRooms();
     L.count('rooms.restored');
     L.info('room.restored', { room: L.roomTag(code), rooms: rooms.size });
@@ -313,7 +332,7 @@ async function api(req, res, url) {
   };
 
   // GET /api/rooms/:code  -> does it exist (for the join page)
-  if (parts.length === 2 && m === 'GET') return sendJson(res, 200, { code: room.code, name: room.name, people: room.active().length });
+  if (parts.length === 2 && m === 'GET') return sendJson(res, 200, { code: room.code, name: room.name, people: room.active().length, recoveryNeeded: room.recoveryNeeded });
 
   // GET /api/rooms/:code/events  -> SSE
   if (parts[2] === 'events' && m === 'GET') {
@@ -418,6 +437,10 @@ async function api(req, res, url) {
     if (act === 'advance' && m === 'POST') { room.advance(); }
     else if (act === 'opts' && m === 'POST') { room.setOpts(body); saveRooms(); }
     else if (act === 'room' && m === 'POST') { room.setInfo(body); saveRooms(); }
+    else if (act === 'snapshot' && m === 'GET') {
+      const snapshot = getRestorer().encryptSnapshot(code, room.hostKey, room.snapshot());
+      return sendJson(res, 200, { version: room.version, snapshot });
+    }
     else if (act === 'guests' && parts.length === 4 && m === 'POST') {
       const g = room.addGuest(body.name, body.genres, { manual: true });
       if (!g) return sendJson(res, 400, { error: 'pick at least one genre' });
@@ -439,7 +462,7 @@ async function api(req, res, url) {
     }
     else if (act === 'library' && m === 'DELETE') { room.clearLibrary(); }
     else if (act === 'extras' && m === 'POST') { if (body.reset === true) room.clearExtras(); else room.addExtras(body.genre, body.tracks, { pool: body.pool === true, source: body.source, artist: typeof body.artist === 'string' ? body.artist : undefined }); }
-    else if (act === 'reset' && m === 'POST') { L.info('room.reset', { room: L.roomTag(code) }); rooms.set(code, Object.assign(new Room(code, room.hostKey), { opts: room.opts })); subs.get(code)?.forEach((s) => s.res.end()); }
+    else if (act === 'reset' && m === 'POST') { L.info('room.reset', { room: L.roomTag(code) }); const fresh = new Room(code, room.hostKey); fresh.opts = { ...room.opts }; fresh.version = room.version + 1; rooms.set(code, fresh); subs.get(code)?.forEach((s) => s.res.end()); }
     else return sendJson(res, 404, { error: 'unknown action' });
     notify(code);
     return sendJson(res, 200, { ok: true });

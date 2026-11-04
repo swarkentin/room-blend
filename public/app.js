@@ -28,13 +28,76 @@
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
   function lsDel(k) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } }
 
-  // A host's room survives a server restart because this browser keeps a signed receipt for it (name, settings, and the
-  // server's proof that it issued this room's host key). When the server has forgotten the room, the receipt brings it back.
-  // The key is 'rb-snap-' and not 'rb-host-...', because the landing page treats every 'rb-host-' key as a room to list.
+  // Full room recovery data is opaque AES-GCM ciphertext in a separate IndexedDB database.
+  // localStorage retains only the small signed receipt needed to authenticate a restore.
+  var ROOM_DB = 'room-blend-room-state', ROOM_STORE = 'snapshots', roomDbPromise = null;
+  function openRoomDb() {
+    if (!window.indexedDB) return Promise.resolve(null);
+    if (!roomDbPromise) roomDbPromise = new Promise(function (resolve) {
+      var req;
+      try { req = indexedDB.open(ROOM_DB, 1); } catch (e) { resolve(null); return; }
+      req.onupgradeneeded = function () { if (!req.result.objectStoreNames.contains(ROOM_STORE)) req.result.createObjectStore(ROOM_STORE, { keyPath: 'code' }); };
+      req.onsuccess = function () {
+        var db = req.result;
+        // Recovery receipts expire after 30 days by default; discard older ciphertext as well.
+        try {
+          var tx = db.transaction(ROOM_STORE, 'readwrite'), cursor = tx.objectStore(ROOM_STORE).openCursor(), cutoff = Date.now() - (Math.max(1, Number(C.restoreDays) || 30) + 1) * 86400000;
+          cursor.onsuccess = function () {
+            var item = cursor.result;
+            if (!item) return;
+            if (!item.value.savedAt || item.value.savedAt < cutoff) item.delete();
+            item.continue();
+          };
+        } catch (e) { /* storage cleanup is best effort */ }
+        resolve(db);
+      };
+      req.onerror = function () { resolve(null); };
+      req.onblocked = function () { resolve(null); };
+    });
+    return roomDbPromise;
+  }
+  async function readRoomSnapshot(code) {
+    var db = await openRoomDb(); if (!db) return null;
+    return new Promise(function (resolve) {
+      try {
+        var req = db.transaction(ROOM_STORE, 'readonly').objectStore(ROOM_STORE).get(code);
+        req.onsuccess = function () { resolve(req.result || null); };
+        req.onerror = function () { resolve(null); };
+      } catch (e) { resolve(null); }
+    });
+  }
+  async function writeRoomSnapshot(code, snapshot, version) {
+    var db = await openRoomDb(); if (!db) return false;
+    return new Promise(function (resolve) {
+      try {
+        var tx = db.transaction(ROOM_STORE, 'readwrite'), store = tx.objectStore(ROOM_STORE), req = store.get(code);
+        req.onsuccess = function () {
+          // Multiple host tabs can checkpoint the same room. Never let a late, older response overwrite newer state.
+          if (req.result && Number(req.result.version) > Number(version)) return;
+          store.put({ code: code, snapshot: snapshot, version: version, savedAt: Date.now() });
+        };
+        tx.oncomplete = function () { resolve(true); };
+        tx.onerror = tx.onabort = function () { resolve(false); };
+      } catch (e) { resolve(false); }
+    });
+  }
+  async function deleteRoomSnapshot(code) {
+    var db = await openRoomDb(); if (!db) return;
+    return new Promise(function (resolve) {
+      try {
+        var tx = db.transaction(ROOM_STORE, 'readwrite');
+        tx.objectStore(ROOM_STORE).delete(code);
+        tx.oncomplete = tx.onerror = tx.onabort = function () { resolve(); };
+      } catch (e) { resolve(); }
+    });
+  }
+
+  // The host's browser keeps the signed receipt plus the latest encrypted state. The key is 'rb-snap-' and not
+  // 'rb-host-...', because the landing page treats every 'rb-host-' key as a room to list.
   function readSnap(code) { try { var s = JSON.parse(lsGet('rb-snap-' + code) || 'null'); return s && typeof s.token === 'string' ? s : null; } catch (e) { return null; } }
   function saveSnap(code, st) {
     if (!st || !st.restoreToken) return;
-    var next = JSON.stringify({ token: st.restoreToken, name: st.name || '', discoverable: st.discoverable !== false, opts: st.opts || {} });
+    var next = JSON.stringify({ token: st.restoreToken, version: st.version || 0, name: st.name || '', discoverable: st.discoverable !== false, opts: st.opts || {} });
     if (lsGet('rb-snap-' + code) !== next) lsSet('rb-snap-' + code, next);
   }
 
@@ -235,8 +298,37 @@
     var H = { 'x-host-key': key };
     var post = function (p, body) { return http('POST', '/api/rooms/' + code + '/host/' + p, body || {}, H); };
     var joinUrl = (C.publicUrl || location.origin) + '/' + code;
-    var S = { st: null, prov: null, reup: 0, srcSig: '', playing: null, status: '', busy: false, extrasBusy: false, tried: {}, paused: false };
+    var S = { st: null, prov: null, reup: 0, srcSig: '', playing: null, status: '', busy: false, extrasBusy: false, tried: {}, paused: false, snapshotTimer: null, snapshotBusy: false, snapshotWantedVersion: -1, snapshotSavedVersion: -1, snapshotEpoch: 0, recovering: false, snapshotUnavailable: false };
     var addPicked = [];
+
+    function scheduleRoomSnapshot(version) {
+      if (S.snapshotUnavailable || !Number.isFinite(version) || version <= S.snapshotSavedVersion) return;
+      S.snapshotWantedVersion = Math.max(S.snapshotWantedVersion, version);
+      clearTimeout(S.snapshotTimer);
+      S.snapshotTimer = setTimeout(async function () {
+        if (S.snapshotBusy) return;
+        var epoch = S.snapshotEpoch;
+        S.snapshotBusy = true;
+        var result = null;
+        try {
+          result = await http('GET', '/api/rooms/' + code + '/host/snapshot', null, H);
+          if (epoch === S.snapshotEpoch && result.ok && result.data && typeof result.data.snapshot === 'string') {
+            if (await writeRoomSnapshot(code, result.data.snapshot, result.data.version)) S.snapshotSavedVersion = result.data.version;
+            else if (!await openRoomDb()) { S.snapshotUnavailable = true; console.warn('Room recovery is unavailable because IndexedDB could not be opened.'); }
+          }
+        } catch (e) { /* a later room update or reload will retry */ }
+        finally {
+          if (epoch === S.snapshotEpoch) {
+            S.snapshotBusy = false;
+            // If the room changed while this checkpoint was in flight, take one more snapshot.
+            if (S.snapshotWantedVersion > S.snapshotSavedVersion) {
+              var delay = result && result.ok && result.data && S.snapshotWantedVersion > result.data.version ? 0 : 5000;
+              S.snapshotTimer = setTimeout(function () { scheduleRoomSnapshot(S.snapshotWantedVersion); }, delay);
+            }
+          }
+        }
+      }, 500);
+    }
 
     app.replaceChildren(h('div', { class: 'wrap' }, []));
     var wrap = app.firstChild;
@@ -599,6 +691,7 @@
     function render(st) {
       S.st = st;
       saveSnap(code, st);
+      scheduleRoomSnapshot(st.version);
       var castTitle = $('tv-cast-title');
       var castTitleText = st.now ? st.now.track.title : 'Waiting for the first guest';
       $('tv-cast-room').textContent = st.name || 'Now playing';
@@ -712,13 +805,32 @@
       if (!snap) return 'gone';
       if (Date.now() - lastRestore < 5000) return 'wait';
       lastRestore = Date.now();
-      var r = await http('POST', '/api/rooms/' + code + '/restore', { hostKey: key, token: snap.token, name: snap.name, discoverable: snap.discoverable, opts: snap.opts });
+      var saved = await readRoomSnapshot(code);
+      var body = { hostKey: key, token: snap.token, version: snap.version, name: snap.name, discoverable: snap.discoverable, opts: snap.opts };
+      if (saved && typeof saved.snapshot === 'string') body.snapshot = saved.snapshot;
+      else S.status = 'No encrypted room checkpoint was available. The room can be reopened with its saved name and settings, but its live state may be lost.';
+      var r = await http('POST', '/api/rooms/' + code + '/restore', body);
+      // If a stored checkpoint is corrupt or from an unsupported schema, keep the signed room identity
+      // and settings rather than abandoning the room entirely.
+      if (!r.ok && r.status === 400 && body.snapshot) {
+        delete body.snapshot;
+        r = await http('POST', '/api/rooms/' + code + '/restore', body);
+        if (r.ok) {
+          await deleteRoomSnapshot(code);
+          S.status = 'The saved room checkpoint could not be read. The room was reopened with its name and settings only.';
+        }
+      }
       if (r.ok) return 'back';
       return r.status >= 500 || r.status === 429 ? 'wait' : 'gone';
     }
     function roomEnded() {
-      lsDel('rb-host-' + code); lsDel('rb-snap-' + code);
+      lsDel('rb-host-' + code); lsDel('rb-snap-' + code); deleteRoomSnapshot(code);
       app.replaceChildren(h('div', { class: 'wrap' }, [h('div', { class: 'hero' }, [h('h1', { text: 'This room has ended' }), h('p', { class: 'lead', text: 'A room can only be reopened for a while after its host last used it.' }), h('a', { class: 'btn primary', href: '/', text: 'Start a new room' })])]));
+    }
+    function resetAfterRestore() {
+      S.reup = 0; S.tried = {}; S.playing = null; S.srcSig = '';
+      clearTimeout(S.snapshotTimer);
+      S.snapshotEpoch++; S.snapshotBusy = false; S.snapshotSavedVersion = -1; S.snapshotWantedVersion = -1;
     }
     async function reconnect() {
       try {
@@ -728,15 +840,30 @@
         var back = await restoreRoom();
         if (back === 'wait') return setTimeout(connect, 3000);
         if (back === 'gone') return roomEnded();
-        // The new room knows nothing about the music source yet, so let the source set itself up again.
-        S.reup = 0; S.tried = {}; S.playing = null; S.srcSig = '';
+        resetAfterRestore();
         connect();
       } catch (e) { setTimeout(connect, 3000); } // offline or mid-restart: try again
     }
     function connect() {
       if (es) es.close();
       es = new EventSource('/api/rooms/' + code + '/events?key=' + encodeURIComponent(key));
-      es.onmessage = function (m) { try { render(JSON.parse(m.data)); } catch (e) { console.error(e); } };
+      es.onmessage = function (m) {
+        try {
+          var st = JSON.parse(m.data);
+          if (st.recoveryNeeded) {
+            if (S.recovering) return;
+            S.recovering = true; es.close();
+            restoreRoom().then(function (back) {
+              S.recovering = false;
+              if (back === 'back') { resetAfterRestore(); connect(); }
+              else if (back === 'wait') setTimeout(connect, 3000);
+              else roomEnded();
+            }).catch(function () { S.recovering = false; setTimeout(connect, 3000); });
+            return;
+          }
+          render(st);
+        } catch (e) { console.error(e); }
+      };
       es.onerror = function () { if (es.readyState === EventSource.CLOSED) reconnect(); };
     }
     connect();
@@ -1118,14 +1245,22 @@
         // Server restarted or dropped us: check the room, then rejoin quietly with the same picks.
         var r;
         try { r = await http('GET', '/api/rooms/' + code); } catch (e) { return setTimeout(connect, 4000); } // offline or mid-restart
-        if (r.status === 404) {
-          // A restart empties the room until its host's page brings it back, which usually takes seconds. Keep trying for a few minutes.
+        if (r.status >= 500 || r.status === 429) return setTimeout(connect, 4000);
+        if (r.status === 404 || (r.ok && r.data && r.data.recoveryNeeded)) {
+          // A restart empties the room until its host's page brings it back. Keep trying for a few minutes.
           if (!goneAt) goneAt = Date.now();
           if (Date.now() - goneAt > 5 * 60 * 1000) return roomGone();
           if ($('gv-me')) $('gv-me').textContent = 'The room is restarting. Reconnecting you…';
           return setTimeout(connect, 4000);
         }
         goneAt = 0;
+        // The host may already have restored us with our original credentials. Check before creating
+        // a new guest, otherwise a reconnect racing the host would create a duplicate guest.
+        var check;
+        try { check = await http('POST', '/api/rooms/' + code + '/guests/' + reg.id + '/here', { idleSec: 0, hidden: document.visibilityState === 'hidden' }, auth()); }
+        catch (e) { return setTimeout(connect, 4000); }
+        if (check.ok) { connect(); return; }
+        if (check.status >= 500 || check.status === 429) return setTimeout(connect, 4000);
         var j;
         try { j = await http('POST', '/api/rooms/' + code + '/guests', { name: reg.name, genres: reg.genres, since: reg.since, artists: reg.artists, songs: reg.songs, lookupGenres: !!reg.lookupGenres }); } catch (e) { return setTimeout(connect, 4000); }
         if (j.ok) { reg.id = j.data.guestId; reg.key = j.data.guestKey; saveReg(); connect(); }
