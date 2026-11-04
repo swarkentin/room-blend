@@ -70,8 +70,12 @@
     var db = await openRoomDb(); if (!db) return false;
     return new Promise(function (resolve) {
       try {
-        var tx = db.transaction(ROOM_STORE, 'readwrite');
-        tx.objectStore(ROOM_STORE).put({ code: code, snapshot: snapshot, version: version, savedAt: Date.now() });
+        var tx = db.transaction(ROOM_STORE, 'readwrite'), store = tx.objectStore(ROOM_STORE), req = store.get(code);
+        req.onsuccess = function () {
+          // Multiple host tabs can checkpoint the same room. Never let a late, older response overwrite newer state.
+          if (req.result && Number(req.result.version) > Number(version)) return;
+          store.put({ code: code, snapshot: snapshot, version: version, savedAt: Date.now() });
+        };
         tx.oncomplete = function () { resolve(true); };
         tx.onerror = tx.onabort = function () { resolve(false); };
       } catch (e) { resolve(false); }
