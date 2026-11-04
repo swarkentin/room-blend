@@ -531,38 +531,66 @@
     async function maybeExtras() {
       var st = S.st, P = S.prov;
       if (!st || !P.canExtras || !P.canExtras() || (st.source && st.source.kind === 'library')) return;
-      // A guest can add new picks while a previous discovery batch is in flight. Remember the
-      // request and run another pass when the current batch finishes instead of dropping it.
+      // Discovery is deliberately incremental: one unit of work per pass gives playback and
+      // newly-arrived guest requests a chance between catalogue expansions.
       if (S.extrasBusy) { S.extrasAgain = true; return; }
-      var todo = (st.wantGenres || []).filter(function (g) { return !S.tried[g]; });
-      var eras = P.eraTracks ? (st.wantEras || []).flatMap(function (e) {
-        return (e.genres || []).map(function (g) { return { era: e.era, genre: g, key: 'era:' + e.era + ':' + g }; }).filter(function (x) { return !S.tried[x.key]; });
-      }) : [];
-      var arts = P.artistTracks ? (st.wantArtists || []).filter(function (a) { return !S.tried['a:' + a.name.toLowerCase()]; }) : [];
-      if (!todo.length && !eras.length && !arts.length) return;
+
+      var guests = (st.guests || []).filter(function (g) { return g.status === 'active'; });
+      function expandedPicks(g) {
+        var out = [];
+        (g.genres || []).forEach(function (p) {
+          var grp = /^any:/.test(p) ? (C.genreGroups || []).filter(function (x) { return groupKey(x) === p; })[0] : null;
+          ((grp && grp[1]) || (C.genreLegacy && C.genreLegacy[p]) || (C.genreAliases && C.genreAliases[p]) || [p]).forEach(function (x) {
+            if (out.indexOf(x) < 0) out.push(x);
+          });
+        });
+        return out;
+      }
+      var tasks = [];
+      (st.wantEras || []).forEach(function (era) {
+        (era.genres || []).forEach(function (genre) {
+          var key = 'era:' + era.era + ':' + genre;
+          if (P.eraTracks && !S.tried[key]) {
+            var fans = guests.filter(function (g) { return (g.genres || []).indexOf(era.era) >= 0; }).length;
+            tasks.push({ type: 'era', key: key, era: era.era, genre: genre, score: 800 + fans * 10 });
+          }
+        });
+      });
+      (st.wantArtists || []).forEach(function (artist) {
+        var key = 'a:' + artist.name.toLowerCase();
+        if (P.artistTracks && !S.tried[key]) {
+          var fans = guests.filter(function (g) { return (g.artists || []).some(function (name) { return name.toLowerCase() === artist.name.toLowerCase(); }); }).length;
+          tasks.push({ type: 'artist', key: key, artist: artist, score: 900 + fans * 10 });
+        }
+      });
+      (st.wantGenres || []).forEach(function (genre, index) {
+        if (S.tried[genre]) return;
+        var fans = guests.filter(function (g) { return expandedPicks(g).indexOf(genre) >= 0; }).length;
+        // Prefer genres requested by more people; preserve server order as a stable tie-break.
+        tasks.push({ type: 'genre', key: genre, genre: genre, score: 100 + fans * 10 - index / 1000 });
+      });
+      if (!tasks.length) return;
+      tasks.sort(function (a, b) { return b.score - a.score; });
+      var task = tasks[0];
       S.extrasBusy = true;
       try {
-        // Era-qualified searches are the most specific expression of a guest's request. Run them
-        // before broad genre expansion so a long list of generic pools cannot starve decade picks.
-        for (var e = 0; e < eras.length; e++) {
-          S.tried[eras[e].key] = true;
-          var eraTracks = []; try { eraTracks = await P.eraTracks(eras[e].era, eras[e].genre) || []; } catch (e) { eraTracks = []; }
-          await post('extras', { genre: eras[e].genre, tracks: eraTracks, pool: !!P.pool && eraTracks.length > 0, source: P.id });
-        }
-        for (var i = 0; i < todo.length; i++) {
-          S.tried[todo[i]] = true;
-          var tracks = []; try { tracks = await P.extras(todo[i], partnersOf(st)) || []; } catch (e) { tracks = []; }
-          // pool: the service now supplies the songs (only once it has actually returned some, otherwise the built-in list stays)
-          await post('extras', { genre: todo[i], tracks: tracks, pool: !!P.pool && tracks.length > 0, source: P.id });
-        }
-        // Artists guests named that the room's songs do not have: look each one up once. Only that artist's songs are kept.
-        for (var j = 0; j < arts.length; j++) {
-          S.tried['a:' + arts[j].name.toLowerCase()] = true;
-          var found = []; try { found = await P.artistTracks(arts[j].name, arts[j].genre) || []; } catch (e) { found = []; }
-          await post('extras', { genre: arts[j].genre, artist: arts[j].name, tracks: found, pool: false, source: P.id });
+        S.tried[task.key] = true;
+        if (task.type === 'era') {
+          var eraTracks = [];
+          try { eraTracks = await P.eraTracks(task.era, task.genre) || []; } catch (e) { eraTracks = []; }
+          await post('extras', { genre: task.genre, tracks: eraTracks, pool: !!P.pool && eraTracks.length > 0, source: P.id });
+        } else if (task.type === 'artist') {
+          var found = [];
+          try { found = await P.artistTracks(task.artist.name, task.artist.genre) || []; } catch (e) { found = []; }
+          await post('extras', { genre: task.artist.genre, artist: task.artist.name, tracks: found, pool: false, source: P.id });
+        } else {
+          var tracks = [];
+          try { tracks = await P.extras(task.genre, partnersOf(st)) || []; } catch (e) { tracks = []; }
+          await post('extras', { genre: task.genre, tracks: tracks, pool: !!P.pool && tracks.length > 0, source: P.id });
         }
       } finally {
         S.extrasBusy = false;
+        // A room update that arrived during discovery may have introduced a more urgent request.
         if (S.extrasAgain) { S.extrasAgain = false; maybeExtras(); }
       }
     }
