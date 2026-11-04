@@ -217,6 +217,8 @@ const yt = http.createServer((req, res) => {
     const stored = await until(() => cacheRecord(host, 'pool:jazz'), 8000, 'pool cached');
     const titles = stored.value.map((t) => t.artist + ' - ' + t.title);
     assert.strictEqual(stored.value.length, 14); assert.ok(stored.expiresAt - stored.at >= 29 * 86400000); ok('14 usable songs were kept and successful pools are cached for 30 days');
+    await host.waitForFunction(() => /14 tracks/.test(document.querySelector('#yt-catalogue-status') && document.querySelector('#yt-catalogue-status').textContent || ''), null, { timeout: 8000 });
+    ok('the host catalogue coverage count refreshes when discovery adds a pool');
     assert.ok(titles.includes('Dave Brubeck - Take Five') && titles.includes('Nina Simone - Feeling Good') && titles.includes('Miles Davis - So What')); ok('artist and title are read from "Artist - Song (Official Audio)" and from a "- Topic" channel');
     assert.ok(!titles.some((t) => /Full Album|Cheek to Cheek|Blocked|Private|Cover|Remix|Lyrics/.test(t))); ok('hour-long uploads, live versions, covers, remixes, lyric videos, videos that cannot be embedded and private videos were filtered out');
     const orderedPool = await host.evaluate(async () => window.Providers.get('youtube').extras('jazz', []));
