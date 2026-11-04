@@ -8,6 +8,30 @@ const PORT = 4897, APP = 'http://127.0.0.1:' + PORT;
 let passed = 0; const ok = (s) => { passed++; console.log('  ok  ' + s); };
 const until = async (fn, ms = 15000, what = 'x') => { const t0 = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) throw new Error('timeout: ' + what); await new Promise((r) => setTimeout(r, 150)); } };
 const getJson = (p) => new Promise((resolve) => http.get(APP + p, (res) => { const c = []; res.on('data', (d) => c.push(d)); res.on('end', () => { let j = null; try { j = JSON.parse(Buffer.concat(c).toString()); } catch (e) { /* none */ } resolve({ status: res.statusCode, json: j }); }); }).on('error', () => resolve({ status: 0, json: null })));
+const readCheckpoint = (page, code) => page.evaluate((code) => new Promise((resolve) => {
+  let settled = false;
+  const finish = (value) => { if (settled) return; settled = true; clearTimeout(timer); resolve(value); };
+  const timer = setTimeout(() => finish(null), 3000);
+  let open;
+  try { open = indexedDB.open('room-blend-room-state', 1); } catch (e) { finish(null); return; }
+  // The test may be the first code to open this database. Create the same store as the app
+  // so the test cannot accidentally create a version-1 database with an empty schema.
+  open.onupgradeneeded = () => {
+    if (!open.result.objectStoreNames.contains('snapshots')) open.result.createObjectStore('snapshots', { keyPath: 'code' });
+  };
+  open.onerror = open.onblocked = () => finish(null);
+  open.onsuccess = () => {
+    const db = open.result;
+    if (!db.objectStoreNames.contains('snapshots')) { db.close(); finish(null); return; }
+    try {
+      const tx = db.transaction('snapshots', 'readonly');
+      const request = tx.objectStore('snapshots').get(code);
+      request.onsuccess = () => { const value = request.result || null; db.close(); finish(value); };
+      request.onerror = () => { db.close(); finish(null); };
+      tx.onabort = tx.onerror = () => { db.close(); finish(null); };
+    } catch (e) { db.close(); finish(null); }
+  };
+}), code);
 
 (async () => {
   const dirs = [];
@@ -35,23 +59,12 @@ const getJson = (p) => new Promise((resolve) => http.get(APP + p, (res) => { con
     const guest = await ctx(); await guest.goto(`${APP}/${code}`); await guest.waitForSelector('#gv-form');
     await guest.click('#gv-picker [data-g="rock"]'); await guest.click('#gv-submit'); await guest.waitForSelector('#gv-title');
     ok('a guest joins with rock');
-    await until(async () => host.evaluate((code) => new Promise((resolve) => {
-      const open = indexedDB.open('room-blend-room-state', 1);
-      open.onerror = () => resolve(false);
-      open.onsuccess = () => {
-        const req = open.result.transaction('snapshots', 'readonly').objectStore('snapshots').get(code);
-        req.onsuccess = () => resolve(!!(req.result && req.result.snapshot && req.result.version > 0));
-        req.onerror = () => resolve(false);
-      };
-    }), code), 10000, 'encrypted room checkpoint');
-    const saved = await host.evaluate((code) => new Promise((resolve) => {
-      const open = indexedDB.open('room-blend-room-state', 1);
-      open.onsuccess = () => {
-        const req = open.result.transaction('snapshots', 'readonly').objectStore('snapshots').get(code);
-        req.onsuccess = () => resolve(req.result);
-      };
-      open.onerror = () => resolve(null);
-    }), code);
+    await until(async () => {
+      const saved = await readCheckpoint(host, code);
+      return !!(saved && saved.snapshot && saved.version > 0);
+    }, 10000, 'encrypted room checkpoint');
+    const saved = await readCheckpoint(host, code);
+    assert.ok(saved, 'the encrypted room checkpoint remains readable');
     const guestReg = await guest.evaluate((code) => JSON.parse(localStorage.getItem('rb-guest-' + code)), code);
     assert.ok(!saved.snapshot.includes('Friday Night') && !saved.snapshot.includes(guestReg.key), 'the browser stores opaque ciphertext, not readable room data');
     ok('the host browser checkpoints encrypted room state in IndexedDB');
@@ -79,15 +92,10 @@ const getJson = (p) => new Promise((resolve) => http.get(APP + p, (res) => { con
     await host2.fill('#room-name', 'Disk recovery');
     await diskName;
     await until(() => { try { return JSON.parse(fs.readFileSync(path.join(dataDir, 'rooms.json'), 'utf8')).rooms.some((r) => r.code === code2 && r.name === 'Disk recovery'); } catch (e) { return false; } }, 8000, 'disk room identities saved');
-    await until(async () => host2.evaluate((code) => new Promise((resolve) => {
-      const open = indexedDB.open('room-blend-room-state', 1);
-      open.onerror = () => resolve(false);
-      open.onsuccess = () => {
-        const req = open.result.transaction('snapshots', 'readonly').objectStore('snapshots').get(code);
-        req.onsuccess = () => resolve(!!(req.result && req.result.snapshot && req.result.version > 0));
-        req.onerror = () => resolve(false);
-      };
-    }), code2), 10000, 'disk-backed room checkpoint');
+    await until(async () => {
+      const saved = await readCheckpoint(host2, code2);
+      return !!(saved && saved.snapshot && saved.version > 0);
+    }, 10000, 'disk-backed room checkpoint');
 
     await stop(srv); running = await start(dataDir); srv = running.process;
     await until(async () => { const r = await getJson('/api/rooms/' + code2); return r.status === 200 && r.json.name === 'Disk recovery' && r.json.people === 1; }, 20000, 'disk-loaded room hydrated with its guest');
