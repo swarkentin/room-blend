@@ -321,6 +321,21 @@
     return ranked;
   }
 
+  // A successfully played request becomes a local candidate for future genre blends.
+  async function rememberPlayed(track, id) {
+    var GM = window.GenreMap, genres = (track.genres || []).filter(function (g) { return window.CONFIG.genres.indexOf(g) >= 0; });
+    if (!genres.length && GM) genres = GM.classifyAll(track.title || '', 2);
+    genres = genres.slice(0, 3);
+    if (!genres.length || !id) return;
+    var song = { title: track.title, artist: track.artist, id: id, genres: genres, quality: 1 };
+    for (var i = 0; i < genres.length; i++) {
+      var have = await poolGet(genres[i]) || [];
+      if (!have.some(function (x) { return x.id === id || (x.title.toLowerCase() === song.title.toLowerCase() && x.artist.toLowerCase() === song.artist.toLowerCase()); })) {
+        await poolPut(genres[i], [song].concat(have).slice(0, 600));
+      }
+    }
+  }
+
   // ---------- songs by genre (playlist reads and video details use 1 quota unit per request; search has its own daily call cap) ----------
   async function poolGet(k) {
     var hit = await cacheGet('pool:' + k);
@@ -614,7 +629,7 @@
       var tries = ids.slice(0, 4);
       for (var i = 0; i < tries.length; i++) {
         var r = await tryVideo(tries[i]);
-        if (r === true) { await recordPlayback(tries[i], true); return true; }
+        if (r === true) { await recordPlayback(tries[i], true); if (track.request) await rememberPlayed(track, tries[i]); return true; }
         if (r === false) return false;
         await recordPlayback(tries[i], false);
         await demote(track, tries[i]); // null: this video is unavailable or not embeddable, try the next one
