@@ -508,7 +508,10 @@
 
     async function maybeExtras() {
       var st = S.st, P = S.prov;
-      if (!st || !P.canExtras || !P.canExtras() || S.extrasBusy || (st.source && st.source.kind === 'library')) return;
+      if (!st || !P.canExtras || !P.canExtras() || (st.source && st.source.kind === 'library')) return;
+      // A guest can add new picks while a previous discovery batch is in flight. Remember the
+      // request and run another pass when the current batch finishes instead of dropping it.
+      if (S.extrasBusy) { S.extrasAgain = true; return; }
       var todo = (st.wantGenres || []).filter(function (g) { return !S.tried[g]; });
       var eras = P.eraTracks ? (st.wantEras || []).flatMap(function (e) {
         return (e.genres || []).map(function (g) { return { era: e.era, genre: g, key: 'era:' + e.era + ':' + g }; }).filter(function (x) { return !S.tried[x.key]; });
@@ -536,7 +539,10 @@
           var found = []; try { found = await P.artistTracks(arts[j].name, arts[j].genre) || []; } catch (e) { found = []; }
           await post('extras', { genre: arts[j].genre, artist: arts[j].name, tracks: found, pool: false, source: P.id });
         }
-      } finally { S.extrasBusy = false; }
+      } finally {
+        S.extrasBusy = false;
+        if (S.extrasAgain) { S.extrasAgain = false; maybeExtras(); }
+      }
     }
 
     // ----- rendering -----
