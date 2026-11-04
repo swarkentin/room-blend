@@ -18,6 +18,58 @@
     return e;
   }
   function $(id) { return document.getElementById(id); }
+
+  // Song autocomplete is deliberately advisory: a guest can always submit the text they typed.
+  function songAutocomplete(code, titleInput, artistInput, status, headers) {
+    var results = h('div', { class: 'song-suggestions', role: 'list', 'aria-label': 'Matching songs' });
+    artistInput.insertAdjacentElement('afterend', results);
+    var timer = null, sequence = 0, searchValue = '';
+    function clear() { results.replaceChildren(); results.hidden = true; }
+    async function search() {
+      var q = searchValue, mine = ++sequence;
+      clear(); status.textContent = '';
+      if (q.length < 2) return;
+      status.textContent = 'Looking for matching songs…';
+      var response;
+      try { response = await http('GET', '/api/rooms/' + code + '/search?q=' + encodeURIComponent(q), null, headers || {}); }
+      catch (e) { if (mine === sequence) status.textContent = 'Song suggestions are unavailable. You can still enter the song yourself.'; return; }
+      if (mine !== sequence) return;
+      var songs = response.ok && response.data && Array.isArray(response.data.songs) ? response.data.songs : [];
+      if (!songs.length) {
+        status.textContent = response.data && response.data.lookupUnavailable ? 'MusicBrainz is unavailable. You can still enter the song yourself.' : 'No matching songs found. You can still enter the song yourself.';
+        return;
+      }
+      results.hidden = false;
+      songs.slice(0, 6).forEach(function (song) {
+        var button = h('button', { type: 'button', class: 'song-suggestion', role: 'listitem' }, [
+          h('strong', { text: song.title }),
+          h('span', { text: song.artist }),
+          song.source === 'musicbrainz' ? h('small', { text: 'MusicBrainz' }) : null,
+        ]);
+        button.addEventListener('click', function () {
+          titleInput.value = song.title;
+          artistInput.value = song.artist;
+          clear();
+          status.textContent = 'Selected ' + song.title + ' — ' + song.artist + '. You can edit either field before submitting.';
+          titleInput.focus();
+        });
+        results.appendChild(button);
+      });
+      status.textContent = 'Choose a match, or keep typing your own song.';
+    }
+    function changed(event) {
+      searchValue = event.currentTarget.value.trim();
+      clearTimeout(timer);
+      sequence++;
+      clear();
+      timer = setTimeout(search, 250);
+    }
+    titleInput.addEventListener('input', changed);
+    artistInput.addEventListener('input', changed);
+    titleInput.addEventListener('keydown', function (e) { if (e.key === 'Escape') { sequence++; clearTimeout(timer); clear(); } });
+    artistInput.addEventListener('keydown', function (e) { if (e.key === 'Escape') { sequence++; clearTimeout(timer); clear(); } });
+    return results;
+  }
   function pct(v) { return Math.round(v * 100); }
   function clock(seconds) {
     if (!Number.isFinite(seconds) || seconds < 0) return '--:--';
@@ -353,7 +405,7 @@
           '<div class="host-media" id="host-media" hidden><label class="sr" for="host-seek">Seek through the current song</label><input id="host-seek" type="range" min="0" max="0" step="0.1" value="0" aria-label="Seek through the current song"><div class="media-times"><span id="host-time">0:00</span><span id="host-duration">--:--</span></div></div></div>' +
           '<div class="panel" style="margin-top:28px"><div class="sec-h"><h2>Up next</h2><span class="meta"><span id="q-meta"></span> <button class="btn small" type="button" id="copy-queue">Copy list</button></span></div>' +
           '<p class="overlap" id="overlap"></p><ol class="queue" id="queue"></ol></div>' +
-          '<div class="panel" style="margin-top:18px"><div class="sec-h"><h2>Jukebox requests</h2><span class="meta" id="request-count"></span></div><ol class="queue" id="host-requests"></ol><form class="add" id="host-request-form"><h3>Queue a song</h3><div><label for="host-request-title">Song title</label><input id="host-request-title" maxlength="100" required></div><div><label for="host-request-artist">Artist</label><input id="host-request-artist" maxlength="100" required></div><button class="btn small" type="submit">Add request</button><p class="hint" id="host-request-hint" role="status"></p></form></div>' +
+          '<div class="panel" style="margin-top:18px"><div class="sec-h"><h2>Jukebox requests</h2><span class="meta" id="request-count"></span></div><ol class="queue" id="host-requests"></ol><form class="add" id="host-request-form"><h3>Queue a song</h3><div><label for="host-request-title">Song title</label><input id="host-request-title" maxlength="100" required autocomplete="off"></div><div><label for="host-request-artist">Artist</label><input id="host-request-artist" maxlength="100" required autocomplete="off"></div><div><button class="btn small" type="submit">Add request</button><p class="hint" id="host-request-search-status" role="status"></p><p class="hint" id="host-request-hint" role="status"></p></div></form></div>' +
         '</section>' +
         '<section class="room" aria-label="In the room"><div class="sec-h"><h2>In the room</h2><span class="meta" id="room-count"></span></div>' +
           '<ul class="guests" id="guests"></ul>' +
@@ -458,7 +510,8 @@
       addPicked.length = 0; $('g-name').value = ''; $('add-hint').textContent = '';
       Array.prototype.forEach.call($('picker').querySelectorAll('button'), function (c) { c.setAttribute('aria-pressed', 'false'); c.disabled = false; });
     });
-    $('host-request-form').addEventListener('submit', async function (e) { e.preventDefault(); var result = await post('requests', { title: $('host-request-title').value, artist: $('host-request-artist').value }); $('host-request-hint').textContent = result.ok ? 'Added to the jukebox.' : (result.data && result.data.error) || 'Could not add that request.'; if (result.ok) { $('host-request-title').value = ''; $('host-request-artist').value = ''; } });
+    songAutocomplete(code, $('host-request-title'), $('host-request-artist'), $('host-request-search-status'), H);
+    $('host-request-form').addEventListener('submit', async function (e) { e.preventDefault(); var result = await post('requests', { title: $('host-request-title').value, artist: $('host-request-artist').value }); $('host-request-hint').textContent = result.ok ? 'Added to the jukebox.' : (result.data && result.data.error) || 'Could not add that request.'; if (result.ok) { $('host-request-title').value = ''; $('host-request-artist').value = ''; $('host-request-search-status').textContent = ''; $('host-request-form').querySelector('.song-suggestions').hidden = true; } });
     $('btn-next').addEventListener('click', function () { post('advance'); });
     $('btn-pause').addEventListener('click', function () {
       if (S.paused) { S.prov.resume(); S.paused = false; $('btn-pause').textContent = 'Pause'; } else { S.prov.pause(); S.paused = true; $('btn-pause').textContent = 'Resume'; }
@@ -977,7 +1030,7 @@
           h('div', { class: 'controls' }, [h('span', { class: 'label', text: 'Your call' }), h('button', { class: 'btn small', type: 'button', id: 'gv-good', 'aria-pressed': 'false', text: 'Good pick', onclick: function () { vote('up'); } }), h('button', { class: 'btn small', type: 'button', id: 'gv-bad', 'aria-pressed': 'false', text: 'Bad pick', onclick: function () { vote('down'); } })]),
         ]),
         h('div', null, [h('div', { class: 'sec-h' }, [h('h2', { text: 'Up next' })]), h('ol', { class: 'gnext', id: 'gv-next' })]),
-        h('section', { class: 'panel' }, [h('div', { class: 'sec-h' }, [h('h2', { text: 'Request a song' })]), h('p', { class: 'hint', text: 'Ask the host to play any song. It does not need to be in the room’s music library.' }), h('form', { id: 'guest-request-form', class: 'add' }, [h('div', null, [h('label', { htmlFor: 'guest-request-title', text: 'Song title' }), h('input', { id: 'guest-request-title', maxlength: '100', required: 'required' })]), h('div', null, [h('label', { htmlFor: 'guest-request-artist', text: 'Artist' }), h('input', { id: 'guest-request-artist', maxlength: '100', required: 'required' })]), h('button', { class: 'btn primary', type: 'submit', text: 'Request song' }), h('p', { class: 'hint', id: 'guest-request-hint', role: 'status' })])]),
+        h('section', { class: 'panel' }, [h('div', { class: 'sec-h' }, [h('h2', { text: 'Request a song' })]), h('p', { class: 'hint', text: 'Ask the host to play any song. It does not need to be in the room’s music library.' }), h('form', { id: 'guest-request-form', class: 'add' }, [h('div', null, [h('label', { htmlFor: 'guest-request-title', text: 'Song title' }), h('input', { id: 'guest-request-title', maxlength: '100', required: 'required', autocomplete: 'off' })]), h('div', null, [h('label', { htmlFor: 'guest-request-artist', text: 'Artist' }), h('input', { id: 'guest-request-artist', maxlength: '100', required: 'required', autocomplete: 'off' })]), h('button', { class: 'btn primary', type: 'submit', text: 'Request song' }), h('p', { class: 'hint', id: 'guest-request-search-status', role: 'status' }), h('p', { class: 'hint', id: 'guest-request-hint', role: 'status' })])]),
         h('div', null, [h('div', { class: 'sec-h' }, [h('h2', { text: 'Requested songs' })]), h('ol', { class: 'gnext', id: 'gv-requests' })]),
         picksSection(),
         h('div', { id: 'gv-played-sec' }, [
@@ -997,7 +1050,8 @@
           h('button', { class: 'btn', type: 'button', id: 'gv-leave', text: 'Leave the room', onclick: leave }),
         ])
       );
-      $('guest-request-form').addEventListener('submit', async function (e) { e.preventDefault(); var hint = $('guest-request-hint'); var result = await http('POST', '/api/rooms/' + code + '/request', { title: $('guest-request-title').value, artist: $('guest-request-artist').value }, auth()); hint.textContent = result.ok ? 'Request added to the queue.' : (result.data && result.data.error) || 'Could not add that request.'; if (result.ok) { $('guest-request-title').value = ''; $('guest-request-artist').value = ''; } });
+      songAutocomplete(code, $('guest-request-title'), $('guest-request-artist'), $('guest-request-search-status'), auth());
+      $('guest-request-form').addEventListener('submit', async function (e) { e.preventDefault(); var hint = $('guest-request-hint'); var result = await http('POST', '/api/rooms/' + code + '/request', { title: $('guest-request-title').value, artist: $('guest-request-artist').value }, auth()); hint.textContent = result.ok ? 'Request added to the queue.' : (result.data && result.data.error) || 'Could not add that request.'; if (result.ok) { $('guest-request-title').value = ''; $('guest-request-artist').value = ''; $('guest-request-search-status').textContent = ''; $('guest-request-form').querySelector('.song-suggestions').hidden = true; } });
       if (st) renderLive(st);
       connect(); startBeats();
     }

@@ -130,6 +130,32 @@ const until = async (fn, ms = 8000, what = 'condition') => { const t0 = Date.now
     assert.ok(!(await g2.textContent('#glive-sec')).includes('Maya')); ok('guest phone does not show other guests');
     await host.waitForFunction(() => document.querySelectorAll('#queue .qrow').length >= 3); ok('host shows a queue of upcoming songs');
 
+    // ---- jukebox song autocomplete is advisory and works for both host and guest ----
+    const suggestion = { songs: [{ title: 'Tears in the Rain', artist: 'Vangelis', source: 'musicbrainz' }] };
+    const searchPath = (url) => url.pathname === '/api/rooms/' + code + '/search' && url.searchParams.has('q');
+    await g1.route(searchPath, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(suggestion) }));
+    await g1.fill('#guest-request-title', 'Tears');
+    await g1.waitForSelector('#guest-request-form .song-suggestion');
+    assert.ok((await g1.textContent('#guest-request-form .song-suggestion')).includes('Vangelis'));
+    await g1.click('#guest-request-form .song-suggestion');
+    assert.strictEqual(await g1.inputValue('#guest-request-title'), 'Tears in the Rain');
+    assert.strictEqual(await g1.inputValue('#guest-request-artist'), 'Vangelis');
+    ok('guest can find a song by partial title and select its canonical title and artist');
+    await g1.unroute(searchPath);
+    await host.route(searchPath, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(suggestion) }));
+    await host.fill('#host-request-artist', 'Vange');
+    await host.waitForSelector('#host-request-form .song-suggestion');
+    await host.click('#host-request-form .song-suggestion');
+    assert.strictEqual(await host.inputValue('#host-request-title'), 'Tears in the Rain');
+    assert.strictEqual(await host.inputValue('#host-request-artist'), 'Vangelis');
+    ok('host can search by artist and select a song');
+    await host.unroute(searchPath);
+    await g1.fill('#guest-request-title', 'A completely unknown song');
+    await g1.fill('#guest-request-artist', 'An unknown artist');
+    assert.strictEqual(await g1.inputValue('#guest-request-title'), 'A completely unknown song');
+    assert.strictEqual(await g1.inputValue('#guest-request-artist'), 'An unknown artist');
+    ok('guests can still enter a free-form request without selecting a suggestion');
+
     // ---- vote ----
     await g2.click('#gv-bad'); await host.waitForFunction(() => /1 bad/.test(document.querySelector('#now-votes').textContent)); ok('guest vote shows on the host');
 
