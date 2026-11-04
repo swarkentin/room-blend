@@ -217,6 +217,11 @@ const yt = http.createServer((req, res) => {
     assert.strictEqual(stored.value.length, 14); assert.ok(stored.expiresAt - stored.at >= 29 * 86400000); ok('14 usable songs were kept and successful pools are cached for 30 days');
     assert.ok(titles.includes('Dave Brubeck - Take Five') && titles.includes('Nina Simone - Feeling Good') && titles.includes('Miles Davis - So What')); ok('artist and title are read from "Artist - Song (Official Audio)" and from a "- Topic" channel');
     assert.ok(!titles.some((t) => /Full Album|Cheek to Cheek|Blocked|Private|Cover|Remix|Lyrics/.test(t))); ok('hour-long uploads, live versions, covers, remixes, lyric videos, videos that cannot be embedded and private videos were filtered out');
+    await host.evaluate(async () => { window.__ytFail = 'all'; });
+    assert.strictEqual(await host.evaluate(async () => window.Providers.get('youtube').play({ title: 'Take Five', artist: 'Dave Brubeck', nid: 'plA1' })), null);
+    await host.evaluate(() => { window.__ytFail = ''; });
+    const qualityPool = await host.evaluate(async () => window.Providers.get('youtube').extras('jazz', []));
+    assert.strictEqual(qualityPool[qualityPool.length - 1].id, 'plA1'); ok('a playlist video that fails playback is demoted in future catalogue ordering');
     await host.waitForFunction(() => /Pool Tune|Take Five|Feeling Good|So What/.test([...document.querySelectorAll('#queue .qrow')].map((e) => e.textContent).join(' ') + document.querySelector('#now-title').textContent), null, { timeout: 12000 }); ok('the queue now holds songs from the playlist');
     await host.evaluate(() => { window.__ytLog.length = 0; });
     for (let i = 0; i < 8 && !(await host.evaluate(() => window.__ytLog.some((v) => /^pl/.test(v)))); i++) { await host.click('#btn-next'); await new Promise((r) => setTimeout(r, 900)); }
