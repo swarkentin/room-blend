@@ -469,7 +469,14 @@ async function api(req, res, url) {
     }
     else if (act === 'player' && m === 'POST') {
       if (body.trackId && room.nowItem && body.trackId !== room.nowItem.track.id) { /* stale report: ignore */ }
-      else if (body.event === 'ended') room.advance();
+      else if (body.event === 'ended') {
+        const current = room.nowItem;
+        if (current && current.request) {
+          const genres = Array.isArray(body.genres) ? body.genres.filter((g) => Engine.GENRES.includes(g)).slice(0, 3) : [];
+          if (genres.length) room.addExtras(genres[0], [{ title: current.track.title, artist: current.track.artist, genres }], { pool: true, source: 'jukebox' });
+        }
+        room.advance();
+      }
       else if (body.event === 'unplayable') room.skipUnplayable();
     }
     else if (act === 'library' && m === 'POST') {
