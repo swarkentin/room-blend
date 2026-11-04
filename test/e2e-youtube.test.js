@@ -37,7 +37,10 @@ addVid('plA3', 'Jazz Classics Full Album 2 hours', 'Jazz Radio', 'PT2H0M0S');
 addVid('plA4', 'Ella Fitzgerald - Cheek to Cheek (Live)', 'Ella', 'PT4M0S');
 addVid('plA5', 'Blocked Artist - Blocked Song', 'Blocked', 'PT3M0S', false);
 addVid('plA6', 'So What', 'Miles Davis - Topic', 'PT9M22S');
-for (let i = 0; i < 14; i++) addVid('plB' + i, 'Pool Artist ' + i + ' - Pool Tune ' + i + ' (Official Video)', 'Pool Artist ' + i, 'PT3M30S');
+addVid('plA7', 'Dave Brubeck - Take Five (Cover Version)', 'Fan Covers', 'PT5M24S');
+addVid('plA8', 'Nina Simone - Feeling Good (Official Remix)', 'Remix Channel', 'PT2M55S');
+addVid('plA9', 'Ella Fitzgerald - Cheek to Cheek (Lyric Video)', 'Fan Lyrics', 'PT4M0S');
+for (let i = 0; i < 11; i++) addVid('plB' + i, 'Pool Artist ' + i + ' - Pool Tune ' + i + ' (Official Video)', 'Pool Artist ' + i, 'PT3M30S');
 const ZITEMS = [['plZ1', 'Zed Obscure - Zed Song One'], ['plZ2', 'Zed Obscure - Zed Song Two'], ['plZ3', 'Someone Else - Not Zed']].map(([id, title]) => { VIDEOS[id] = { id, snippet: { title, channelTitle: title.split(' - ')[0] }, contentDetails: { duration: 'PT3M10S' }, status: { embeddable: true, privacyStatus: 'public' } }; return { snippet: { title, resourceId: { videoId: id } } }; });
 PLITEMS.push({ snippet: { title: 'Private video', resourceId: { videoId: 'plPriv' } } });
 const SMALLITEMS = PLITEMS.slice(0, 6);
@@ -48,7 +51,7 @@ window.YT = { Player: function (id, opts) {
   var self = this; window.__ytPlayer = self; window.__ytOpts = opts;
   setTimeout(function () { opts.events.onReady({}); }, 20);
   self.loadVideoById = function (v) { window.__ytLog.push(v); if (window.__ytBlock) return;
-    if (window.__ytFail === 'all' || (window.__ytFail === 'first' && !/_b$/.test(v))) { setTimeout(function () { opts.events.onError({ data: 150 }); }, 30); return; } setTimeout(function () { opts.events.onStateChange({ data: 1 }); }, 30); };
+    if (window.__ytFail === 'all' || (window.__ytFail === 'first' && !/_a$/.test(v))) { setTimeout(function () { opts.events.onError({ data: 150 }); }, 30); return; } setTimeout(function () { opts.events.onStateChange({ data: 1 }); }, 30); };
   self.pauseVideo = function () { window.__ytPaused = true; }; self.playVideo = function () { window.__ytPaused = false; }; self.stopVideo = function () {};
   self.getCurrentTime = function () { return window.__ytCurrentTime; }; self.getDuration = function () { return window.__ytDuration; };
 } };
@@ -86,7 +89,8 @@ const yt = http.createServer((req, res) => {
     return send(200, 'application/json', JSON.stringify({ items: [
       { id: { videoId: 'vid' + n + '_c' }, snippet: { title: q + ' (cover)', channelTitle: 'Someone' } },
       { id: { videoId: 'vid' + n }, snippet: { title: q + ' (Official Video)', channelTitle: 'ArtistVEVO' } },
-      { id: { videoId: 'vid' + n + '_b' }, snippet: { title: q + ' lyrics', channelTitle: 'Fan' } }] }));
+      { id: { videoId: 'vid' + n + '_b' }, snippet: { title: q + ' lyrics', channelTitle: 'Fan' } },
+      { id: { videoId: 'vid' + n + '_a' }, snippet: { title: q + ' (Official Audio)', channelTitle: 'Artist - Topic' } }] }));
   }
   send(404, 'text/plain', 'no');
 });
@@ -179,8 +183,11 @@ const yt = http.createServer((req, res) => {
     // a video that is unavailable: the next candidate is tried before giving up on the song
     await host.evaluate(() => { window.__ytFail = 'first'; window.__ytLog.length = 0; });
     await host.evaluate(() => window.__ytOpts.events.onStateChange({ data: 0 }));
-    await until(() => host.evaluate(() => window.__ytLog.length >= 2 && /_b$/.test(window.__ytLog[window.__ytLog.length - 1])), 10000, 'fallback video').catch(async (e) => { console.log('LOG', await host.evaluate(() => JSON.stringify(window.__ytLog)), await nowTitle()); throw e; });
-    ok('when the first video is unavailable, the next candidate plays (' + await host.evaluate(() => window.__ytLog.join(', ')) + ')');
+    await until(() => host.evaluate(() => window.__ytLog.length >= 2 && /_a$/.test(window.__ytLog[window.__ytLog.length - 1])), 10000, 'fallback video').catch(async (e) => { console.log('LOG', await host.evaluate(() => JSON.stringify(window.__ytLog)), await nowTitle()); throw e; });
+    const fallbackIds = await host.evaluate(() => window.__ytLog.slice());
+    const failedQuality = await until(() => cacheRecord(host, 'quality:' + fallbackIds[0]), 8000, 'failed playback feedback');
+    assert.strictEqual(failedQuality.value.failures, 1); ok('failed playback is recorded so the video is demoted in future rankings');
+    ok('when the first video is unavailable, the next acceptable candidate plays (' + fallbackIds.join(', ') + ')');
     await host.evaluate(() => { window.__ytFail = 'all'; });
     await new Promise((r) => setTimeout(r, 600));
     const tBefore = await nowTitle();
@@ -207,9 +214,9 @@ const yt = http.createServer((req, res) => {
     assert.ok(log.plItems === 1 && log.videoCalls === 1); ok('reading the playlist took one call for its songs and one for their details (about 2 quota units, not 100 per song)');
     const stored = await until(() => cacheRecord(host, 'pool:jazz'), 8000, 'pool cached');
     const titles = stored.value.map((t) => t.artist + ' - ' + t.title);
-    assert.strictEqual(stored.value.length, 17); assert.ok(stored.expiresAt - stored.at >= 29 * 86400000); ok('17 songs were kept and successful pools are cached for 30 days');
+    assert.strictEqual(stored.value.length, 14); assert.ok(stored.expiresAt - stored.at >= 29 * 86400000); ok('14 usable songs were kept and successful pools are cached for 30 days');
     assert.ok(titles.includes('Dave Brubeck - Take Five') && titles.includes('Nina Simone - Feeling Good') && titles.includes('Miles Davis - So What')); ok('artist and title are read from "Artist - Song (Official Audio)" and from a "- Topic" channel');
-    assert.ok(!titles.some((t) => /Full Album|Cheek to Cheek|Blocked|Private/.test(t))); ok('hour-long uploads, live versions, videos that cannot be embedded and private videos were filtered out');
+    assert.ok(!titles.some((t) => /Full Album|Cheek to Cheek|Blocked|Private|Cover|Remix|Lyrics/.test(t))); ok('hour-long uploads, live versions, covers, remixes, lyric videos, videos that cannot be embedded and private videos were filtered out');
     await host.waitForFunction(() => /Pool Tune|Take Five|Feeling Good|So What/.test([...document.querySelectorAll('#queue .qrow')].map((e) => e.textContent).join(' ') + document.querySelector('#now-title').textContent), null, { timeout: 12000 }); ok('the queue now holds songs from the playlist');
     await host.evaluate(() => { window.__ytLog.length = 0; });
     for (let i = 0; i < 8 && !(await host.evaluate(() => window.__ytLog.some((v) => /^pl/.test(v)))); i++) { await host.click('#btn-next'); await new Promise((r) => setTimeout(r, 900)); }
