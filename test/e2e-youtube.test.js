@@ -90,6 +90,7 @@ const yt = http.createServer((req, res) => {
       { id: { videoId: 'vid' + n + '_c' }, snippet: { title: q + ' (cover)', channelTitle: 'Someone' } },
       { id: { videoId: 'vid' + n }, snippet: { title: q + ' (Official Video)', channelTitle: 'ArtistVEVO' } },
       { id: { videoId: 'vid' + n + '_b' }, snippet: { title: q + ' lyrics', channelTitle: 'Fan' } },
+      { id: { videoId: 'vid' + n + '_wrong' }, snippet: { title: 'A Completely Different Song', channelTitle: 'Someone Else' } },
       { id: { videoId: 'vid' + n + '_a' }, snippet: { title: q + ' (Official Audio)', channelTitle: 'Artist - Topic' } }] }));
   }
   send(404, 'text/plain', 'no');
@@ -135,6 +136,7 @@ const yt = http.createServer((req, res) => {
     const id1 = await until(() => host.evaluate(() => window.__ytLog[0]), 8000, 'a video was loaded');
     const cachedSearches = await until(async () => { const rows = await cacheRecords(host); return rows && rows.filter((entry) => entry.kind === 'search').length ? rows : null; }, 8000, 'IndexedDB cache write after a song lookup');
     assert.ok(cachedSearches.filter((entry) => entry.kind === 'search').every((entry) => entry.expiresAt > Date.now())); ok('song lookups are cached in IndexedDB with an expiry');
+    assert.ok(!cachedSearches.some((entry) => entry.kind === 'search' && entry.value.some((id) => /_(c|b|wrong)$/.test(id)))); ok('covers, lyric uploads and unrelated songs are excluded before results are cached');
     assert.strictEqual(log.rateLimited, 1); ok('a YouTube 429 is retried rather than leaving playback stopped');
     assert.ok(/^vid\d+$/.test(id1)); ok('a song was looked up and loaded into the player: ' + t1 + ' -> ' + id1);
     assert.ok(log.searches[0].includes(t1.split(' (')[0])); ok('the search used the song title and artist');
@@ -175,7 +177,7 @@ const yt = http.createServer((req, res) => {
     const cached = (await cacheRecords(host)).filter((entry) => entry.kind === 'search').length;
     assert.ok(cached >= 2); ok('looked-up songs are remembered in the browser (' + cached + ' so far), so repeats cost no search quota');
 
-    // the search is not over-strict, and it ranks covers last
+    // The search keeps multiple acceptable fallbacks without admitting poor matches.
     assert.ok(!/videoCategoryId/.test(log.params[0]) && /maxResults=8/.test(log.params[0])); ok('the search has no category filter and asks for several candidates');
     assert.ok(/^vid\d+$/.test(id1)); ok('the official video is chosen ahead of a cover');
 
