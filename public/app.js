@@ -795,7 +795,7 @@
         if (back === 'wait') return setTimeout(connect, 3000);
         if (back === 'gone') return roomEnded();
         // The new room knows nothing about the music source yet, so let the source set itself up again.
-        S.reup = 0; S.tried = {}; S.playing = null; S.srcSig = '';
+        S.reup = 0; S.tried = {}; S.playing = null; S.srcSig = ''; S.snapshotSavedVersion = -1; S.snapshotWantedVersion = -1;
         connect();
       } catch (e) { setTimeout(connect, 3000); } // offline or mid-restart: try again
     }
