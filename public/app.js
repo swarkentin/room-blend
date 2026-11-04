@@ -997,11 +997,11 @@
           h('button', { class: 'btn', type: 'button', id: 'gv-leave', text: 'Leave the room', onclick: leave }),
         ])
       );
+      $('guest-request-form').addEventListener('submit', async function (e) { e.preventDefault(); var hint = $('guest-request-hint'); var result = await http('POST', '/api/rooms/' + code + '/request', { title: $('guest-request-title').value, artist: $('guest-request-artist').value }, auth()); hint.textContent = result.ok ? 'Request added to the queue.' : (result.data && result.data.error) || 'Could not add that request.'; if (result.ok) { $('guest-request-title').value = ''; $('guest-request-artist').value = ''; } });
       if (st) renderLive(st);
       connect(); startBeats();
     }
 
-    $('guest-request-form').addEventListener('submit', async function (e) { e.preventDefault(); var hint = $('guest-request-hint'); var result = await http('POST', '/api/rooms/' + code + '/request', { title: $('guest-request-title').value, artist: $('guest-request-artist').value }, auth()); hint.textContent = result.ok ? 'Request added to the queue.' : (result.data && result.data.error) || 'Could not add that request.'; if (result.ok) { $('guest-request-title').value = ''; $('guest-request-artist').value = ''; } });
     var auth = function () { return { 'x-guest-id': reg.id, 'x-guest-key': reg.key }; };
 
     // Artists and songs a guest names. They count as a perfect match for that guest, but never override what the room shares.
