@@ -1220,7 +1220,7 @@
       if (!it) { $('gv-title').textContent = 'Waiting for the music'; $('gv-artist').textContent = ''; $('gv-why').textContent = ''; $('gv-mode-text').textContent = 'Waiting'; $('gv-mode').className = 'badge'; }
       else {
         $('gv-title').textContent = it.track.title; $('gv-artist').textContent = it.track.artist;
-        $('gv-mode-text').textContent = it.mode === 'rotate' ? 'Rotating' : 'Blending'; $('gv-mode').className = 'badge' + (it.mode === 'rotate' ? ' rotate' : '');
+        $('gv-mode-text').textContent = it.mode === 'request' ? 'Requested song' : it.mode === 'rotate' ? 'Rotating' : 'Blending'; $('gv-mode').className = 'badge' + (it.mode === 'rotate' ? ' rotate' : '');
         $('gv-why').textContent = (typeof it.fit === 'number' ? 'This one fits you ' + it.fit + '%. ' : '') + it.why;
       }
       $('gv-good').setAttribute('aria-pressed', it && it.myVote === 'up' ? 'true' : 'false');
