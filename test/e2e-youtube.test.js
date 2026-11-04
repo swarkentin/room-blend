@@ -117,7 +117,9 @@ const yt = http.createServer((req, res) => {
     await host.click('#yt-start');
     await host.waitForFunction(() => /Playing through YouTube/.test(document.querySelector('#sp').textContent), null, { timeout: 10000 });
     await until(async () => (await cacheRecord(host, 'search:legacy migration|artist')) !== null, 8000, 'legacy cache migration');
-    assert.strictEqual(await host.evaluate(() => localStorage.getItem('rb-yt-cache') === null && localStorage.getItem('rb-yt-pools') === null), true); ok('existing localStorage caches migrate into IndexedDB and legacy blobs are removed');
+    const migratedPool = await cacheRecord(host, 'pool:legacy-pool');
+    assert.ok(migratedPool && migratedPool.value[0].id === 'legacy-video');
+    assert.strictEqual(await host.evaluate(() => localStorage.getItem('rb-yt-cache') === null && localStorage.getItem('rb-yt-pools') === null), true); ok('existing search and playlist caches migrate into IndexedDB and legacy blobs are removed');
     assert.strictEqual(await host.isVisible('#yt-dock'), true); ok('the player dock is visible while it plays (YouTube requires that)');
 
     rateLimitVideoSearches = 1;
