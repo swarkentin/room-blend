@@ -288,11 +288,11 @@
     var H = { 'x-host-key': key };
     var post = function (p, body) { return http('POST', '/api/rooms/' + code + '/host/' + p, body || {}, H); };
     var joinUrl = (C.publicUrl || location.origin) + '/' + code;
-    var S = { st: null, prov: null, reup: 0, srcSig: '', playing: null, status: '', busy: false, extrasBusy: false, tried: {}, paused: false, snapshotTimer: null, snapshotBusy: false, snapshotWantedVersion: -1, snapshotSavedVersion: -1, snapshotEpoch: 0, recovering: false };
+    var S = { st: null, prov: null, reup: 0, srcSig: '', playing: null, status: '', busy: false, extrasBusy: false, tried: {}, paused: false, snapshotTimer: null, snapshotBusy: false, snapshotWantedVersion: -1, snapshotSavedVersion: -1, snapshotEpoch: 0, recovering: false, snapshotUnavailable: false };
     var addPicked = [];
 
     function scheduleRoomSnapshot(version) {
-      if (!Number.isFinite(version) || version <= S.snapshotSavedVersion) return;
+      if (S.snapshotUnavailable || !Number.isFinite(version) || version <= S.snapshotSavedVersion) return;
       S.snapshotWantedVersion = Math.max(S.snapshotWantedVersion, version);
       clearTimeout(S.snapshotTimer);
       S.snapshotTimer = setTimeout(async function () {
@@ -304,6 +304,7 @@
           result = await http('GET', '/api/rooms/' + code + '/host/snapshot', null, H);
           if (epoch === S.snapshotEpoch && result.ok && result.data && typeof result.data.snapshot === 'string') {
             if (await writeRoomSnapshot(code, result.data.snapshot, result.data.version)) S.snapshotSavedVersion = result.data.version;
+            else if (!await openRoomDb()) { S.snapshotUnavailable = true; console.warn('Room recovery is unavailable because IndexedDB could not be opened.'); }
           }
         } catch (e) { /* a later room update or reload will retry */ }
         finally {
