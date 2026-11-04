@@ -37,7 +37,20 @@
       var req;
       try { req = indexedDB.open(ROOM_DB, 1); } catch (e) { resolve(null); return; }
       req.onupgradeneeded = function () { if (!req.result.objectStoreNames.contains(ROOM_STORE)) req.result.createObjectStore(ROOM_STORE, { keyPath: 'code' }); };
-      req.onsuccess = function () { resolve(req.result); };
+      req.onsuccess = function () {
+        var db = req.result;
+        // Recovery receipts expire after 30 days by default; discard older ciphertext as well.
+        try {
+          var tx = db.transaction(ROOM_STORE, 'readwrite'), cursor = tx.objectStore(ROOM_STORE).openCursor(), cutoff = Date.now() - 30 * 86400000;
+          cursor.onsuccess = function () {
+            var item = cursor.result;
+            if (!item) return;
+            if (!item.value.savedAt || item.value.savedAt < cutoff) item.delete();
+            item.continue();
+          };
+        } catch (e) { /* storage cleanup is best effort */ }
+        resolve(db);
+      };
       req.onerror = function () { resolve(null); };
       req.onblocked = function () { resolve(null); };
     });
