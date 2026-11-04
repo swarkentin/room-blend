@@ -28,9 +28,49 @@
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
   function lsDel(k) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } }
 
-  // A host's room survives a server restart because this browser keeps a signed receipt for it (name, settings, and the
-  // server's proof that it issued this room's host key). When the server has forgotten the room, the receipt brings it back.
-  // The key is 'rb-snap-' and not 'rb-host-...', because the landing page treats every 'rb-host-' key as a room to list.
+  // Full room recovery data is opaque AES-GCM ciphertext in a separate IndexedDB database.
+  // localStorage retains only the small signed receipt needed to authenticate a restore.
+  var ROOM_DB = 'room-blend-room-state', ROOM_STORE = 'snapshots', roomDbPromise = null;
+  function openRoomDb() {
+    if (!window.indexedDB) return Promise.resolve(null);
+    if (!roomDbPromise) roomDbPromise = new Promise(function (resolve) {
+      var req;
+      try { req = indexedDB.open(ROOM_DB, 1); } catch (e) { resolve(null); return; }
+      req.onupgradeneeded = function () { if (!req.result.objectStoreNames.contains(ROOM_STORE)) req.result.createObjectStore(ROOM_STORE, { keyPath: 'code' }); };
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { resolve(null); };
+      req.onblocked = function () { resolve(null); };
+    });
+    return roomDbPromise;
+  }
+  async function readRoomSnapshot(code) {
+    var db = await openRoomDb(); if (!db) return null;
+    return new Promise(function (resolve) {
+      try {
+        var req = db.transaction(ROOM_STORE, 'readonly').objectStore(ROOM_STORE).get(code);
+        req.onsuccess = function () { resolve(req.result || null); };
+        req.onerror = function () { resolve(null); };
+      } catch (e) { resolve(null); }
+    });
+  }
+  async function writeRoomSnapshot(code, snapshot, version) {
+    var db = await openRoomDb(); if (!db) return false;
+    return new Promise(function (resolve) {
+      try {
+        var tx = db.transaction(ROOM_STORE, 'readwrite');
+        tx.objectStore(ROOM_STORE).put({ code: code, snapshot: snapshot, version: version, savedAt: Date.now() });
+        tx.oncomplete = function () { resolve(true); };
+        tx.onerror = tx.onabort = function () { resolve(false); };
+      } catch (e) { resolve(false); }
+    });
+  }
+  async function deleteRoomSnapshot(code) {
+    var db = await openRoomDb(); if (!db) return;
+    try { db.transaction(ROOM_STORE, 'readwrite').objectStore(ROOM_STORE).delete(code); } catch (e) { /* ignore */ }
+  }
+
+  // The host's browser keeps the signed receipt plus the latest encrypted state. The key is 'rb-snap-' and not
+  // 'rb-host-...', because the landing page treats every 'rb-host-' key as a room to list.
   function readSnap(code) { try { var s = JSON.parse(lsGet('rb-snap-' + code) || 'null'); return s && typeof s.token === 'string' ? s : null; } catch (e) { return null; } }
   function saveSnap(code, st) {
     if (!st || !st.restoreToken) return;
@@ -235,8 +275,28 @@
     var H = { 'x-host-key': key };
     var post = function (p, body) { return http('POST', '/api/rooms/' + code + '/host/' + p, body || {}, H); };
     var joinUrl = (C.publicUrl || location.origin) + '/' + code;
-    var S = { st: null, prov: null, reup: 0, srcSig: '', playing: null, status: '', busy: false, extrasBusy: false, tried: {}, paused: false };
+    var S = { st: null, prov: null, reup: 0, srcSig: '', playing: null, status: '', busy: false, extrasBusy: false, tried: {}, paused: false, snapshotTimer: null, snapshotBusy: false, snapshotWantedVersion: -1, snapshotSavedVersion: -1 };
     var addPicked = [];
+
+    function scheduleRoomSnapshot(version) {
+      if (!Number.isFinite(version) || version <= S.snapshotSavedVersion) return;
+      S.snapshotWantedVersion = Math.max(S.snapshotWantedVersion, version);
+      clearTimeout(S.snapshotTimer);
+      S.snapshotTimer = setTimeout(async function () {
+        if (S.snapshotBusy) return;
+        S.snapshotBusy = true;
+        try {
+          var r = await http('GET', '/api/rooms/' + code + '/host/snapshot', null, H);
+          if (r.ok && r.data && typeof r.data.snapshot === 'string') {
+            if (await writeRoomSnapshot(code, r.data.snapshot, r.data.version)) S.snapshotSavedVersion = r.data.version;
+          }
+        } catch (e) { /* a later room update or reload will retry */ }
+        finally {
+          S.snapshotBusy = false;
+          if (S.snapshotWantedVersion > S.snapshotSavedVersion) scheduleRoomSnapshot(S.snapshotWantedVersion);
+        }
+      }, 500);
+    }
 
     app.replaceChildren(h('div', { class: 'wrap' }, []));
     var wrap = app.firstChild;
@@ -599,6 +659,7 @@
     function render(st) {
       S.st = st;
       saveSnap(code, st);
+      scheduleRoomSnapshot(st.version);
       var castTitle = $('tv-cast-title');
       var castTitleText = st.now ? st.now.track.title : 'Waiting for the first guest';
       $('tv-cast-room').textContent = st.name || 'Now playing';
@@ -712,12 +773,15 @@
       if (!snap) return 'gone';
       if (Date.now() - lastRestore < 5000) return 'wait';
       lastRestore = Date.now();
-      var r = await http('POST', '/api/rooms/' + code + '/restore', { hostKey: key, token: snap.token, name: snap.name, discoverable: snap.discoverable, opts: snap.opts });
+      var saved = await readRoomSnapshot(code);
+      var body = { hostKey: key, token: snap.token, name: snap.name, discoverable: snap.discoverable, opts: snap.opts };
+      if (saved && typeof saved.snapshot === 'string') body.snapshot = saved.snapshot;
+      var r = await http('POST', '/api/rooms/' + code + '/restore', body);
       if (r.ok) return 'back';
       return r.status >= 500 || r.status === 429 ? 'wait' : 'gone';
     }
     function roomEnded() {
-      lsDel('rb-host-' + code); lsDel('rb-snap-' + code);
+      lsDel('rb-host-' + code); lsDel('rb-snap-' + code); deleteRoomSnapshot(code);
       app.replaceChildren(h('div', { class: 'wrap' }, [h('div', { class: 'hero' }, [h('h1', { text: 'This room has ended' }), h('p', { class: 'lead', text: 'A room can only be reopened for a while after its host last used it.' }), h('a', { class: 'btn primary', href: '/', text: 'Start a new room' })])]));
     }
     async function reconnect() {
