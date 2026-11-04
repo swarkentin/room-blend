@@ -331,7 +331,7 @@ async function api(req, res, url) {
   };
 
   // GET /api/rooms/:code  -> does it exist (for the join page)
-  if (parts.length === 2 && m === 'GET') return sendJson(res, 200, { code: room.code, name: room.name, people: room.active().length });
+  if (parts.length === 2 && m === 'GET') return sendJson(res, 200, { code: room.code, name: room.name, people: room.active().length, recoveryNeeded: room.recoveryNeeded });
 
   // GET /api/rooms/:code/events  -> SSE
   if (parts[2] === 'events' && m === 'GET') {
