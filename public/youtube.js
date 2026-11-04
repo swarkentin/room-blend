@@ -392,13 +392,13 @@
         box.appendChild(msg);
         box.appendChild(el('p', { class: 'hint', text: 'YouTube Search has a separate daily limit (typically 100 requests). Room Blend conservatively allows 90 per key per Pacific day, reserving 25 for playback lookups and using at most 65 for discovery. Playlist reads and video details use a much larger quota. Successful discoveries stay in this browser for 30 days; empty searches are retried after 12 hours. ' + cacheWarning }));
       } else if (!on) {
-        box.appendChild(state('dot-ok', 'Key saved.', note || quotaNote || ('Start the music to play through this browser. ' + searchBudgetStatus())));
+        box.appendChild(state('dot-ok', 'Key saved.', note || quotaNote || cacheWarning || ('Start the music to play through this browser. ' + searchBudgetStatus())));
         box.appendChild(el('div', { class: 'row' }, [
           el('button', { class: 'btn primary', type: 'button', id: 'yt-start', text: busy ? 'Starting…' : 'Start the music', disabled: busy ? 'disabled' : false, onclick: function () { yt.start(ctx); } }),
           el('button', { class: 'btn small', type: 'button', id: 'yt-forget', text: 'Remove key', onclick: function () { clearQuotaFuse(); lsDel(KEY); ctx.rerender(); } }),
         ]));
       } else {
-        box.appendChild(state('dot-ok', 'Playing through YouTube.', note || quotaNote || 'Keep this tab open and the player visible. Free YouTube may play an ad between songs.'));
+        box.appendChild(state('dot-ok', 'Playing through YouTube.', note || quotaNote || cacheWarning || 'Keep this tab open and the player visible. Free YouTube may play an ad between songs.'));
         box.appendChild(el('div', { class: 'row' }, [el('button', { class: 'btn small', type: 'button', id: 'yt-forget', text: 'Remove key', onclick: function () { yt.stop(); on = false; clearQuotaFuse(); lsDel(KEY); ctx.rerender(); } })]));
       }
       return box;
