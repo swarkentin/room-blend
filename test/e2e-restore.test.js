@@ -72,6 +72,8 @@ const getJson = (p) => new Promise((resolve) => http.get(APP + p, (res) => { con
     await guest.goto(APP + '/' + code2); await guest.waitForSelector('#gv-form');
     assert.strictEqual(await guest.getAttribute('#gv-picker [data-g="rock"]', 'aria-pressed'), 'true');
     ok('joining a new room starts from the genres picked last time');
+    await guest.click('#gv-submit'); await guest.waitForSelector('#gv-title');
+    ok('the guest joins the disk-backed recovery room');
 
     const diskName = host2.waitForResponse((r) => r.url().endsWith('/api/rooms/' + code2 + '/host/room') && r.request().method() === 'POST');
     await host2.fill('#room-name', 'Disk recovery');
