@@ -8,7 +8,7 @@
   // Versions of a song we do not want unless the wanted title asks for them.
   var BAD = /\b(karaoke|reaction|tutorial|lesson|8d|slowed|nightcore|sped up|instrumental|remix|mashup|tribute|made famous|in the style of|originally performed|lyrics?|fan.?made|unofficial|bootleg)\b/i;
   var COVER = /(?:[([{]\s*cover\b|\bcover\s+(?:version|by|song)\b|\bcovered by\b|\bfan cover\b|\bcover\s*$)/i;
-  var LIVE_VERSION = /(?:\blive\s+(?:at|in|from|on|version|recording|performance|session)\b|[([{]\s*live\b|\s[-\u2013\u2014]\s*live(?:\b|$)|\blive\s*$)/i;
+  var LIVE_VERSION = /(?:\blive\s+(?:at|in|from|on|version|recording|performance|session)\b|[([{]\s*live\b|\s[-\u2013\u2014]\s*live(?:\s+(?:at|in|from|on|version|recording|performance|session)\b|$)|\blive\s*$)/i;
   function badVersion(title) { return BAD.test(title || '') || COVER.test(title || '') || LIVE_VERSION.test(title || ''); }
 
   // Karaoke and tribute acts are the only artist names worth rejecting (a band may really be called "Live").
