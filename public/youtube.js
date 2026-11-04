@@ -260,6 +260,7 @@
     if (success) { stats.successes = (stats.successes || 0) + 1; stats.lastSuccessAt = Date.now(); }
     else { stats.failures = (stats.failures || 0) + 1; stats.lastFailureAt = Date.now(); }
     await cachePut(key, stats, 'quality', 90);
+    if (rctx && rctx.rerender) rctx.rerender();
   }
 
   async function search(track, isCurrent) {
