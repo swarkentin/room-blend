@@ -132,7 +132,7 @@ const until = async (fn, ms = 8000, what = 'condition') => { const t0 = Date.now
 
     // ---- jukebox song autocomplete is advisory and works for both host and guest ----
     const suggestion = { songs: [{ title: 'Tears in the Rain', artist: 'Vangelis', source: 'musicbrainz' }] };
-    const searchPath = (url) => url.pathname === '/api/rooms/' + code + '/search' && url.searchParams.has('q');
+    const searchPath = (url) => url.pathname === '/api/rooms/' + code + '/search' && (url.searchParams.has('q') || url.searchParams.has('title') || url.searchParams.has('artist'));
     await g1.route(searchPath, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(suggestion) }));
     await g1.fill('#guest-request-title', 'Tears');
     await g1.waitForSelector('#guest-request-form .song-suggestion');
@@ -141,6 +141,18 @@ const until = async (fn, ms = 8000, what = 'condition') => { const t0 = Date.now
     assert.strictEqual(await g1.inputValue('#guest-request-title'), 'Tears in the Rain');
     assert.strictEqual(await g1.inputValue('#guest-request-artist'), 'Vangelis');
     ok('guest can find a song by partial title and select its canonical title and artist');
+    await g1.unroute(searchPath);
+    let pairedSearch = null;
+    await g1.route(searchPath, (route) => {
+      pairedSearch = new URL(route.request().url()).searchParams;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(suggestion) });
+    });
+    await g1.fill('#guest-request-title', 'Tears');
+    await g1.fill('#guest-request-artist', 'Vangelis');
+    await g1.waitForSelector('#guest-request-form .song-suggestion');
+    assert.strictEqual(pairedSearch.get('title'), 'Tears');
+    assert.strictEqual(pairedSearch.get('artist'), 'Vangelis');
+    ok('guest autocomplete sends title and artist together when both are entered');
     await g1.unroute(searchPath);
     await host.route(searchPath, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(suggestion) }));
     await host.fill('#host-request-artist', 'Vange');

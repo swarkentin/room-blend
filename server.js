@@ -397,17 +397,25 @@ async function api(req, res, url) {
   }
   if (parts[2] === 'search' && parts.length === 3 && m === 'GET') {
     L.count('picks.searches');
-    const result = room.search(url.searchParams.get('q') || '');
-    if (Engine.normKey(url.searchParams.get('q') || '').length < 2) return sendJson(res, 200, { ...result, albums: [] });
+    const title = String(url.searchParams.get('title') || '').trim();
+    const artist = String(url.searchParams.get('artist') || '').trim();
+    const legacy = String(url.searchParams.get('q') || '').trim();
+    const combined = title && artist;
+    const query = title || artist || legacy;
+    const result = room.search(combined ? title + ' ' + artist : query);
+    const matchesBoth = (song) => (!title || Engine.normKey(song.title).includes(Engine.normKey(title))) &&
+      (!artist || Engine.normKey(song.artist).includes(Engine.normKey(artist)));
+    if (Engine.normKey(query).length < 2) return sendJson(res, 200, { ...result, albums: [] });
+    if (combined) result.songs = result.songs.filter(matchesBoth);
     if (process.env.MUSICBRAINZ_SEARCH_DISABLED === '1') {
       return sendJson(res, 200, { ...result, albums: [], lookupUnavailable: true });
     }
     try {
-      const external = await musicBrainz.search(url.searchParams.get('q') || '');
-      const artists = new Map(result.artists.map((artist) => [Engine.normKey(artist.name), artist]));
-      for (const artist of external.artists) if (!artists.has(Engine.normKey(artist.name))) artists.set(Engine.normKey(artist.name), artist);
+      const external = await musicBrainz.search(query, combined ? artist : '');
+      const artists = new Map(result.artists.map((item) => [Engine.normKey(item.name), item]));
+      for (const item of external.artists) if (!artists.has(Engine.normKey(item.name))) artists.set(Engine.normKey(item.name), item);
       const songs = new Map(result.songs.map((song) => [Engine.songKey(song.title, song.artist), song]));
-      for (const song of external.songs) if (!songs.has(Engine.songKey(song.title, song.artist))) songs.set(Engine.songKey(song.title, song.artist), song);
+      for (const song of external.songs) if ((!combined || matchesBoth(song)) && !songs.has(Engine.songKey(song.title, song.artist))) songs.set(Engine.songKey(song.title, song.artist), song);
       const albums = new Map();
       for (const album of external.albums) {
         const key = Engine.normKey(album.title + ' ' + album.artist);
