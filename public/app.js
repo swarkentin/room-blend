@@ -798,12 +798,14 @@
       var saved = await readRoomSnapshot(code);
       var body = { hostKey: key, token: snap.token, version: snap.version, name: snap.name, discoverable: snap.discoverable, opts: snap.opts };
       if (saved && typeof saved.snapshot === 'string') body.snapshot = saved.snapshot;
+      else S.status = 'No encrypted room checkpoint was available. The room can be reopened with its saved name and settings, but its live state may be lost.';
       var r = await http('POST', '/api/rooms/' + code + '/restore', body);
       // If a stored checkpoint is corrupt or from an unsupported schema, keep the signed room identity
       // and settings rather than abandoning the room entirely.
       if (!r.ok && r.status === 400 && body.snapshot) {
         delete body.snapshot;
         r = await http('POST', '/api/rooms/' + code + '/restore', body);
+        if (r.ok) S.status = 'The saved room checkpoint could not be read. The room was reopened with its name and settings only.';
       }
       if (r.ok) return 'back';
       return r.status >= 500 || r.status === 429 ? 'wait' : 'gone';
