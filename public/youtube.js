@@ -9,9 +9,11 @@
 (function () {
   'use strict';
   var P = window.Providers, C = window.CONFIG || {}, el = P.el, state = P.state;
-  var KEY = 'rb-yt-key', CACHE = 'rb-yt-cache', CACHE_MAX = 3000, QUOTA_DAY = 'rb-yt-quota-day', API_NEXT = 'rb-yt-api-next';
+  var KEY = 'rb-yt-key', LEGACY_CACHE = 'rb-yt-cache', LEGACY_POOLS = 'rb-yt-pools', CACHE_MAX = 3000, QUOTA_DAY = 'rb-yt-quota-day', API_NEXT = 'rb-yt-api-next';
+  var DB_NAME = 'room-blend-youtube', DB_VERSION = 1, DB_STORE = 'entries', DB_MIGRATION = 'rb-yt-idb-migrated';
+  var cacheDbPromise = null, cacheMemory = Object.create(null), cacheMode = 'indexeddb', cacheWarning = '';
   var SEARCH_DAILY_LIMIT = 90, DISCOVERY_DAILY_LIMIT = 65, SEARCH_BUDGET_KEY = 'rb-yt-search-budget';
-  var on = false, paused = true, busy = false, note = '', player = null, dock = null, cur = null, waiter = null, rctx = null, cache = null;
+  var on = false, paused = true, busy = false, note = '', player = null, dock = null, cur = null, waiter = null, rctx = null;
   var apiQueue = Promise.resolve(), apiRetryMs = 1000, playbackAttempt = 0;
   var quotaPausedDay = '', API_INTERVAL_MS = Number.isFinite(Number(C.ytApiIntervalMs)) && Number(C.ytApiIntervalMs) >= 0 ? Number(C.ytApiIntervalMs) : 2000, MAX_RETRY_WAIT_MS = 5000, MIN_GENRE_TRACKS = 12;
 
@@ -24,18 +26,83 @@
   function storedObject(key) {
     try { return JSON.parse(lsGet(key) || '{}') || {}; } catch (e) { return {}; }
   }
-  function cacheGet(k) {
-    if (!cache) cache = storedObject(CACHE);
-    else cache = Object.assign({}, cache, storedObject(CACHE));
-    return cache[k];
+  function openCacheDb() {
+    if (!window.indexedDB) return Promise.reject(new Error('IndexedDB is unavailable'));
+    if (!cacheDbPromise) cacheDbPromise = new Promise(function (resolve, reject) {
+      var request = indexedDB.open(DB_NAME, DB_VERSION);
+      request.onupgradeneeded = function () {
+        var db = request.result;
+        if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE, { keyPath: 'id' });
+      };
+      request.onsuccess = function () { resolve(request.result); };
+      request.onerror = function () { reject(request.error || new Error('Could not open the browser cache')); };
+      request.onblocked = function () { reject(new Error('The browser cache is blocked by another tab')); };
+    }).then(async function (db) {
+      if (lsGet(DB_MIGRATION) !== '1') {
+        var oldSearch = storedObject(LEGACY_CACHE), oldPools = storedObject(LEGACY_POOLS), now = Date.now();
+        await new Promise(function (resolve, reject) {
+          var tx = db.transaction(DB_STORE, 'readwrite'), store = tx.objectStore(DB_STORE);
+          Object.keys(oldSearch).forEach(function (key) {
+            var value = oldSearch[key], empty = !Array.isArray(value) || value.length === 0;
+            store.put({ id: 'search:' + key, kind: 'search', value: value, at: now, usedAt: now, expiresAt: now + (empty ? 6 : 30) * 86400000 });
+          });
+          Object.keys(oldPools).forEach(function (key) {
+            var pool = oldPools[key], tracks = pool && Array.isArray(pool.tracks) ? pool.tracks : [], at = pool && pool.at || now;
+            if (now - at >= (tracks.length ? 30 : 0.5) * 86400000) return;
+            store.put({ id: 'pool:' + key, kind: 'pool', value: tracks, at: at, usedAt: pool.usedAt || at, expiresAt: at + (tracks.length ? 30 : 0.5) * 86400000 });
+          });
+          tx.oncomplete = resolve; tx.onerror = function () { reject(tx.error || new Error('Could not migrate the browser cache')); }; tx.onabort = function () { reject(tx.error || new Error('Browser cache migration was interrupted')); };
+        });
+        lsDel(LEGACY_CACHE); lsDel(LEGACY_POOLS); lsSet(DB_MIGRATION, '1');
+      }
+      return db;
+    }).catch(function (error) {
+      cacheMode = 'memory';
+      cacheWarning = 'Persistent browser storage is unavailable; discoveries will only be cached until this tab closes.';
+      return null;
+    });
+    return cacheDbPromise;
   }
-  function cachePut(k, v) {
-    cacheGet(k);
-    cache = Object.assign({}, cache, storedObject(CACHE));
-    cache[k] = v;
-    var keys = Object.keys(cache);
-    if (keys.length > CACHE_MAX) keys.slice(0, keys.length - CACHE_MAX).forEach(function (x) { delete cache[x]; });
-    lsSet(CACHE, JSON.stringify(cache));
+  async function cacheGet(id) {
+    var db = await openCacheDb();
+    if (!db) {
+      var local = cacheMemory[id];
+      if (!local || local.expiresAt <= Date.now()) { delete cacheMemory[id]; return undefined; }
+      local.usedAt = Date.now(); return local.value;
+    }
+    return new Promise(function (resolve) {
+      var tx = db.transaction(DB_STORE, 'readwrite'), store = tx.objectStore(DB_STORE), request = store.get(id);
+      request.onsuccess = function () {
+        var record = request.result;
+        if (!record) return resolve(undefined);
+        if (record.expiresAt <= Date.now()) { store.delete(id); return resolve(undefined); }
+        record.usedAt = Date.now(); store.put(record); resolve(record.value);
+      };
+      request.onerror = function () { resolve(undefined); };
+    });
+  }
+  async function cachePut(id, value, kind, ttlDays) {
+    var now = Date.now(), record = { id: id, kind: kind, value: value, at: now, usedAt: now, expiresAt: now + ttlDays * 86400000 };
+    var db = await openCacheDb();
+    if (!db) { cacheMemory[id] = record; return false; }
+    try {
+      await new Promise(function (resolve, reject) {
+        var tx = db.transaction(DB_STORE, 'readwrite'), store = tx.objectStore(DB_STORE);
+        store.put(record);
+        var all = store.getAll();
+        all.onsuccess = function () {
+          var matching = all.result.filter(function (x) { return x.kind === kind; });
+          var limit = kind === 'pool' ? 400 : CACHE_MAX;
+          if (matching.length > limit) matching.sort(function (a, b) { return a.usedAt - b.usedAt; }).slice(0, matching.length - limit).forEach(function (x) { store.delete(x.id); });
+        };
+        tx.oncomplete = resolve; tx.onerror = function () { reject(tx.error); }; tx.onabort = function () { reject(tx.error); };
+      });
+      return true;
+    } catch (error) {
+      cacheMemory[id] = record;
+      cacheWarning = 'The browser could not persist some cache entries; playback can continue, but they may need to be discovered again.';
+      return false;
+    }
   }
 
   function retryAfterMs(response) {
@@ -134,8 +201,6 @@
   }
 
   window.addEventListener('storage', function (event) {
-    if (event.key === CACHE) cache = null;
-    if (event.key === POOLS) pools = null;
     if (event.key === KEY && event.newValue !== event.oldValue) { quotaPausedDay = ''; note = ''; }
     if (event.key === QUOTA_DAY && quotaPaused()) {
       note = quotaError().message;
@@ -190,7 +255,7 @@
   // Returns a list of video ids, best first (empty when YouTube has nothing).
   // One search costs the same however many results it returns, so we ask for several and keep them as fallbacks.
   async function search(track, isCurrent) {
-    var ck = (track.title + '|' + track.artist).toLowerCase(), hit = cacheGet(ck);
+    var ck = (track.title + '|' + track.artist).toLowerCase(), hit = await cacheGet('search:' + ck);
     if (hit !== undefined) return Array.isArray(hit) ? hit : (hit ? [hit] : []);
     var M = window.Match, q = M.cleanTitle(track.title) + ' ' + M.cleanArtist(track.artist);
     var j = await yapi('/search', { part: 'snippet', type: 'video', videoEmbeddable: 'true', videoSyndicated: 'true', maxResults: 8, q: q }, isCurrent);
@@ -198,30 +263,13 @@
     // Best match first. Videos that clearly are not this song (a different title) go last rather than being dropped.
     var ranked = M.rank(track, items, function (it) { return { title: (it.snippet || {}).title, channel: (it.snippet || {}).channelTitle }; }, M.scoreVideo)
       .map(function (x) { return x.item.id.videoId; });
-    cachePut(ck, ranked);
+    await cachePut('search:' + ck, ranked, 'search', ranked.length ? 30 : 0.25);
     return ranked;
   }
 
   // ---------- songs by genre (playlist reads and video details use 1 quota unit per request; search has its own daily call cap) ----------
-  var POOLS = 'rb-yt-pools', POOL_TTL = 30 * 86400000, POOL_MAX = 400, pools = null;
-  function poolGet(k) {
-    if (!pools) pools = storedObject(POOLS);
-    pools = Object.assign({}, pools, storedObject(POOLS));
-    var h = pools[k];
-    if (!h || Date.now() - h.at >= POOL_TTL) return null;
-    h.usedAt = Date.now();
-    lsSet(POOLS, JSON.stringify(pools));
-    return h.tracks;
-  }
-  function poolPut(k, tracks) {
-    if (!pools) pools = storedObject(POOLS);
-    pools = Object.assign({}, pools, storedObject(POOLS));
-    pools[k] = { at: Date.now(), usedAt: Date.now(), tracks: tracks };
-    Object.keys(pools).forEach(function (x) { if (!pools[x] || Date.now() - (pools[x].at || 0) >= POOL_TTL) delete pools[x]; });
-    var keys = Object.keys(pools);
-    if (keys.length > POOL_MAX) keys.sort(function (a, b) { return (pools[a].usedAt || pools[a].at) - (pools[b].usedAt || pools[b].at); }).slice(0, keys.length - POOL_MAX).forEach(function (x) { delete pools[x]; });
-    lsSet(POOLS, JSON.stringify(pools));
-  }
+  async function poolGet(k) { return await cacheGet('pool:' + k); }
+  async function poolPut(k, tracks) { return await cachePut('pool:' + k, tracks, 'pool', tracks.length ? 30 : 0.5); }
   function seconds(iso) { var m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso || ''); return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : 0; }
   // "Artist - Song (Official Video)" on a channel, or "Song" on the artist's "Artist - Topic" channel.
   function parseVideo(v) {
@@ -241,10 +289,10 @@
   }
   // Songs for one query ("blues rock"): the best matching playlist, read and filtered to single, embeddable songs.
   async function poolQuery(q) {
-    var hit = poolGet(q.q);
-    if (hit) return hit;
+    var hit = await poolGet(q.q);
+    if (hit !== undefined) return hit;
     var M = window.Match, pl = await playlistFor(q.q), ids = [], token = '';
-    if (!pl) { poolPut(q.q, []); return []; }
+    if (!pl) { await poolPut(q.q, []); return []; }
     for (var page = 0; page < 2; page++) {
       var p = { part: 'snippet', maxResults: 50, playlistId: pl }; if (token) p.pageToken = token;
       var j = await yapi('/playlistItems', p);
@@ -262,14 +310,14 @@
         seen[it.id] = 1; out.push({ title: t.title, artist: t.artist, id: it.id });
       });
     }
-    poolPut(q.q, out);
+    await poolPut(q.q, out);
     return out;
   }
 
   // A video that would not play goes to the back of the song's list, so next time the others are tried first.
   function demote(track, id) {
-    var ck = (track.title + '|' + track.artist).toLowerCase(), hit = cacheGet(ck);
-    if (Array.isArray(hit) && hit.indexOf(id) >= 0) cachePut(ck, hit.filter(function (x) { return x !== id; }).concat(id));
+    var ck = (track.title + '|' + track.artist).toLowerCase(), hit = await cacheGet('search:' + ck);
+    if (Array.isArray(hit) && hit.indexOf(id) >= 0) await cachePut('search:' + ck, hit.filter(function (x) { return x !== id; }).concat(id), 'search', 30);
   }
 
   function loadApi() {
@@ -342,7 +390,7 @@
           lsSet(KEY, v); ctx.rerender();
         } })]));
         box.appendChild(msg);
-        box.appendChild(el('p', { class: 'hint', text: 'YouTube Search has a separate daily limit (typically 100 requests). Room Blend conservatively allows 90 per key per Pacific day, reserving 25 for playback lookups and using at most 65 for discovery. Playlist reads and video details use a much larger quota. Discovered pools stay in this browser for 30 days, so future rooms reuse them.' }));
+        box.appendChild(el('p', { class: 'hint', text: 'YouTube Search has a separate daily limit (typically 100 requests). Room Blend conservatively allows 90 per key per Pacific day, reserving 25 for playback lookups and using at most 65 for discovery. Playlist reads and video details use a much larger quota. Successful discoveries stay in this browser for 30 days; empty searches are retried after 12 hours. ' + cacheWarning }));
       } else if (!on) {
         box.appendChild(state('dot-ok', 'Key saved.', note || quotaNote || ('Start the music to play through this browser. ' + searchBudgetStatus())));
         box.appendChild(el('div', { class: 'row' }, [
@@ -372,6 +420,7 @@
     },
     pool: true, // the room's songs come from YouTube playlists for each genre; the built-in list is only a fallback
     canExtras: function () { return on; },
+    cacheInfo: async function () { var db = await openCacheDb(); if (!db) return { mode: 'memory', warning: cacheWarning }; return new Promise(function (resolve) { var tx = db.transaction(DB_STORE, 'readonly'), req = tx.objectStore(DB_STORE).getAll(); req.onsuccess = function () { var rows = req.result.filter(function (x) { return x.expiresAt > Date.now(); }); resolve({ mode: 'indexeddb', pools: rows.filter(function (x) { return x.kind === 'pool'; }).length, searches: rows.filter(function (x) { return x.kind === 'search'; }).length, warning: cacheWarning }); }; req.onerror = function () { resolve({ mode: 'indexeddb', warning: cacheWarning }); }; }); },
     extras: async function (genre, partners) {
       var out = [], seen = {};
       try {
