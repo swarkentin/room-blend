@@ -74,7 +74,7 @@
   function readSnap(code) { try { var s = JSON.parse(lsGet('rb-snap-' + code) || 'null'); return s && typeof s.token === 'string' ? s : null; } catch (e) { return null; } }
   function saveSnap(code, st) {
     if (!st || !st.restoreToken) return;
-    var next = JSON.stringify({ token: st.restoreToken, name: st.name || '', discoverable: st.discoverable !== false, opts: st.opts || {} });
+    var next = JSON.stringify({ token: st.restoreToken, version: st.version || 0, name: st.name || '', discoverable: st.discoverable !== false, opts: st.opts || {} });
     if (lsGet('rb-snap-' + code) !== next) lsSet('rb-snap-' + code, next);
   }
 
@@ -776,7 +776,7 @@
       if (Date.now() - lastRestore < 5000) return 'wait';
       lastRestore = Date.now();
       var saved = await readRoomSnapshot(code);
-      var body = { hostKey: key, token: snap.token, name: snap.name, discoverable: snap.discoverable, opts: snap.opts };
+      var body = { hostKey: key, token: snap.token, version: snap.version, name: snap.name, discoverable: snap.discoverable, opts: snap.opts };
       if (saved && typeof saved.snapshot === 'string') body.snapshot = saved.snapshot;
       var r = await http('POST', '/api/rooms/' + code + '/restore', body);
       if (r.ok) return 'back';
