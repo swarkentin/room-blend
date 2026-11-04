@@ -423,6 +423,14 @@ async function api(req, res, url) {
       return sendJson(res, 200, { ...result, albums: [], lookupUnavailable: true });
     }
   }
+  if (parts[2] === 'request' && m === 'POST') {
+    const g = guestFor();
+    if (!g) return sendJson(res, 401, { error: 'unknown guest' });
+    const result = room.addRequest(g.id, body.title, body.artist);
+    if (!result.ok) return sendJson(res, 400, { error: result.error });
+    notify(code); saveRooms();
+    return sendJson(res, 200, { ok: true, request: result.request });
+  }
   if (parts[2] === 'vote' && m === 'POST') {
     const g = guestFor();
     if (!g) return sendJson(res, 401, { error: 'unknown guest' });
@@ -436,6 +444,15 @@ async function api(req, res, url) {
     const act = parts[3];
     if (act === 'advance' && m === 'POST') { room.advance(); }
     else if (act === 'opts' && m === 'POST') { room.setOpts(body); saveRooms(); }
+    else if (act === 'requests' && m === 'POST') {
+      if (body.remove && typeof body.id === 'string') {
+        if (!room.removeRequest(body.id)) return sendJson(res, 404, { error: 'request not found' });
+      } else {
+        const result = room.addRequest('', body.title, body.artist, true);
+        if (!result.ok) return sendJson(res, 400, { error: result.error });
+      }
+      saveRooms();
+    }
     else if (act === 'room' && m === 'POST') { room.setInfo(body); saveRooms(); }
     else if (act === 'snapshot' && m === 'GET') {
       const snapshot = getRestorer().encryptSnapshot(code, room.hostKey, room.snapshot());
@@ -452,7 +469,14 @@ async function api(req, res, url) {
     }
     else if (act === 'player' && m === 'POST') {
       if (body.trackId && room.nowItem && body.trackId !== room.nowItem.track.id) { /* stale report: ignore */ }
-      else if (body.event === 'ended') room.advance();
+      else if (body.event === 'ended') {
+        const current = room.nowItem;
+        if (current && current.request) {
+          const genres = Array.isArray(body.genres) ? body.genres.filter((g) => Engine.GENRES.includes(g)).slice(0, 3) : [];
+          if (genres.length) room.addExtras(genres[0], [{ title: current.track.title, artist: current.track.artist, genres }], { pool: false, source: 'jukebox' });
+        }
+        room.advance();
+      }
       else if (body.event === 'unplayable') room.skipUnplayable();
     }
     else if (act === 'library' && m === 'POST') {

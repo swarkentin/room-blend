@@ -353,6 +353,7 @@
           '<div class="host-media" id="host-media" hidden><label class="sr" for="host-seek">Seek through the current song</label><input id="host-seek" type="range" min="0" max="0" step="0.1" value="0" aria-label="Seek through the current song"><div class="media-times"><span id="host-time">0:00</span><span id="host-duration">--:--</span></div></div></div>' +
           '<div class="panel" style="margin-top:28px"><div class="sec-h"><h2>Up next</h2><span class="meta"><span id="q-meta"></span> <button class="btn small" type="button" id="copy-queue">Copy list</button></span></div>' +
           '<p class="overlap" id="overlap"></p><ol class="queue" id="queue"></ol></div>' +
+          '<div class="panel" style="margin-top:18px"><div class="sec-h"><h2>Jukebox requests</h2><span class="meta" id="request-count"></span></div><ol class="queue" id="host-requests"></ol><form class="add" id="host-request-form"><h3>Queue a song</h3><div><label for="host-request-title">Song title</label><input id="host-request-title" maxlength="100" required></div><div><label for="host-request-artist">Artist</label><input id="host-request-artist" maxlength="100" required></div><button class="btn small" type="submit">Add request</button><p class="hint" id="host-request-hint" role="status"></p></form></div>' +
         '</section>' +
         '<section class="room" aria-label="In the room"><div class="sec-h"><h2>In the room</h2><span class="meta" id="room-count"></span></div>' +
           '<ul class="guests" id="guests"></ul>' +
@@ -364,7 +365,7 @@
           '<div class="panel"><div class="sec-h"><h2>Tuning</h2></div>' +
           '<div class="slider"><label for="s-lambda"><span>Protect the least-happy guest</span><output id="o-lambda"></output></label><input type="range" id="s-lambda" min="0" max="100" step="5"><p class="hint">0% chases the room average. 100% only counts whoever likes the song least.</p></div>' +
           '<div class="slider"><label for="s-tau"><span>Blend only above overlap</span><output id="o-tau"></output></label><input type="range" id="s-tau" min="0.2" max="0.9" step="0.05"><p class="hint">Below this, songs rotate between guests instead.</p></div>' +
-          '<div class="slider"><label for="s-settle"><span>New guest counts after</span><output id="o-settle"></output></label><input type="range" id="s-settle" min="0" max="30" step="1"><p class="hint">Stops a passer-by from reshuffling the room.</p></div><div class="slider"><label for="s-doze"><span>Keep a guest counted after their phone locks</span><output id="o-doze"></output></label><input type="range" id="s-doze" min="5" max="120" step="5"><p class="hint">A locked phone cannot say it is still here, so it is trusted for this long, then they are dropped until they open the page again.</p></div></div>' +
+          '<div class="slider"><label for="s-settle"><span>New guest counts after</span><output id="o-settle"></output></label><input type="range" id="s-settle" min="0" max="30" step="1"><p class="hint">Stops a passer-by from reshuffling the room.</p></div><div class="slider"><label for="s-doze"><span>Keep a guest counted after their phone locks</span><output id="o-doze"></output></label><input type="range" id="s-doze" min="5" max="120" step="5"><p class="hint">A locked phone cannot say it is still here, so it is trusted for this long, then they are dropped until they open the page again.</p></div><label class="disc"><input type="checkbox" id="request-limit" checked> Limit each guest to 2 outstanding song requests</label><p class="hint">Turn this off to let guests request as many songs as they like.</p></div></div>' +
           '<div class="panel"><div class="sec-h"><h2>Fairness so far</h2><span class="meta" id="f-meta"></span></div><div id="fairness"></div></div>' +
           '<div class="panel"><div class="sec-h"><h2>Room log</h2></div><ol class="log" id="log"></ol></div>' +
           '<div class="panel"><div class="sec-h"><h2>Session notes</h2></div><p class="hint">Copy the notes to share what worked.</p>' +
@@ -457,6 +458,7 @@
       addPicked.length = 0; $('g-name').value = ''; $('add-hint').textContent = '';
       Array.prototype.forEach.call($('picker').querySelectorAll('button'), function (c) { c.setAttribute('aria-pressed', 'false'); c.disabled = false; });
     });
+    $('host-request-form').addEventListener('submit', async function (e) { e.preventDefault(); var result = await post('requests', { title: $('host-request-title').value, artist: $('host-request-artist').value }); $('host-request-hint').textContent = result.ok ? 'Added to the jukebox.' : (result.data && result.data.error) || 'Could not add that request.'; if (result.ok) { $('host-request-title').value = ''; $('host-request-artist').value = ''; } });
     $('btn-next').addEventListener('click', function () { post('advance'); });
     $('btn-pause').addEventListener('click', function () {
       if (S.paused) { S.prov.resume(); S.paused = false; $('btn-pause').textContent = 'Pause'; } else { S.prov.pause(); S.paused = true; $('btn-pause').textContent = 'Resume'; }
@@ -469,6 +471,7 @@
     }
     function outputs(o) { $('o-lambda').textContent = pct(o.lambda) + '%'; $('o-tau').textContent = Number(o.tau).toFixed(2); $('o-settle').textContent = o.settle + ' s'; if ($('o-doze')) $('o-doze').textContent = (o.doze || 30) + ' min'; }
     slider('s-lambda', 'lambda', 100); slider('s-tau', 'tau', 1); slider('s-settle', 'settle', 1); slider('s-doze', 'doze', 1);
+    $('request-limit').addEventListener('change', function () { post('opts', { requestLimitEnabled: this.checked }); });
     $('copy-queue').addEventListener('click', function () {
       var st = S.st, lines = [];
       if (st && st.now) lines.push('Now: ' + st.now.track.title + ' - ' + st.now.track.artist);
@@ -508,7 +511,7 @@
       st: function () { return S.st; },
       rerender: function () { renderSource(); },
       status: function (m) { S.status = m; renderSource(); },
-      ended: function () { post('player', { event: 'ended', trackId: S.playing }); },
+      ended: function () { var n = S.st && S.st.now; var genres = n && n.mode === 'request' && window.GenreMap ? window.GenreMap.classifyAll(n.track.title, 2) : []; post('player', { event: 'ended', trackId: S.playing, genres: genres }); },
       uploadLibrary: function (provider, label, tracks, refresh) { return post('library', { provider: provider, label: label, tracks: tracks, refresh: !!refresh }); },
       clearLibrary: function () { return http('DELETE', '/api/rooms/' + code + '/host/library', null, H); },
       changed: function () { S.playing = null; maybePlay(); maybeExtras(); },
@@ -591,7 +594,7 @@
 
     function trackFor(st) {
       var t = st.now.track;
-      return Object.assign({}, t, { nativeId: st.source && st.source.kind === 'library' ? t.id.slice(1) : t.id });
+      return Object.assign({}, t, { nativeId: st.source && st.source.kind === 'library' ? t.id.slice(1) : t.id, request: st.now.mode === 'request' });
     }
     async function maybePlay() {
       var st = S.st, P = S.prov;
@@ -717,7 +720,7 @@
       if (document.activeElement !== $('s-tau')) $('s-tau').value = st.opts.tau;
       if (document.activeElement !== $('s-settle')) $('s-settle').value = st.opts.settle;
       if (document.activeElement !== $('s-doze')) $('s-doze').value = st.opts.doze || 30;
-      outputs(st.opts);
+      outputs(st.opts); $('request-limit').checked = st.requestLimitEnabled !== false;
 
       var it = st.now, badge = $('mode-badge');
       if (!it) {
@@ -731,7 +734,7 @@
         $('now-why').textContent = it.why;
         $('now-votes').textContent = it.votes && (it.votes.up || it.votes.down) ? 'Guests on their phones: ' + it.votes.up + ' good, ' + it.votes.down + ' bad.' : '';
         $('now-fits').replaceChildren.apply($('now-fits'), Array.prototype.slice.call(fitMeters(it.fits, people).childNodes));
-        $('mode-text').textContent = it.mode === 'blend' ? 'Blending' : 'Rotating';
+        $('mode-text').textContent = it.mode === 'request' ? 'Requested song' : it.mode === 'blend' ? 'Blending' : 'Rotating';
         badge.className = 'badge' + (it.mode === 'rotate' ? ' rotate' : '');
       }
 
@@ -759,6 +762,9 @@
         });
       }
 
+      var requests = $('host-requests'); requests.replaceChildren(); $('request-count').textContent = (st.requests || []).length + ' waiting';
+      (st.requests || []).forEach(function (x, i) { requests.appendChild(h('li', { class: 'qrow' }, [h('span', { class: 'pos', text: String(i + 1) }), h('div', null, [h('div', { class: 'qtitle' }, [document.createTextNode(x.title + ' '), h('span', { text: x.artist })]), h('div', { class: 'hint', text: 'Requested by ' + x.requester })]), h('button', { class: 'btn small', type: 'button', text: 'Remove', onclick: function () { post('requests', { remove: true, id: x.id }); } })])); });
+      if (!(st.requests || []).length) requests.appendChild(h('li', { class: 'empty', text: 'No song requests waiting.' }));
       $('room-count').textContent = active.length + ' of ' + st.guests.length + ' counting';
       var ul = $('guests'); ul.replaceChildren();
       if (!st.guests.length) ul.appendChild(h('li', { class: 'empty', text: 'The room is empty.' }));
@@ -971,6 +977,8 @@
           h('div', { class: 'controls' }, [h('span', { class: 'label', text: 'Your call' }), h('button', { class: 'btn small', type: 'button', id: 'gv-good', 'aria-pressed': 'false', text: 'Good pick', onclick: function () { vote('up'); } }), h('button', { class: 'btn small', type: 'button', id: 'gv-bad', 'aria-pressed': 'false', text: 'Bad pick', onclick: function () { vote('down'); } })]),
         ]),
         h('div', null, [h('div', { class: 'sec-h' }, [h('h2', { text: 'Up next' })]), h('ol', { class: 'gnext', id: 'gv-next' })]),
+        h('section', { class: 'panel' }, [h('div', { class: 'sec-h' }, [h('h2', { text: 'Request a song' })]), h('p', { class: 'hint', text: 'Ask the host to play any song. It does not need to be in the room’s music library.' }), h('form', { id: 'guest-request-form', class: 'add' }, [h('div', null, [h('label', { htmlFor: 'guest-request-title', text: 'Song title' }), h('input', { id: 'guest-request-title', maxlength: '100', required: 'required' })]), h('div', null, [h('label', { htmlFor: 'guest-request-artist', text: 'Artist' }), h('input', { id: 'guest-request-artist', maxlength: '100', required: 'required' })]), h('button', { class: 'btn primary', type: 'submit', text: 'Request song' }), h('p', { class: 'hint', id: 'guest-request-hint', role: 'status' })])]),
+        h('div', null, [h('div', { class: 'sec-h' }, [h('h2', { text: 'Requested songs' })]), h('ol', { class: 'gnext', id: 'gv-requests' })]),
         picksSection(),
         h('div', { id: 'gv-played-sec' }, [
           h('div', { class: 'sec-h' }, [h('h2', { text: 'Played while you were here' }), h('span', { class: 'meta', id: 'gv-played-n' })]),
@@ -989,6 +997,7 @@
           h('button', { class: 'btn', type: 'button', id: 'gv-leave', text: 'Leave the room', onclick: leave }),
         ])
       );
+      $('guest-request-form').addEventListener('submit', async function (e) { e.preventDefault(); var hint = $('guest-request-hint'); var result = await http('POST', '/api/rooms/' + code + '/request', { title: $('guest-request-title').value, artist: $('guest-request-artist').value }, auth()); hint.textContent = result.ok ? 'Request added to the queue.' : (result.data && result.data.error) || 'Could not add that request.'; if (result.ok) { $('guest-request-title').value = ''; $('guest-request-artist').value = ''; } });
       if (st) renderLive(st);
       connect(); startBeats();
     }
@@ -1178,7 +1187,7 @@
     function songRow(t, withMore) {
       var saved = isSaved(t);
       return h('li', { class: 'prow' }, [
-        h('div', { class: 'ptxt' }, [h('div', { class: 'qtitle' }, [document.createTextNode(t.title + ' '), h('span', { text: t.artist })]), h('div', { class: 'tags' }, tagList(t.genres || []))]),
+        h('div', { class: 'ptxt' }, [h('div', { class: 'qtitle' }, [document.createTextNode(t.title + ' '), h('span', { text: t.artist })]), h('div', { class: 'tags' }, tagList(t.genres || [])), t.mode === 'request' ? h('span', { class: 'modetag' }, [h('i'), document.createTextNode('Requested')]) : null]),
         h('div', { class: 'pact' }, [
           h('button', { class: 'btn small heart', type: 'button', 'aria-pressed': saved ? 'true' : 'false', 'aria-label': (saved ? 'Remove ' : 'Save ') + t.title, text: saved ? '♥ Saved' : '♡ Save', onclick: function () { toggleSaved(t); } }),
           withMore ? h('button', { class: 'btn small', type: 'button', text: 'More like this', onclick: function () { widen(t); } }) : null,
@@ -1211,7 +1220,7 @@
       if (!it) { $('gv-title').textContent = 'Waiting for the music'; $('gv-artist').textContent = ''; $('gv-why').textContent = ''; $('gv-mode-text').textContent = 'Waiting'; $('gv-mode').className = 'badge'; }
       else {
         $('gv-title').textContent = it.track.title; $('gv-artist').textContent = it.track.artist;
-        $('gv-mode-text').textContent = it.mode === 'rotate' ? 'Rotating' : 'Blending'; $('gv-mode').className = 'badge' + (it.mode === 'rotate' ? ' rotate' : '');
+        $('gv-mode-text').textContent = it.mode === 'request' ? 'Requested song' : it.mode === 'rotate' ? 'Rotating' : 'Blending'; $('gv-mode').className = 'badge' + (it.mode === 'rotate' ? ' rotate' : '');
         $('gv-why').textContent = (typeof it.fit === 'number' ? 'This one fits you ' + it.fit + '%. ' : '') + it.why;
       }
       $('gv-good').setAttribute('aria-pressed', it && it.myVote === 'up' ? 'true' : 'false');
@@ -1219,6 +1228,9 @@
       var ol = $('gv-next'); ol.replaceChildren();
       (s.next || []).forEach(function (n) { ol.appendChild(h('li', { class: 'nextrow' }, [document.createTextNode(n.title + ' '), h('span', { text: n.artist + (n.mine ? ' (your turn)' : '') })])); });
       if (!s.next || !s.next.length) ol.appendChild(h('li', { class: 'nextrow' }, [h('span', { text: 'Nothing lined up yet.' })]));
+      var rq = $('gv-requests'); rq.replaceChildren(); (s.requests || []).forEach(function (x) { rq.appendChild(h('li', { class: 'nextrow' }, [document.createTextNode(x.title + ' '), h('span', { text: x.artist + ' · ' + (x.mine ? 'your request' : 'requested by ' + x.requester) + ' · about ' + x.position + (x.position === 1 ? ' song away' : ' songs away') })])); });
+      if (!(s.requests || []).length) rq.appendChild(h('li', { class: 'nextrow', text: 'No requests waiting.' }));
+      var rh = $('guest-request-hint'); if (rh) rh.textContent = s.requestLimitEnabled === false ? 'There is no per-guest request limit.' : (s.myRequestCount || 0) + ' of 2 requests waiting for you.';
       var me = s.me;
       if (me && reg && typeof me.lookupGenres === 'boolean' && me.lookupGenres !== !!reg.lookupGenres) { reg.lookupGenres = me.lookupGenres; saveReg(); if (picksSection.refresh) picksSection.refresh(); }
       if (me && Array.isArray(me.artists) && reg) { var ch = JSON.stringify([me.artists, me.songs]) !== JSON.stringify([reg.artists || [], reg.songs || []]); if (ch) { reg.artists = me.artists; reg.songs = me.songs; saveReg(); if (picksSection.refresh) picksSection.refresh(); } }

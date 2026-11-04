@@ -164,7 +164,18 @@
     activate: function (ctx) { if (S.phase === 'ready') publish(ctx); },
     ready: function () { return S.phase === 'ready' && !!audio; },
     play: async function (track) {
-      var ok = await audio.play(base + '/rest/stream.view?' + auth() + '&id=' + encodeURIComponent(track.nativeId));
+      var id = track.nativeId;
+      if (track.request) {
+        try {
+          var found = await call('search3', 'query=' + encodeURIComponent(track.title + ' ' + track.artist) + '&artistCount=0&albumCount=0&songCount=10');
+          var candidates = (found.searchResult3 && found.searchResult3.song) || [];
+          var ranked = window.Match.rank(track, candidates, function (song) { return { title: song.title, channel: song.artist }; }, window.Match.scoreVideo)
+            .filter(function (x) { return window.Match.acceptable(x.s); });
+          id = ranked.length ? String(ranked[0].item.id) : '';
+        } catch (e) { S.error = e.message; return null; }
+        if (!id) return null;
+      }
+      var ok = await audio.play(base + '/rest/stream.view?' + auth() + '&id=' + encodeURIComponent(id));
       return ok ? true : null;
     },
     lastError: function () { return 'A song could not be played from your server, so it was skipped.'; },

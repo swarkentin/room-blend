@@ -115,6 +115,27 @@ function sse(path) {
   const s4 = await host.waitFor((s) => s.now && s.now.track.id !== third); ok('unplayable track is skipped');
   assert.ok(!s4.queue.some((q) => q.track.id === third) && s4.now.track.id !== third);
 
+  // jukebox requests are free-form and independent of the room catalogue
+  const rq1 = await req('POST', `/api/rooms/${code}/request`, { title: 'A song not in the catalogue', artist: 'An unfamiliar artist' }, A);
+  assert.strictEqual(rq1.status, 200);
+  const rq2 = await req('POST', `/api/rooms/${code}/request`, { title: 'Another song', artist: 'Another artist' }, A);
+  assert.strictEqual(rq2.status, 200);
+  assert.strictEqual((await req('POST', `/api/rooms/${code}/request`, { title: 'Third song', artist: 'Third artist' }, A)).status, 400, 'default per-guest limit is two');
+  const requestState = await host.waitFor((s) => s.requests && s.requests.length === 2);
+  assert.strictEqual(requestState.requests[0].requester, 'Mayab');
+  assert.strictEqual((await req('POST', `/api/rooms/${code}/host/opts`, { requestLimitEnabled: false }, H)).status, 200);
+  assert.strictEqual((await req('POST', `/api/rooms/${code}/request`, { title: 'Third song', artist: 'Third artist' }, A)).status, 200);
+  const unlimited = await host.waitFor((s) => s.requests && s.requests.length === 3);
+  assert.strictEqual(unlimited.requestLimitEnabled, false);
+  assert.strictEqual((await req('POST', `/api/rooms/${code}/host/requests`, { remove: true, id: rq1.json.request.id }, H)).status, 200);
+  const hostAdded = await req('POST', `/api/rooms/${code}/host/requests`, { title: 'Host selection', artist: 'Host artist' }, H);
+  assert.strictEqual(hostAdded.status, 200);
+  const withHost = await host.waitFor((s) => s.requests && s.requests.some((x) => x.title === 'Host selection'));
+  assert.ok(withHost.requests.some((x) => x.requester === 'Host'));
+  for (const request of withHost.requests) await req('POST', `/api/rooms/${code}/host/requests`, { remove: true, id: request.id }, H);
+  assert.strictEqual((await req('POST', `/api/rooms/${code}/host/requests`, { remove: true, id: 'missing' }, H)).status, 404);
+  ok('guest requests accept arbitrary songs, enforce a host-toggleable limit, and host can add/remove requests');
+
   // sit out, edit, host controls
   await req('PATCH', `/api/rooms/${code}/guests/${b.guestId}`, { sit: true, genres: ['soul'] }, B);
   await host.waitFor((s) => s.guests.some((g) => g.id === b.guestId && g.status === 'sitting')); ok('guest can edit and sit out');
