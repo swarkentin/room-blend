@@ -249,7 +249,7 @@
   async function qualityOrder(items, getId) {
     var scored = await Promise.all(items.map(async function (item, index) {
       var id = getId ? getId(item) : item.id;
-      return { item: item, index: index, score: await qualityAdjustment(id) };
+      return { item: item, index: index, score: ((item && item.quality) || 0) + await qualityAdjustment(id) };
     }));
     scored.sort(function (a, b) { return b.score - a.score || a.index - b.index; });
     return scored.map(function (x) { return x.item; });
@@ -324,7 +324,7 @@
         if (st.embeddable !== true || st.privacyStatus !== 'public' || d < 60 || d > 600 || M.isBad(sn.title)) return;
         var t = parseVideo({ title: sn.title, channel: sn.channelTitle });
         if (!t || seen[it.id]) return;
-        seen[it.id] = 1; out.push({ title: t.title, artist: t.artist, id: it.id });
+        seen[it.id] = 1; out.push({ title: t.title, artist: t.artist, id: it.id, quality: M.scoreVideo(t, { title: sn.title, channel: sn.channelTitle }).score });
       });
     }
     await poolPut(q.q, out);
