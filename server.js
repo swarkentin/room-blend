@@ -50,6 +50,7 @@ const CLIENT_CONFIG = {
   genreSynonyms: Engine.GENRE_SYNONYMS,
   genreLegacy: Engine.LEGACY_GROUPS,
   beatMs: Number(process.env.BEAT_MS) || 60000,
+  restoreDays: Math.max(1, Math.floor(Number(process.env.RESTORE_DAYS) || 30)),
 };
 
 // Restore receipts (see lib/restore.js): lets a host's browser bring its room back after a restart or redeploy wipes the server.
