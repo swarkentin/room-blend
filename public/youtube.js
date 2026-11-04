@@ -206,7 +206,7 @@
     return ranked;
   }
 
-  // ---------- songs by genre (playlists are cheap to read: about 1 unit per 50 songs, against 100 per search) ----------
+  // ---------- songs by genre (playlist reads and video details use 1 quota unit per request; search has its own daily call cap) ----------
   var POOLS = 'rb-yt-pools', POOL_TTL = 30 * 86400000, POOL_MAX = 400, pools = null;
   function poolGet(k) {
     if (!pools) pools = storedObject(POOLS);
