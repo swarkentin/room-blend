@@ -2,15 +2,15 @@
 // No Premium account is needed. The host brings a free Google API key, used only to look each song up
 // (YouTube Data API search). The key stays in this browser. The Room Blend server never sees it.
 //
-// Songs come from YouTube playlists, one per genre in the room (see poolQuery). Reading a playlist costs about 1 unit
-// per 50 songs; finding it costs 100 (one search), and the result is remembered for a week. The free quota is
-// 10,000 units a day, so about 100 playlist searches, which is a few rooms' worth of genres. Songs from the built-in
-// list (used only where a genre's playlist comes back thin) are looked up by title at 100 units each.
+// Songs come from YouTube playlists, one per genre in the room (see poolQuery). Search requests have a separate
+// daily limit (typically 100 calls per project); playlist-item and video-detail requests use the much larger quota.
+// Search results and discovered pools are cached in the host's browser, never on the Room Blend server.
 // YouTube requires the player to stay visible, so it sits in a corner of the page. Free YouTube may play ads between songs.
 (function () {
   'use strict';
   var P = window.Providers, C = window.CONFIG || {}, el = P.el, state = P.state;
   var KEY = 'rb-yt-key', CACHE = 'rb-yt-cache', CACHE_MAX = 3000, QUOTA_DAY = 'rb-yt-quota-day', API_NEXT = 'rb-yt-api-next';
+  var SEARCH_DAILY_LIMIT = 90, DISCOVERY_DAILY_LIMIT = 65, SEARCH_BUDGET_PREFIX = 'rb-yt-search-budget-';
   var on = false, paused = true, busy = false, note = '', player = null, dock = null, cur = null, waiter = null, rctx = null, cache = null;
   var apiQueue = Promise.resolve(), apiRetryMs = 1000, playbackAttempt = 0;
   var quotaPausedDay = '', API_INTERVAL_MS = 2000, MAX_RETRY_WAIT_MS = 5000, MIN_GENRE_TRACKS = 12;
@@ -63,6 +63,35 @@
     return false;
   }
   function clearQuotaFuse() { quotaPausedDay = ''; lsDel(QUOTA_DAY); }
+  // Keep a per-key budget in host storage. Search.list has its own 100-request daily limit;
+  // hold back 25 calls for playback lookups and leave a small safety margin below Google's cap.
+  function keyFingerprint() {
+    var value = apiKey(), hash = 2166136261;
+    for (var i = 0; i < value.length; i++) { hash ^= value.charCodeAt(i); hash = Math.imul(hash, 16777619); }
+    return (hash >>> 0).toString(16);
+  }
+  function searchBudget() {
+    var key = SEARCH_BUDGET_PREFIX + keyFingerprint(), value = storedObject(key), today = pacificDay();
+    if (value.day !== today) value = { day: today, count: 0, discovery: 0 };
+    return { key: key, value: value };
+  }
+  function reserveSearch(purpose) {
+    var budget = searchBudget(), value = budget.value;
+    if (value.count >= SEARCH_DAILY_LIMIT || (purpose === 'discovery' && value.discovery >= DISCOVERY_DAILY_LIMIT)) {
+      var e = new Error(purpose === 'discovery'
+        ? 'YouTube discovery has used its daily search allowance. Playback lookups are being preserved; cached songs remain available.'
+        : 'The host browser has reached its conservative daily YouTube search limit. Cached songs remain available until the quota resets at midnight Pacific time.');
+      e.budgetLimited = true; e.quotaExceeded = true;
+      throw e;
+    }
+    value.count++;
+    if (purpose === 'discovery') value.discovery++;
+    lsSet(budget.key, JSON.stringify(value));
+  }
+  function searchBudgetStatus() {
+    var v = searchBudget().value;
+    return Math.max(0, SEARCH_DAILY_LIMIT - v.count) + ' of ' + SEARCH_DAILY_LIMIT + ' YouTube searches left today (' + Math.max(0, DISCOVERY_DAILY_LIMIT - v.discovery) + ' reserved discovery searches available).';
+  }
   function quotaError() {
     var e = new Error('YouTube searches are paused until midnight Pacific time after the daily quota or repeated rate limits; cached songs can still play.');
     e.quotaExceeded = true;
@@ -80,7 +109,7 @@
     e.cancelled = true;
     return e;
   }
-  async function requestApi(url, isCurrent) {
+  async function requestApi(url, isCurrent, searchPurpose) {
     async function run() {
       while (true) {
         if (isCurrent && !isCurrent()) throw requestCancelled();
@@ -89,6 +118,7 @@
         if (delay > 0) { await wait(Math.min(delay, 1000)); continue; }
         lsSet(API_NEXT, String(Date.now() + API_INTERVAL_MS));
         if (quotaPaused()) throw quotaError();
+        if (searchPurpose) reserveSearch(searchPurpose);
         var r;
         try { r = await fetch(url); }
         catch (e) { throw new Error('Could not reach YouTube. Check the internet connection.'); }
@@ -118,14 +148,14 @@
   });
 
   // Serialize API requests so a rate limit pauses all callers instead of causing a retry storm.
-  function yapi(path, params, isCurrent) {
+  function yapi(path, params, isCurrent, searchPurpose) {
     var qs = Object.keys(params).map(function (k) { return k + '=' + encodeURIComponent(params[k]); }).join('&');
     var rateLimitAttempts = 0, maxRateLimitRetries = 1;
     var request = apiQueue.then(async function () {
       while (true) {
         if (isCurrent && !isCurrent()) throw requestCancelled();
         if (quotaPaused()) throw quotaError();
-        var result = await requestApi(C.ytApiBase + path + '?' + qs + '&key=' + encodeURIComponent(apiKey()), isCurrent);
+        var result = await requestApi(C.ytApiBase + path + '?' + qs + '&key=' + encodeURIComponent(apiKey()), isCurrent, path === '/search' ? (searchPurpose || 'playback') : '');
         var r = result.response, j = result.json, reason = result.reason;
         if (r.ok) { apiRetryMs = 1000; return j || {}; }
         if (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded') throw quotaError();
@@ -177,7 +207,7 @@
   }
 
   // ---------- songs by genre (playlists are cheap to read: about 1 unit per 50 songs, against 100 per search) ----------
-  var POOLS = 'rb-yt-pools', POOL_TTL = 7 * 86400000, POOL_MAX = 200, pools = null;
+  var POOLS = 'rb-yt-pools', POOL_TTL = 30 * 86400000, POOL_MAX = 400, pools = null;
   function poolGet(k) {
     if (!pools) pools = storedObject(POOLS);
     pools = Object.assign({}, pools, storedObject(POOLS));
@@ -191,6 +221,7 @@
     if (!pools) pools = storedObject(POOLS);
     pools = Object.assign({}, pools, storedObject(POOLS));
     pools[k] = { at: Date.now(), usedAt: Date.now(), tracks: tracks };
+    Object.keys(pools).forEach(function (x) { if (!pools[x] || Date.now() - (pools[x].at || 0) >= POOL_TTL) delete pools[x]; });
     var keys = Object.keys(pools);
     if (keys.length > POOL_MAX) keys.sort(function (a, b) { return (pools[a].usedAt || pools[a].at) - (pools[b].usedAt || pools[b].at); }).slice(0, keys.length - POOL_MAX).forEach(function (x) { delete pools[x]; });
     lsSet(POOLS, JSON.stringify(pools));
@@ -207,7 +238,7 @@
     return artist && song && artist.length < 80 && song.length < 100 ? { title: song, artist: artist } : null;
   }
   async function playlistFor(q) {
-    var j = await yapi('/search', { part: 'snippet', type: 'playlist', maxResults: 5, q: q + ' songs' });
+    var j = await yapi('/search', { part: 'snippet', type: 'playlist', maxResults: 5, q: q + ' songs' }, null, 'discovery');
     var items = (j.items || []).filter(function (it) { return it && it.id && it.id.playlistId; });
     var good = items.filter(function (it) { return !/\b(hours?|mix|study|sleep|full albums?)\b/i.test((it.snippet || {}).title || ''); });
     return ((good[0] || items[0] || {}).id || {}).playlistId || '';
@@ -315,7 +346,7 @@
           lsSet(KEY, v); ctx.rerender();
         } })]));
         box.appendChild(msg);
-        box.appendChild(el('p', { class: 'hint', text: 'The free allowance covers about 100 playlist searches a day. Usually one search is enough per genre; a second is used only if the first playlist has fewer than 12 usable songs. Results are remembered here for a week. If the daily quota runs out, new lookups pause until midnight Pacific time; cached songs can still play.' }));
+        box.appendChild(el('p', { class: 'hint', text: 'YouTube Search has a separate daily limit (typically 100 requests). Room Blend conservatively allows 90 per key per Pacific day, reserving 25 for playback lookups and using at most 65 for discovery. Playlist reads and video details use a much larger quota. Discovered pools stay in this browser for 30 days, so future rooms reuse them.' }));
       } else if (!on) {
         box.appendChild(state('dot-ok', 'Key saved.', note || quotaNote || 'Start the music to play through this browser.'));
         box.appendChild(el('div', { class: 'row' }, [
@@ -348,7 +379,7 @@
     extras: async function (genre, partners) {
       var out = [], seen = {};
       try {
-        var qs = window.Pools.queries(genre, 2, partners);
+        var qs = window.Pools.queries(genre, 4, partners);
         for (var i = 0; i < qs.length; i++) {
           var got = await poolQuery(qs[i]);
           got.forEach(function (t) { if (!seen[t.id]) { seen[t.id] = 1; out.push({ title: t.title, artist: t.artist, id: t.id, genres: qs[i].tags }); } });
