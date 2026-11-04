@@ -25,6 +25,8 @@ const until = async (fn, ms = 8000) => { const t0 = Date.now(); for (;;) { const
     assert.strictEqual(await host.locator('#picker [data-genre-group="Eras"] [data-g="50s"]').count(), 1);
     for (const g of ['soundtrack', 'bollywood', 'j-pop', 'brazilian', 'djent']) assert.strictEqual(await host.locator('#picker [data-g="' + g + '"]').count(), 1, g);
     ok('moods, the 50s, djent and the four new genres are all there');
+    const order = await host.evaluate(() => [...document.querySelectorAll('#picker .chipgroup')].map((x) => x.getAttribute('data-genre-group')));
+    assert.deepStrictEqual([order[0], order[1], order[2], order[order.length - 1]], ['Moods', 'Eras', 'Pop', 'More styles']); ok('moods and eras come first, the genre groups follow, and the odd styles come last');
     const gc = await browser.newContext({ viewport: { width: 420, height: 850 } }), g = await gc.newPage();
     g.on('pageerror', (e) => errors.push(e.message));
     await g.goto(APP + '/' + code); await g.waitForSelector('#gv-picker .chip');

@@ -53,10 +53,11 @@
   }
   function tagList(genres) { return genres.map(function (g) { return h('span', { class: 'tag', text: gl(g) }); }); }
   function chipPicker(container, picked, onChange) {
-    var groups = (C.genreGroups || [['Genres', C.genres]]).slice();
-    (C.genreAliasGroups || []).forEach(function (grp) { groups.push(grp); });
+    // Moods and eras lead, the way the big music apps open, then the genres, and the odd styles come last.
+    var shortcuts = C.genreAliasGroups || [], lead = shortcuts.filter(function (g) { return g[0] !== 'More styles'; });
+    var groups = lead.concat((C.genreGroups || [['Genres', C.genres]]).slice(), shortcuts.filter(function (g) { return lead.indexOf(g) < 0; }));
     var synonyms = C.genreSynonyms || {};
-    var search = h('input', { type: 'search', class: 'genre-search', placeholder: 'Search genres, eras, or styles', 'aria-label': 'Search genres, eras, or styles' });
+    var search = h('input', { type: 'search', class: 'genre-search', placeholder: 'Search genres, moods, eras, or styles', 'aria-label': 'Search genres, moods, eras, or styles' });
     var status = h('p', { class: 'hint genre-search-status', role: 'status', 'aria-live': 'polite' });
     container.appendChild(h('div', { class: 'genre-search-box' }, [search, status]));
     function sync() {
