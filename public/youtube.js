@@ -57,8 +57,18 @@
       }
       return db;
     }).catch(function (error) {
-      cacheMode = 'memory';
+      var now = Date.now(), oldSearch = storedObject(LEGACY_CACHE), oldPools = storedObject(LEGACY_POOLS);
+      Object.keys(oldSearch).forEach(function (key) {
+        var value = oldSearch[key], ttl = Array.isArray(value) && value.length ? 30 : 0.25;
+        cacheMemory['search:' + key] = { value: value, usedAt: now, expiresAt: now + ttl * 86400000 };
+      });
+      Object.keys(oldPools).forEach(function (key) {
+        var pool = oldPools[key], tracks = pool && Array.isArray(pool.tracks) ? pool.tracks : [], at = pool && pool.at || now;
+        var ttl = tracks.length ? 30 : 0.5;
+        if (now - at < ttl * 86400000) cacheMemory['pool:' + key] = { value: tracks, usedAt: now, expiresAt: at + ttl * 86400000 };
+      });
       cacheWarning = 'Persistent browser storage is unavailable; discoveries will only be cached until this tab closes.';
+      if (rctx) rctx.status(cacheWarning);
       return null;
     });
     return cacheDbPromise;
@@ -101,6 +111,7 @@
     } catch (error) {
       cacheMemory[id] = record;
       cacheWarning = 'The browser could not persist some cache entries; playback can continue, but they may need to be discovered again.';
+      if (rctx) rctx.status(cacheWarning);
       return false;
     }
   }
