@@ -181,6 +181,19 @@ function hostState(code, key) {
   assert.strictEqual((await req('POST', `/api/rooms/${code}/host/advance`, {}, H)).status, 200, 'the same host key still runs the room');
   ok('an encrypted checkpoint restores guest identities, credentials, picks, votes and the room state');
 
+  // A persistent DATA_DIR can restore the room identity before the host reconnects.
+  const diskSkeleton = new Room(code, hostKey);
+  diskSkeleton.name = 'Friday patio'; diskSkeleton.recoveryNeeded = true;
+  rooms.set(code, diskSkeleton);
+  const skeletonView = await hostState(code, hostKey);
+  assert.strictEqual(skeletonView.recoveryNeeded, true, 'the host is told that disk-loaded live state needs recovery');
+  const diskBack = await req('POST', `/api/rooms/${code}/restore`, receipt);
+  assert.strictEqual(diskBack.status, 200);
+  assert.strictEqual(diskBack.json.restored, true, 'a valid snapshot hydrates an existing disk-loaded room');
+  assert.strictEqual(rooms.get(code).recoveryNeeded, false);
+  assert.ok(rooms.get(code).guests.has(joined.json.guestId));
+  ok('disk-loaded room identities are hydrated from the host snapshot');
+
   const again = await req('POST', `/api/rooms/${code}/restore`, receipt);
   assert.strictEqual(again.status, 200);
   assert.strictEqual(again.json.restored, false, 'restoring twice changes nothing');
