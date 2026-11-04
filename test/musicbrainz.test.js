@@ -168,6 +168,16 @@ const { Room } = require('../lib/room');
   assert.ok(inferred.includes('classical'), inferred.join(', '));
   console.log('  ok  genres from multiple named artists are both retained in the inference');
 
+  // A single existing track must not suppress discovery of a named artist's wider catalogue.
+  const toolGuest = room.addGuest('Tool Guest', [], { artists: ['Tool'], immediate: true });
+  toolGuest.artistGenres = { tool: [{ genre: 'metal', count: 41 }] };
+  room.extra.push({ id: 'existing-tool', title: 'One Tool Song', artist: 'Tool', genres: ['metal'] });
+  room.rebuildCatalog();
+  assert.ok(room.wantArtists().some((x) => x.name === 'Tool'), 'one existing Tool track should still trigger artist discovery');
+  for (let i = 0; i < 7; i++) room.extra.push({ id: 'more-tool-' + i, title: 'Tool Song ' + i, artist: 'Tool', genres: ['metal'] });
+  room.rebuildCatalog();
+  assert.ok(!room.wantArtists().some((x) => x.name === 'Tool'), 'eight existing tracks are enough to satisfy the initial artist seed');
+
   const nadaGuest = room.addGuest('Nada Guest', [], { artists: ['Nada Surf'] });
   nadaGuest.artistGenres = { 'nada surf': nada };
   const nadaInference = room.inferredGenres(nadaGuest);

@@ -14,6 +14,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   unit:
@@ -44,7 +45,10 @@ jobs:
     # Keep this image version in sync with the Playwright version in package-lock.json.
     # It includes Chromium and all of its Linux system dependencies.
     container:
-      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      image: ghcr.io/swarkentin/room-blend-ci-test-tools:playwright-1.64.1
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Check out repository
@@ -58,17 +62,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Install media and QR test tools
-        if: matrix.shard != 3
-        timeout-minutes: 10
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          # Two browser shards install these packages in parallel. Retry transient
-          # mirror failures and bound connection stalls so CI cannot hang here.
-          apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
-          apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install --yes ffmpeg python3-opencv
 
       - name: Run Playwright browser shard
         run: npm run test:browser:${{ matrix.shard }}

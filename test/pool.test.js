@@ -99,7 +99,11 @@ ok('a genre is searched by its own name, then compound names; those shared with 
 // ---- artists guests named that the room's songs do not have ----
 {
   const r = mk(); const g = add(r, 'Ana', ['rock']);
-  r.addExtras('rock', songs('Rock', 30, ['rock']), { pool: true });
+  const rockPool = songs('Rock', 30, ['rock']);
+  // Eight tracks are enough to count as an existing seed; artists with only
+  // one or two tracks should still be discovered for an explicit request.
+  for (let i = 0; i < 6; i++) rockPool.push({ title: 'Rock Artist 3 Extra ' + i, artist: 'Rock Artist 3', genres: ['rock'], id: 'svc:rock3extra' + i });
+  r.addExtras('rock', rockPool, { pool: true });
   r.updateGuest(g.id, { artists: ['Queen', 'Zed Obscure', 'Rock Artist 3'] });
   const want = r.wantArtists().map((x) => x.name);
   assert.ok(want.includes('Zed Obscure') && want.includes('Queen') && !want.includes('Rock Artist 3')); ok('named artists the room already has are not looked up; the others are');
