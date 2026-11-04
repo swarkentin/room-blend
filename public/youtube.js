@@ -305,6 +305,26 @@
     var good = items.filter(function (it) { return !/\b(hours?|mix|study|sleep|full albums?)\b/i.test((it.snippet || {}).title || ''); });
     return ((good[0] || items[0] || {}).id || {}).playlistId || '';
   }
+  // Genres a video's own words point to: its title, its tags and the #hashtags in its description ("#jungle #idm #synth").
+  // A title counts double. Keeps the strongest genre plus any that are clearly there too, so one stray tag cannot add a genre.
+  function inferGenres(sn) {
+    var GM = window.GenreMap;
+    if (!GM) return [];
+    var score = {}, order = [], seen = {};
+    function add(g, w) { if (!(g in score)) { score[g] = 0; order.push(g); } score[g] += w; }
+    GM.classifyAll(sn.title || '', 2).forEach(function (g) { add(g, 2); });
+    var words = (sn.tags || []).slice(0, 30).map(String);
+    (String(sn.description || '').match(/#[\w-]{2,40}/g) || []).slice(0, 30).forEach(function (h) { words.push(h.slice(1)); });
+    words.forEach(function (w) {
+      var k = w.toLowerCase().trim();
+      if (!k || seen[k]) return; seen[k] = 1;
+      var g = GM.classify(k); if (g) add(g, 1);
+    });
+    var top = order.slice().sort(function (a, b) { return score[b] - score[a]; });
+    if (!top.length) return [];
+    var floor = Math.max(2, score[top[0]] * 0.4);
+    return top.filter(function (g, i) { return i === 0 || score[g] >= floor; }).slice(0, 3);
+  }
   // Reads a playlist's videos and keeps single, embeddable songs. parse(title, channel) returns {title, artist} or null.
   async function readPlaylist(pl, parse, pages, loose) {
     var M = window.Match, ids = [], token = '';
@@ -322,7 +342,10 @@
         if (st.embeddable !== true || st.privacyStatus !== 'public' || d < 60 || d > (loose ? 1200 : 600) || (!loose && M.isBad(sn.title))) return;
         var t = parse(sn.title, sn.channelTitle);
         if (!t || seen[it.id]) return;
-        seen[it.id] = 1; out.push({ title: t.title, artist: t.artist, id: it.id, quality: M.scoreVideo(t, { title: sn.title, channel: sn.channelTitle }).score });
+        seen[it.id] = 1;
+        var rec = { title: t.title, artist: t.artist, id: it.id, quality: M.scoreVideo(t, { title: sn.title, channel: sn.channelTitle }).score };
+        if (loose) rec.genres = inferGenres(sn); // a channel the guest named: its genres come from its own videos
+        out.push(rec);
       });
     }
     return out;
@@ -347,11 +370,19 @@
   // A channel's uploads, credited to the artist as the guest typed them. A title "Artist - Song" loses the "Artist - " part.
   async function uploadsOf(playlistId, name) {
     var M = window.Match, who = name.replace(/^@/, '');
-    return readPlaylist(playlistId, function (title) {
+    var out = await readPlaylist(playlistId, function (title) {
       var t = M.cleanTitle(title), m = /^(.+?)\s+[-\u2013\u2014|:]\s+(.+)$/.exec(t);
       var song = m && (nameFit(who, m[1]) >= 0.99 || M.core(m[1]).join('') === M.core(who).join('')) ? M.cleanTitle(m[2]) : t;
       return song && song.length < 100 ? { title: song, artist: name } : null;
     }, 2, true); // a channel the guest picked on purpose: keep its mixes, remixes and longer tracks (up to 20 minutes)
+    return withTypicalGenre(out);
+  }
+  // A video with no genre clues gets the genre most of the channel's other videos point to.
+  function withTypicalGenre(out) {
+    var n = {}, best = '';
+    out.forEach(function (t) { (t.genres || []).forEach(function (g, i) { n[g] = (n[g] || 0) + (i === 0 ? 2 : 1); if (!best || n[g] > n[best]) best = g; }); });
+    if (best) out.forEach(function (t) { if (!t.genres || !t.genres.length) t.genres = [best]; });
+    return out;
   }
   // "@djcrocsnsocks" (or a youtube.com/@handle link) names one exact channel, so it is looked up directly: no guessing from a name.
   // Costs about 1 unit to find the channel (a search costs 100), plus a few to read its uploads.
@@ -526,10 +557,10 @@
     artistTracks: async function (name, genre) {
       try {
         var handle = handleOf(name);
-        if (handle) return qualityOrder((await handleSongs(name, handle)).map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: [genre] }; }));
+        if (handle) return qualityOrder((await handleSongs(name, handle)).map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: t.genres && t.genres.length ? t.genres : [genre] }; }));
         var got = (await poolQuery({ q: name + ' greatest hits', tags: [genre] })).filter(function (t) { return nameFit(name, t.artist) >= 0.99; });
         if (!got.length) got = await channelSongs(name);
-        return qualityOrder(got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: [genre] }; }));
+        return qualityOrder(got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: t.genres && t.genres.length ? t.genres : [genre] }; }));
       } catch (e) { note = e.message; if (rctx) rctx.status(e.message); return []; }
     },
     ready: function () { return on; },
