@@ -100,6 +100,26 @@ function sse(path) {
   const sv = await host.waitFor((s) => s.now && s.now.votes && s.now.votes.down === 1); ok('votes reach the host');
   assert.strictEqual((await req('POST', `/api/rooms/${code}/vote`, { v: 'up' }, { 'x-guest-id': a.guestId, 'x-guest-key': 'bad' })).status, 401); ok('vote needs the guest key');
 
+  // jukebox requests are free-form and independent of the room catalogue
+  const rq1 = await req('POST', `/api/rooms/${code}/request`, { title: 'A song not in the catalogue', artist: 'An unfamiliar artist' }, A);
+  assert.strictEqual(rq1.status, 200);
+  const rq2 = await req('POST', `/api/rooms/${code}/request`, { title: 'Another song', artist: 'Another artist' }, A);
+  assert.strictEqual(rq2.status, 200);
+  assert.strictEqual((await req('POST', `/api/rooms/${code}/request`, { title: 'Third song', artist: 'Third artist' }, A)).status, 400, 'default per-guest limit is two');
+  const requestState = await host.waitFor((s) => s.requests && s.requests.length === 2);
+  assert.strictEqual(requestState.requests[0].requester, 'Maya b');
+  assert.strictEqual((await req('POST', `/api/rooms/${code}/host/opts`, { requestLimitEnabled: false }, H)).status, 200);
+  assert.strictEqual((await req('POST', `/api/rooms/${code}/request`, { title: 'Third song', artist: 'Third artist' }, A)).status, 200);
+  const unlimited = await host.waitFor((s) => s.requests && s.requests.length === 3);
+  assert.strictEqual(unlimited.requestLimitEnabled, false);
+  assert.strictEqual((await req('POST', `/api/rooms/${code}/host/requests`, { remove: true, id: rq1.json.request.id }, H)).status, 200);
+  const hostAdded = await req('POST', `/api/rooms/${code}/host/requests`, { title: 'Host selection', artist: 'Host artist' }, H);
+  assert.strictEqual(hostAdded.status, 200);
+  const withHost = await host.waitFor((s) => s.requests && s.requests.some((x) => x.title === 'Host selection'));
+  assert.ok(withHost.requests.some((x) => x.requester === 'Host'));
+  assert.strictEqual((await req('POST', `/api/rooms/${code}/host/requests`, { remove: true, id: 'missing' }, H)).status, 404);
+  ok('guest requests accept arbitrary songs, enforce a host-toggleable limit, and host can add/remove requests');
+
   // advance and player events
   const first = sv.now.track.id, second = sv.queue[0].track.id;
   await req('POST', `/api/rooms/${code}/host/advance`, {}, H);
