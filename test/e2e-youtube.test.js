@@ -112,6 +112,11 @@ const yt = http.createServer((req, res) => {
   const errors = [];
   try {
     const ctx = await browser.newContext({ viewport: { width: 1100, height: 900 } });
+    // Simulate a browser arriving with the old localStorage caches before any app code runs.
+    await ctx.addInitScript(() => {
+      localStorage.setItem('rb-yt-cache', JSON.stringify({ 'legacy migration|artist': ['legacy-video'] }));
+      localStorage.setItem('rb-yt-pools', JSON.stringify({ 'legacy-pool': { at: Date.now(), usedAt: Date.now(), tracks: [{ title: 'Legacy Song', artist: 'Legacy Artist', id: 'legacy-video' }] } }));
+    });
     const host = await ctx.newPage();
     const toApp = []; host.on('request', (r) => { if (r.url().startsWith(APP)) toApp.push(r.url() + ' ' + (r.postData() || '') + JSON.stringify(r.headers())); });
     host.on('pageerror', (e) => errors.push(e.message)); host.on('console', (m) => { if (m.type() === 'error' && !/fonts|ERR_|Failed to load resource|qrcode|400|403/.test(m.text())) errors.push(m.text()); });
@@ -127,7 +132,6 @@ const yt = http.createServer((req, res) => {
     assert.ok(/does not look like an API key/.test(await host.textContent('#yt-msg'))); ok('an obviously wrong key is refused');
 
     await host.fill('#yt-key', GOOD); await host.click('#yt-save');
-    await host.evaluate(() => { localStorage.setItem('rb-yt-cache', JSON.stringify({ 'legacy migration|artist': ['legacy-video'] })); localStorage.setItem('rb-yt-pools', JSON.stringify({ 'legacy-pool': { at: Date.now(), usedAt: Date.now(), tracks: [{ title: 'Legacy Song', artist: 'Legacy Artist', id: 'legacy-video' }] } })); });
     await host.waitForSelector('#yt-start');
     assert.strictEqual(await host.evaluate(() => localStorage.getItem('rb-yt-key')), GOOD); ok('the key is saved in this browser only');
     assert.ok(!(await host.evaluate(() => document.cookie)).includes('AIza')); ok('the key is not in a cookie');
