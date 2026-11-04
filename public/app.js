@@ -285,15 +285,17 @@
       S.snapshotTimer = setTimeout(async function () {
         if (S.snapshotBusy) return;
         S.snapshotBusy = true;
+        var result = null;
         try {
-          var r = await http('GET', '/api/rooms/' + code + '/host/snapshot', null, H);
-          if (r.ok && r.data && typeof r.data.snapshot === 'string') {
-            if (await writeRoomSnapshot(code, r.data.snapshot, r.data.version)) S.snapshotSavedVersion = r.data.version;
+          result = await http('GET', '/api/rooms/' + code + '/host/snapshot', null, H);
+          if (result.ok && result.data && typeof result.data.snapshot === 'string') {
+            if (await writeRoomSnapshot(code, result.data.snapshot, result.data.version)) S.snapshotSavedVersion = result.data.version;
           }
         } catch (e) { /* a later room update or reload will retry */ }
         finally {
           S.snapshotBusy = false;
-          if (S.snapshotWantedVersion > S.snapshotSavedVersion) scheduleRoomSnapshot(S.snapshotWantedVersion);
+          // If the room changed while this checkpoint was in flight, take one more snapshot.
+          if (result && result.ok && result.data && S.snapshotWantedVersion > result.data.version) scheduleRoomSnapshot(S.snapshotWantedVersion);
         }
       }, 500);
     }
