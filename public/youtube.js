@@ -348,7 +348,7 @@
         box.appendChild(msg);
         box.appendChild(el('p', { class: 'hint', text: 'YouTube Search has a separate daily limit (typically 100 requests). Room Blend conservatively allows 90 per key per Pacific day, reserving 25 for playback lookups and using at most 65 for discovery. Playlist reads and video details use a much larger quota. Discovered pools stay in this browser for 30 days, so future rooms reuse them.' }));
       } else if (!on) {
-        box.appendChild(state('dot-ok', 'Key saved.', note || quotaNote || 'Start the music to play through this browser.'));
+        box.appendChild(state('dot-ok', 'Key saved.', note || quotaNote || ('Start the music to play through this browser. ' + searchBudgetStatus())));
         box.appendChild(el('div', { class: 'row' }, [
           el('button', { class: 'btn primary', type: 'button', id: 'yt-start', text: busy ? 'Starting…' : 'Start the music', disabled: busy ? 'disabled' : false, onclick: function () { yt.start(ctx); } }),
           el('button', { class: 'btn small', type: 'button', id: 'yt-forget', text: 'Remove key', onclick: function () { clearQuotaFuse(); lsDel(KEY); ctx.rerender(); } }),
@@ -387,6 +387,14 @@
         }
       } catch (e) { note = e.message; if (rctx) rctx.status(e.message); }
       return out;
+    },
+    // Era-qualified searches keep decade picks meaningful after the room expands them into genres.
+    // Each query is cached like every other playlist, and tags only the genre it actually searched.
+    eraTracks: async function (era, genre) {
+      try {
+        var got = await poolQuery({ q: era + ' ' + genre, tags: [genre] });
+        return got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, genres: [genre] }; });
+      } catch (e) { note = e.message; if (rctx) rctx.status(e.message); return []; }
     },
     // A named artist: one playlist search ("<artist> greatest hits"); the room keeps only that artist's songs.
     artistTracks: async function (name, genre) {
