@@ -12,16 +12,18 @@ const decodeQr = (file) => execFileSync('python3', ['-c', [
   'im=cv2.imread(sys.argv[1])',
   "if im is None: raise SystemExit('could not read QR screenshot')",
   'det=cv2.QRCodeDetector()',
-  'for scale in (1,2,3,4,6):',
-  ' sized=cv2.resize(im,None,fx=scale,fy=scale,interpolation=cv2.INTER_NEAREST)',
-  ' pad=16*scale',
-  ' image=cv2.copyMakeBorder(sized,pad,pad,pad,pad,cv2.BORDER_CONSTANT,value=(255,255,255))',
-  ' gray=cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)',
-  ' for candidate in (image,gray,cv2.threshold(gray,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)[1]):',
-  '  text=det.detectAndDecode(candidate)[0]',
-  '  if text: print(text); raise SystemExit(0)',
-  ' ok,texts,points,straight=det.detectAndDecodeMulti(image)',
-  ' if ok and texts and texts[0]: print(texts[0]); raise SystemExit(0)',
+  'for scale in (1,2,3,4,6,8,10,12):',
+  ' for interpolation in (cv2.INTER_NEAREST,cv2.INTER_CUBIC,cv2.INTER_LINEAR):',
+  '  sized=cv2.resize(im,None,fx=scale,fy=scale,interpolation=interpolation)',
+  '  pad=24*scale',
+  '  image=cv2.copyMakeBorder(sized,pad,pad,pad,pad,cv2.BORDER_CONSTANT,value=(255,255,255))',
+  '  gray=cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)',
+  '  candidates=(image,gray,cv2.threshold(gray,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)[1],cv2.adaptiveThreshold(gray,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,cv2.THRESH_BINARY,31,5))',
+  '  for candidate in candidates:',
+  '   text=det.detectAndDecode(candidate)[0]',
+  '   if text: print(text); raise SystemExit(0)',
+  '  ok,texts,points,straight=det.detectAndDecodeMulti(image)',
+  '  if ok and texts and texts[0]: print(texts[0]); raise SystemExit(0)',
   "print('')",
 ].join('\n'), file]).toString().trim();
 
@@ -90,6 +92,7 @@ const decodeQr = (file) => execFileSync('python3', ['-c', [
     const tv = await page({ width: 1280, height: 720 }); await tv.goto(`${APP}/screen/${code}`);
     await tv.waitForFunction(() => document.querySelector('#tv-title').textContent !== 'Waiting for the first guest', null, { timeout: 12000 });
     const tvText = await tv.textContent('.tv'); assert.ok(tvText.includes(code) && /person|people/.test(tvText)); ok('the TV screen shows the code, headcount and now playing: ' + (await tv.textContent('#tv-title')));
+    await tv.waitForFunction(() => { const qr = document.querySelector('#tv-qr svg'); return qr && qr.getBoundingClientRect().width >= 200 && qr.querySelector('path') && qr.querySelector('path').getAttribute('d').length > 0; });
     const tvQr = path.join(tmp, 'tv.png'); await tv.locator('#tv-qr').screenshot({ path: tvQr });
     const d2 = decodeQr(tvQr);
     assert.strictEqual(d2, `${APP}/${code}`); ok('the TV QR code decodes too');
