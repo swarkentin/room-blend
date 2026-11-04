@@ -74,6 +74,22 @@ function hostState(code, key) {
   assert.strictEqual(restoredRoom.voteCounts(sourceRoom.nowItem.track.id).up, 1);
   ok('room snapshots restore guest identity, picks, playback, votes and cold presence');
 
+  const libraryRoom = new Room('ABCDF', 'z'.repeat(32));
+  libraryRoom.addGuest('Library guest', ['rock'], { immediate: true });
+  const libraryTracks = [{ id: 'song-1', title: 'Library song', artist: 'Artist', genres: ['rock'] }, { id: 'song-2', title: 'Next song', artist: 'Artist', genres: ['rock'] }];
+  libraryRoom.setLibrary('local', 'My music files', libraryTracks);
+  const playingId = libraryRoom.nowItem.track.id;
+  const libraryRestored = new Room('ABCDF', 'z'.repeat(32));
+  assert.ok(libraryRestored.restoreSnapshot(libraryRoom.snapshot()));
+  assert.strictEqual(libraryRestored.library, null, 'the host-owned 20,000-track library is not copied into the snapshot');
+  assert.strictEqual(libraryRestored.libraryNeedsReconnect, true);
+  assert.strictEqual(libraryRestored.nowItem.track.id, playingId, 'the current track survives while the provider reconnects');
+  libraryRestored.setLibrary('local', 'My music files', libraryTracks, true);
+  assert.strictEqual(libraryRestored.nowItem.track.id, playingId, 'reconnecting the same library keeps the current track');
+  ok('large host libraries are reloaded by the provider without losing current playback');
+
+
+
   ok('receipts are bound to code, host key and secret, and expire');
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rb-secret-'));
