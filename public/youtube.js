@@ -9,8 +9,8 @@
 (function () {
   'use strict';
   var P = window.Providers, C = window.CONFIG || {}, el = P.el, state = P.state;
-  var KEY = 'rb-yt-key', CACHE_MAX = 3000, QUOTA_DAY = 'rb-yt-quota-day', API_NEXT = 'rb-yt-api-next';
-  var DB_NAME = 'room-blend-youtube', DB_VERSION = 1, DB_STORE = 'entries';
+  var KEY = 'rb-yt-key', CACHE_MAX = 12000, QUOTA_DAY = 'rb-yt-quota-day', API_NEXT = 'rb-yt-api-next';
+  var DB_NAME = 'room-blend-youtube', DB_VERSION = 2, DB_STORE = 'entries';
   var cacheDbPromise = null, cacheMemory = Object.create(null), cacheWarning = '';
   var SEARCH_DAILY_LIMIT = 90, DISCOVERY_DAILY_LIMIT = 65, SEARCH_BUDGET_KEY = 'rb-yt-search-budget';
   var on = false, paused = true, busy = false, note = '', player = null, dock = null, cur = null, waiter = null, rctx = null;
@@ -35,7 +35,8 @@
       var request = indexedDB.open(DB_NAME, DB_VERSION);
       request.onupgradeneeded = function () {
         var db = request.result;
-        if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE, { keyPath: 'id' });
+        var store = db.objectStoreNames.contains(DB_STORE) ? request.transaction.objectStore(DB_STORE) : db.createObjectStore(DB_STORE, { keyPath: 'id' });
+        if (!store.indexNames.contains('kindUsedAt')) store.createIndex('kindUsedAt', ['kind', 'usedAt'], { unique: false });
       };
       request.onsuccess = function () { resolve(request.result); };
       request.onerror = function () { reject(request.error || new Error('Could not open the browser cache')); };
@@ -71,13 +72,20 @@
     if (!db) { cacheMemory[id] = record; return false; }
     try {
       await new Promise(function (resolve, reject) {
-        var tx = db.transaction(DB_STORE, 'readwrite'), store = tx.objectStore(DB_STORE);
+        var tx = db.transaction(DB_STORE, 'readwrite'), store = tx.objectStore(DB_STORE), index = store.index('kindUsedAt');
+        var limit = kind === 'pool' ? 1200 : CACHE_MAX;
         store.put(record);
-        var all = store.getAll();
-        all.onsuccess = function () {
-          var matching = all.result.filter(function (x) { return x.kind === kind; });
-          var limit = kind === 'pool' ? 400 : CACHE_MAX;
-          if (matching.length > limit) matching.sort(function (a, b) { return a.usedAt - b.usedAt; }).slice(0, matching.length - limit).forEach(function (x) { store.delete(x.id); });
+        var range = IDBKeyRange.bound([kind, 0], [kind, Number.MAX_SAFE_INTEGER]);
+        var count = index.count(range);
+        count.onsuccess = function () {
+          var excess = count.result - limit;
+          if (excess <= 0) return;
+          var cursor = index.openCursor(range);
+          cursor.onsuccess = function () {
+            var item = cursor.result;
+            if (!item || excess <= 0) return;
+            store.delete(item.primaryKey); excess--; item.continue();
+          };
         };
         tx.oncomplete = resolve; tx.onerror = function () { reject(tx.error); }; tx.onabort = function () { reject(tx.error); };
       });
@@ -263,11 +271,42 @@
     if (rctx && rctx.rerender) rctx.rerender();
   }
 
+  async function cachedPoolCandidates(track) {
+    var db = await openCacheDb();
+    if (!db) return [];
+    var rows = await new Promise(function (resolve) {
+      var tx = db.transaction(DB_STORE, 'readonly'), req = tx.objectStore(DB_STORE).index('kindUsedAt')
+        .getAll(IDBKeyRange.bound(['pool', 0], ['pool', Number.MAX_SAFE_INTEGER]));
+      req.onsuccess = function () { resolve(req.result || []); };
+      req.onerror = function () { resolve([]); };
+    });
+    var candidates = [], seen = Object.create(null);
+    rows.forEach(function (row) {
+      (Array.isArray(row.value) ? row.value : []).forEach(function (song) {
+        if (!song || !song.id || seen[song.id]) return;
+        seen[song.id] = true;
+        candidates.push(song);
+      });
+    });
+    var M = window.Match;
+    return M.rank(track, candidates, function (song) { return { title: song.title, channel: song.artist }; }, M.scoreVideo)
+      .filter(function (item) { return M.acceptable(item.s); })
+      .slice(0, 8).map(function (item) { return item.item.id; });
+  }
+
   async function search(track, isCurrent) {
     var ck = (track.title + '|' + track.artist).toLowerCase(), hit = await cacheGet('search:' + ck);
     if (hit !== undefined) {
       var cachedIds = Array.isArray(hit) ? hit : (hit ? [hit] : []);
       return qualityOrder(cachedIds, function (id) { return id; });
+    }
+    // A title/artist already present in any cached genre or artist playlist is playable by ID.
+    // This path deliberately runs before Search.list, so it also works after the daily search quota is gone.
+    var pooledIds = await cachedPoolCandidates(track);
+    if (pooledIds.length) {
+      var pooledRanked = await qualityOrder(pooledIds, function (id) { return id; });
+      await cachePut('search:' + ck, pooledRanked, 'search', 30);
+      return pooledRanked;
     }
     var M = window.Match, q = M.cleanTitle(track.title) + ' ' + M.cleanArtist(track.artist);
     var j = await yapi('/search', { part: 'snippet', type: 'video', videoEmbeddable: 'true', videoSyndicated: 'true', maxResults: 8, q: q }, isCurrent);
@@ -356,7 +395,7 @@
     if (hit !== undefined) return hit;
     var pl = await playlistFor(q.q);
     if (!pl) { await poolPut(q.q, []); return []; }
-    var out = await readPlaylist(pl, function (title, channel) { return parseVideo({ title: title, channel: channel }); }, 2);
+    var out = await readPlaylist(pl, function (title, channel) { return parseVideo({ title: title, channel: channel }); }, 5);
     await poolPut(q.q, out);
     return qualityOrder(out);
   }
@@ -374,7 +413,7 @@
       var t = M.cleanTitle(title), m = /^(.+?)\s+[-\u2013\u2014|:]\s+(.+)$/.exec(t);
       var song = m && (nameFit(who, m[1]) >= 0.99 || M.core(m[1]).join('') === M.core(who).join('')) ? M.cleanTitle(m[2]) : t;
       return song && song.length < 100 ? { title: song, artist: name } : null;
-    }, 2, true); // a channel the guest picked on purpose: keep its mixes, remixes and longer tracks (up to 20 minutes)
+    }, 5, true); // a channel the guest picked on purpose: keep its mixes, remixes and longer tracks (up to 20 minutes)
     return withTypicalGenre(out);
   }
   // A video with no genre clues gets the genre most of the channel's other videos point to.

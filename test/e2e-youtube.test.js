@@ -304,8 +304,9 @@ const yt = http.createServer((req, res) => {
     const cacheWriter = await ctx.newPage();
     await cacheWriter.goto(APP);
     await cacheWriter.evaluate(() => new Promise((resolve, reject) => {
-      const dbRequest = indexedDB.open('room-blend-youtube', 1);
+      const dbRequest = indexedDB.open('room-blend-youtube', 2);
       dbRequest.onupgradeneeded = () => dbRequest.result.createObjectStore('entries', { keyPath: 'id' });
+      dbRequest.onerror = () => reject(dbRequest.error || new Error('Could not open YouTube cache in second tab'));
       dbRequest.onsuccess = () => {
         const db = dbRequest.result, tx = db.transaction('entries', 'readwrite'), store = tx.objectStore('entries'), now = Date.now();
         for (let i = 0; i < 100; i++) store.put({ id: 'pool:other-tab-pool-' + i, kind: 'pool', value: [], at: now, usedAt: now, expiresAt: now + 30 * 86400000 });
@@ -340,8 +341,10 @@ const yt = http.createServer((req, res) => {
     assert.strictEqual(log.apiRequests, beforeBlocked); ok('uncached lookups stop locally after quota exhaustion');
     const skipped = await host.evaluate(async () => window.Providers.get('youtube').play({ title: 'Uncached after quota', artist: 'No Cache' }));
     assert.strictEqual(skipped, null); assert.strictEqual(log.apiRequests, beforeBlocked); ok('songs needing new lookups are skipped so quota exhaustion cannot stall the queue');
-    const cachedVideo = await host.evaluate(async () => window.Providers.get('youtube').play({ title: 'Cached playlist song', artist: 'Dave Brubeck', nid: 'plA1' }));
-    assert.strictEqual(cachedVideo, true); assert.strictEqual(log.apiRequests, beforeBlocked); ok('known playlist video IDs still play while the Search API quota is paused');
+    const cachedVideo = await host.evaluate(async () => window.Providers.get('youtube').play({ title: 'Take Five', artist: 'Dave Brubeck' }));
+    assert.strictEqual(cachedVideo, true); assert.strictEqual(log.apiRequests, beforeBlocked); ok('a song found in any cached playlist is matched and played by video ID while Search API quota is paused, without a title search');
+    const cachedSearch = await cacheRecord(host, 'search:take five|dave brubeck');
+    assert.ok(cachedSearch && cachedSearch.value.includes('plA1')); ok('the cross-pool match is promoted into the direct song lookup cache for future instant reuse');
     rateLimitQuotaOut = false;
     await host.reload(); await host.waitForSelector('#sp');
     assert.ok(/searches are paused until midnight Pacific/.test(await host.textContent('#sp'))); ok('the host sees the quota pause after reloading');
