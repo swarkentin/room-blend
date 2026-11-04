@@ -298,6 +298,9 @@ async function api(req, res, url) {
         L.count('rooms.restore_snapshot_refused');
         return sendJson(res, 400, { error: 'The saved room state is invalid or could not be decrypted.' });
       }
+      // The small receipt metadata is updated on every host render and may be newer than the last debounced checkpoint.
+      nr.setInfo({ name: body.name, discoverable: body.discoverable });
+      if (body.opts && typeof body.opts === 'object' && !Array.isArray(body.opts)) nr.setOptsWithoutRebuild(body.opts);
     } else {
       nr.setInfo({ name: body.name, discoverable: body.discoverable });
       if (body.opts && typeof body.opts === 'object') nr.setOpts(body.opts);
