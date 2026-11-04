@@ -517,18 +517,18 @@
       if (!todo.length && !eras.length && !arts.length) return;
       S.extrasBusy = true;
       try {
+        // Era-qualified searches are the most specific expression of a guest's request. Run them
+        // before broad genre expansion so a long list of generic pools cannot starve decade picks.
+        for (var e = 0; e < eras.length; e++) {
+          S.tried[eras[e].key] = true;
+          var eraTracks = []; try { eraTracks = await P.eraTracks(eras[e].era, eras[e].genre) || []; } catch (e) { eraTracks = []; }
+          await post('extras', { genre: eras[e].genre, tracks: eraTracks, pool: !!P.pool && eraTracks.length > 0, source: P.id });
+        }
         for (var i = 0; i < todo.length; i++) {
           S.tried[todo[i]] = true;
           var tracks = []; try { tracks = await P.extras(todo[i], partnersOf(st)) || []; } catch (e) { tracks = []; }
           // pool: the service now supplies the songs (only once it has actually returned some, otherwise the built-in list stays)
           await post('extras', { genre: todo[i], tracks: tracks, pool: !!P.pool && tracks.length > 0, source: P.id });
-        }
-        // Preserve decade relevance for era picks (e.g. "80s synth pop"), rather than only searching
-        // the expanded genre names. Each query is tagged with the genre it actually targeted.
-        for (var e = 0; e < eras.length; e++) {
-          S.tried[eras[e].key] = true;
-          var eraTracks = []; try { eraTracks = await P.eraTracks(eras[e].era, eras[e].genre) || []; } catch (e) { eraTracks = []; }
-          await post('extras', { genre: eras[e].genre, tracks: eraTracks, pool: !!P.pool && eraTracks.length > 0, source: P.id });
         }
         // Artists guests named that the room's songs do not have: look each one up once. Only that artist's songs are kept.
         for (var j = 0; j < arts.length; j++) {
