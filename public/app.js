@@ -36,7 +36,14 @@
     function fb() { el.textContent = 'Select and copy it'; }
     try { navigator.clipboard.writeText(text).then(function () { el.textContent = 'Copied'; setTimeout(function () { el.textContent = 'Copy'; }, 1500); }, fb); } catch (e) { fb(); }
   }
-  function gl(g) { return /^any:/.test(g) ? 'all ' + g.slice(4).replace(/-/g, ' ') : g; }
+  // The id "All <group>" is stored under: the group's own id when it has one, else its lower-cased name with dashes.
+  function groupKey(grp) { return 'any:' + (grp[2] || grp[0].toLowerCase().replace(/\s+/g, '-')); }
+  // How a pick reads in a tag. A broad pick shows the group's real name ("all hip hop & r&b"), not its id.
+  function gl(g) {
+    if (!/^any:/.test(g)) return g;
+    var grp = (C.genreGroups || []).filter(function (x) { return groupKey(x) === g; })[0];
+    return 'all ' + (grp ? grp[0].toLowerCase() : g.slice(4).replace(/-/g, ' '));
+  }
   // What a guest named, as counts only. The host never sees the names themselves.
   function namedLine(g) {
     var a = g.artistCount || 0, n = g.songCount || 0;
@@ -46,10 +53,11 @@
   }
   function tagList(genres) { return genres.map(function (g) { return h('span', { class: 'tag', text: gl(g) }); }); }
   function chipPicker(container, picked, onChange) {
-    var groups = (C.genreGroups || [['Genres', C.genres]]).slice();
-    (C.genreAliasGroups || []).forEach(function (grp) { groups.push(grp); });
-    var aliasNames = C.genreAliases || {};
-    var search = h('input', { type: 'search', class: 'genre-search', placeholder: 'Search genres, eras, or styles', 'aria-label': 'Search genres, eras, or styles' });
+    // Moods and eras lead, the way the big music apps open, then the genres, and the odd styles come last.
+    var shortcuts = C.genreAliasGroups || [], lead = shortcuts.filter(function (g) { return g[0] !== 'More styles'; });
+    var groups = lead.concat((C.genreGroups || [['Genres', C.genres]]).slice(), shortcuts.filter(function (g) { return lead.indexOf(g) < 0; }));
+    var synonyms = C.genreSynonyms || {};
+    var search = h('input', { type: 'search', class: 'genre-search', placeholder: 'Search genres, moods, eras, or styles', 'aria-label': 'Search genres, moods, eras, or styles' });
     var status = h('p', { class: 'hint genre-search-status', role: 'status', 'aria-live': 'polite' });
     container.appendChild(h('div', { class: 'genre-search-box' }, [search, status]));
     function sync() {
@@ -66,7 +74,7 @@
     }
     groups.forEach(function (grp) {
       var isAliasGroup = grp === (C.genreAliasGroups || []).filter(function (x) { return x[0] === grp[0]; })[0];
-      var all = !isAliasGroup && grp[1].length > 1 && grp[0] !== 'Holiday' ? chip('any:' + grp[0].toLowerCase().replace(/\s+/g, '-'), 'All ' + grp[0].toLowerCase()) : null;
+      var all = !isAliasGroup && grp[1].length > 1 && grp[0] !== 'Holiday' ? chip(groupKey(grp), 'All ' + grp[0].toLowerCase()) : null;
       if (all) all.classList.add('chip-all');
       var buttons = (all ? [all] : []).concat(grp[1].map(function (g) { return chip(g); }));
       container.appendChild(h('div', { class: 'chipgroup', 'data-genre-group': grp[0] }, [h('div', { class: 'chipgroup-name', text: grp[0] }), h('div', { class: 'chips' }, buttons), grp[0] === 'Holiday' ? h('div', { class: 'hint', text: 'Holiday songs play only while someone in the room has picked that holiday.' }) : null].filter(Boolean)));
@@ -76,7 +84,7 @@
       Array.prototype.forEach.call(container.querySelectorAll('.chipgroup'), function (group) {
         var matches = 0;
         Array.prototype.forEach.call(group.querySelectorAll('button'), function (button) {
-          var g = button.getAttribute('data-g'), text = (button.textContent + ' ' + (aliasNames[g] || []).join(' ')).toLowerCase();
+          var g = button.getAttribute('data-g'), text = (button.textContent + ' ' + (synonyms[g] || '')).toLowerCase();
           var visible = !q || text.indexOf(q) >= 0;
           button.hidden = !visible; if (visible) matches++;
         });
@@ -466,8 +474,8 @@
       function add(x) { if (out.indexOf(x) < 0) out.push(x); }
       (st.guests || []).forEach(function (g) {
         (g.genres || []).forEach(function (p) {
-          var grp = /^any:/.test(p) ? (C.genreGroups || []).filter(function (x) { return 'any:' + x[0].toLowerCase().replace(/\s+/g, '-') === p; })[0] : null;
-           (grp ? grp[1] : (C.genreAliases && C.genreAliases[p]) || [p]).forEach(add);
+          var grp = /^any:/.test(p) ? (C.genreGroups || []).filter(function (x) { return groupKey(x) === p; })[0] : null;
+          (grp ? grp[1] : (C.genreLegacy && C.genreLegacy[p]) || (C.genreAliases && C.genreAliases[p]) || [p]).forEach(add);
         });
       });
       return out;

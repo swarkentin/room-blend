@@ -42,6 +42,8 @@ const CLIENT_CONFIG = {
   genreGroups: Engine.GENRE_GROUPS,
   genreAliases: Engine.GENRE_ALIASES,
   genreAliasGroups: Engine.GENRE_ALIAS_GROUPS,
+  genreSynonyms: Engine.GENRE_SYNONYMS,
+  genreLegacy: Engine.LEGACY_GROUPS,
   beatMs: Number(process.env.BEAT_MS) || 60000,
 };
 

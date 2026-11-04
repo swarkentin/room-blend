@@ -7,8 +7,8 @@ let n = 0; const ok = (s) => { n++; console.log('  ok  ' + s); };
 const person = (id, genres) => ({ id, taste: Object.fromEntries(genres.map((g, i) => [g, [4, 3, 2, 1][i]])) });
 const prim = (q) => q.map((x) => x.track.genres[0]);
 
-assert.ok(tracks.length >= 4500); assert.strictEqual(E.GENRES.length, 58); ok('catalogue has ' + tracks.length + ' tracks, 58 genres');
-assert.strictEqual(new Set(E.GENRES).size, 58);
+assert.ok(tracks.length >= 4500); assert.strictEqual(E.GENRES.length, 62); ok('catalogue has ' + tracks.length + ' tracks, 62 genres');
+assert.strictEqual(new Set(E.GENRES).size, 62);
 for (const [pick, expected] of [['80s', 'synth pop'], ['90s', 'hip hop'], ['rap', 'hip hop'], ['phonk', 'trap'], ['korean pop', 'k-pop']]) {
   assert.ok(E.isPick(pick)); assert.ok(E.expandPick(pick).includes(expected));
 }
@@ -28,6 +28,30 @@ for (const [a, b] of [['rock', 'blues'], ['jazz', 'soul'], ['indie', 'folk'], ['
 ok('21 neighbouring genre pairs blend');
 for (const [a, b] of [['metal', 'classical'], ['country', 'hip hop'], ['ambient', 'punk'], ['gospel', 'techno'], ['k-pop', 'americana'], ['bossa nova', 'metal'], ['idm', 'country'], ['hyperpop', 'classical'], ['post-rock', 'reggaeton']]) assert.strictEqual(modeOf(a, b), 'rotate', a + ' + ' + b + ' should rotate');
 ok('9 distant genre pairs rotate');
+// the genres added with the regrouped picker blend with their neighbours and rotate with strangers
+for (const [a, b] of [['soundtrack', 'classical'], ['j-pop', 'k-pop'], ['bollywood', 'pop'], ['brazilian', 'bossa nova'], ['brazilian', 'latin'], ['soundtrack', 'ambient'], ['j-pop', 'indie']]) assert.strictEqual(modeOf(a, b), 'blend', a + ' + ' + b + ' should blend');
+for (const [a, b] of [['bollywood', 'metal'], ['soundtrack', 'reggae'], ['j-pop', 'country'], ['brazilian', 'techno'], ['bollywood', 'grunge']]) assert.strictEqual(modeOf(a, b), 'rotate', a + ' + ' + b + ' should rotate');
+ok('the four new genres blend with 7 neighbours and rotate with 5 strangers');
+
+// ---- the grouped picker: every genre in exactly one group, tidy ids, sound shortcuts
+const grouped = E.GENRE_GROUPS.flatMap((g) => g[1]);
+assert.strictEqual(grouped.length, E.GENRES.length); assert.strictEqual(new Set(grouped).size, E.GENRES.length);
+assert.deepStrictEqual([...grouped].sort(), [...E.GENRES].sort()); ok('every genre sits in exactly one picker group');
+const broadIds = E.GENRE_GROUPS.filter((g) => g[1].length > 1 && g[0] !== 'Holiday').map((g) => E.groupKey(g));
+assert.strictEqual(new Set(broadIds).size, broadIds.length); assert.ok(broadIds.every((id) => /^any:[a-z0-9-]+$/.test(id) && E.isPick(id) && E.GROUPS[id].length > 1));
+assert.ok(broadIds.includes('any:hip-hop-rnb') && broadIds.includes('any:classical') && !broadIds.includes('any:holiday')); ok('every "All ..." pick has a tidy id (no spaces or symbols) and expands to its group');
+assert.deepStrictEqual(E.GROUPS['any:roots'], ['blues', 'country', 'folk', 'americana', 'singer-songwriter']);
+assert.ok(E.GROUPS['any:jazz-and-soul'].includes('neo soul') && E.expandPick('any:hip-hop').join() === 'hip hop,trap'); ok('broad picks from older versions of the picker still mean what they did');
+const aliasNames = Object.keys(E.GENRE_ALIASES), groupNames = E.GENRE_ALIAS_GROUPS.flatMap((g) => g[1]);
+assert.ok(aliasNames.every((a) => !E.GENRES.includes(a) && !/^any:/.test(a)), 'an alias must not shadow a genre or a broad pick');
+assert.ok(aliasNames.every((a) => E.GENRE_ALIASES[a].length && E.GENRE_ALIASES[a].every((g) => E.GENRES.includes(g))));
+assert.ok(groupNames.every((a) => E.isPick(a) && aliasNames.includes(a)) && new Set(groupNames).size === groupNames.length); ok('every era, mood and style button is a valid shortcut for known genres');
+assert.ok(aliasNames.every((a) => E.GENRE_ALIASES[a].every((g) => !E.HOLIDAYS.includes(g)))); ok('no shortcut ever stands for a holiday');
+assert.ok(['focus', 'party', 'workout', 'dinner', 'sleep', 'road trip', 'feel good', 'romance'].every((m) => E.GENRE_ALIAS_GROUPS.find((g) => g[0] === 'Moods')[1].includes(m)));
+assert.ok(['50s', '60s'].every((e) => E.GENRE_ALIAS_GROUPS.find((g) => g[0] === 'Eras')[1].includes(e)) && E.expandPick('djent').includes('metal')); ok('moods, the 50s and 60s, and djent are offered');
+assert.ok(Object.keys(E.GENRE_SYNONYMS).every((g) => E.GENRES.includes(g)) && /rap/.test(E.GENRE_SYNONYMS['hip hop']) && /anime/.test(E.GENRE_SYNONYMS['j-pop'])); ok('search synonyms are attached to real genres');
+const mood = { id: 'm', taste: E.tasteFromPicks(['sleep']) };
+assert.ok(Math.abs(Object.values(mood.taste).reduce((a, b) => a + b, 0) - 4) < 1e-9 && !Object.keys(mood.taste).some((g) => E.HOLIDAYS.includes(g))); ok('a mood spreads a guest\'s weight over its genres');
 let blends = 0, pairs = 0;
 for (let i = 0; i < E.GENRES.length; i++) for (let j = i + 1; j < E.GENRES.length; j++) { pairs++; if (modeOf(E.GENRES[i], E.GENRES[j]) === 'blend') blends++; }
 assert.ok(blends / pairs > 0.35 && blends / pairs < 0.65, 'blend rate ' + blends / pairs);
