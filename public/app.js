@@ -530,12 +530,25 @@
 
     async function maybeExtras() {
       var st = S.st, P = S.prov;
-      if (!st || !P.canExtras || !P.canExtras() || S.extrasBusy || (st.source && st.source.kind === 'library')) return;
+      if (!st || !P.canExtras || !P.canExtras() || (st.source && st.source.kind === 'library')) return;
+      // A guest can add new picks while a previous discovery batch is in flight. Remember the
+      // request and run another pass when the current batch finishes instead of dropping it.
+      if (S.extrasBusy) { S.extrasAgain = true; return; }
       var todo = (st.wantGenres || []).filter(function (g) { return !S.tried[g]; });
+      var eras = P.eraTracks ? (st.wantEras || []).flatMap(function (e) {
+        return (e.genres || []).map(function (g) { return { era: e.era, genre: g, key: 'era:' + e.era + ':' + g }; }).filter(function (x) { return !S.tried[x.key]; });
+      }) : [];
       var arts = P.artistTracks ? (st.wantArtists || []).filter(function (a) { return !S.tried['a:' + a.name.toLowerCase()]; }) : [];
-      if (!todo.length && !arts.length) return;
+      if (!todo.length && !eras.length && !arts.length) return;
       S.extrasBusy = true;
       try {
+        // Era-qualified searches are the most specific expression of a guest's request. Run them
+        // before broad genre expansion so a long list of generic pools cannot starve decade picks.
+        for (var e = 0; e < eras.length; e++) {
+          S.tried[eras[e].key] = true;
+          var eraTracks = []; try { eraTracks = await P.eraTracks(eras[e].era, eras[e].genre) || []; } catch (e) { eraTracks = []; }
+          await post('extras', { genre: eras[e].genre, tracks: eraTracks, pool: !!P.pool && eraTracks.length > 0, source: P.id });
+        }
         for (var i = 0; i < todo.length; i++) {
           S.tried[todo[i]] = true;
           var tracks = []; try { tracks = await P.extras(todo[i], partnersOf(st)) || []; } catch (e) { tracks = []; }
@@ -548,7 +561,10 @@
           var found = []; try { found = await P.artistTracks(arts[j].name, arts[j].genre) || []; } catch (e) { found = []; }
           await post('extras', { genre: arts[j].genre, artist: arts[j].name, tracks: found, pool: false, source: P.id });
         }
-      } finally { S.extrasBusy = false; }
+      } finally {
+        S.extrasBusy = false;
+        if (S.extrasAgain) { S.extrasAgain = false; maybeExtras(); }
+      }
     }
 
     // ----- rendering -----
