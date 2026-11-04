@@ -239,21 +239,53 @@
   // Finds embeddable videos for a song by title and artist (used for songs from the built-in list).
   // Returns a list of video ids, best first (empty when YouTube has nothing).
   // One search costs the same however many results it returns, so we ask for several and keep them as fallbacks.
+  // Playback feedback is local to this host. A single failure demotes a candidate;
+  // repeated failures matter more than a handful of successful starts.
+  async function qualityAdjustment(id) {
+    var stats = await cacheGet('quality:' + id);
+    if (!stats) return 0;
+    return Math.min(5, stats.successes || 0) * 0.04 - (stats.failures || 0) * 1.25;
+  }
+  async function qualityOrder(items, getId) {
+    var scored = await Promise.all(items.map(async function (item, index) {
+      var id = getId ? getId(item) : item.id;
+      return { item: item, index: index, score: await qualityAdjustment(id) };
+    }));
+    scored.sort(function (a, b) { return b.score - a.score || a.index - b.index; });
+    return scored.map(function (x) { return x.item; });
+  }
+  async function recordPlayback(id, success) {
+    if (!id) return;
+    var key = 'quality:' + id, stats = await cacheGet(key) || { successes: 0, failures: 0 };
+    if (success) { stats.successes = (stats.successes || 0) + 1; stats.lastSuccessAt = Date.now(); }
+    else { stats.failures = (stats.failures || 0) + 1; stats.lastFailureAt = Date.now(); }
+    await cachePut(key, stats, 'quality', 90);
+  }
+
   async function search(track, isCurrent) {
     var ck = (track.title + '|' + track.artist).toLowerCase(), hit = await cacheGet('search:' + ck);
-    if (hit !== undefined) return Array.isArray(hit) ? hit : (hit ? [hit] : []);
+    if (hit !== undefined) {
+      var cachedIds = Array.isArray(hit) ? hit : (hit ? [hit] : []);
+      return qualityOrder(cachedIds, function (id) { return id; });
+    }
     var M = window.Match, q = M.cleanTitle(track.title) + ' ' + M.cleanArtist(track.artist);
     var j = await yapi('/search', { part: 'snippet', type: 'video', videoEmbeddable: 'true', videoSyndicated: 'true', maxResults: 8, q: q }, isCurrent);
     var items = (j.items || []).filter(function (it) { return it && it.id && it.id.videoId; });
-    // Best match first. Videos that clearly are not this song (a different title) go last rather than being dropped.
-    var ranked = M.rank(track, items, function (it) { return { title: (it.snippet || {}).title, channel: (it.snippet || {}).channelTitle }; }, M.scoreVideo)
+    // Do not queue a plausible-looking but wrong song. Keep only candidates whose title and artist both match,
+    // and reject live, remix, cover, lyric and other unwanted versions unless the guest asked for that version.
+    var matches = M.rank(track, items, function (it) { return { title: (it.snippet || {}).title, channel: (it.snippet || {}).channelTitle }; }, M.scoreVideo)
+      .filter(function (x) { return M.acceptable(x.s); })
       .map(function (x) { return x.item.id.videoId; });
+    var ranked = await qualityOrder(matches, function (id) { return id; });
     await cachePut('search:' + ck, ranked, 'search', ranked.length ? 30 : 0.25);
     return ranked;
   }
 
   // ---------- songs by genre (playlist reads and video details use 1 quota unit per request; search has its own daily call cap) ----------
-  async function poolGet(k) { return await cacheGet('pool:' + k); }
+  async function poolGet(k) {
+    var hit = await cacheGet('pool:' + k);
+    return hit === undefined ? undefined : qualityOrder(hit);
+  }
   async function poolPut(k, tracks) { return await cachePut('pool:' + k, tracks, 'pool', tracks.length ? 30 : 0.5); }
   function seconds(iso) { var m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso || ''); return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : 0; }
   // "Artist - Song (Official Video)" on a channel, or "Song" on the artist's "Artist - Topic" channel.
@@ -296,7 +328,7 @@
       });
     }
     await poolPut(q.q, out);
-    return out;
+    return qualityOrder(out);
   }
 
   // A video that would not play goes to the back of the song's list, so next time the others are tried first.
@@ -405,7 +437,7 @@
     },
     pool: true, // the room's songs come from YouTube playlists for each genre; the built-in list is only a fallback
     canExtras: function () { return on; },
-    cacheInfo: async function () { var db = await openCacheDb(); if (!db) return { mode: 'memory', warning: cacheWarning }; return new Promise(function (resolve) { var tx = db.transaction(DB_STORE, 'readonly'), req = tx.objectStore(DB_STORE).getAll(); req.onsuccess = function () { var rows = req.result.filter(function (x) { return x.expiresAt > Date.now(); }); resolve({ mode: 'indexeddb', pools: rows.filter(function (x) { return x.kind === 'pool'; }).length, searches: rows.filter(function (x) { return x.kind === 'search'; }).length, warning: cacheWarning }); }; req.onerror = function () { resolve({ mode: 'indexeddb', warning: cacheWarning }); }; }); },
+    cacheInfo: async function () { var db = await openCacheDb(); if (!db) return { mode: 'memory', warning: cacheWarning }; return new Promise(function (resolve) { var tx = db.transaction(DB_STORE, 'readonly'), req = tx.objectStore(DB_STORE).getAll(); req.onsuccess = function () { var rows = req.result.filter(function (x) { return x.expiresAt > Date.now(); }), feedback = rows.filter(function (x) { return x.kind === 'quality'; }); resolve({ mode: 'indexeddb', pools: rows.filter(function (x) { return x.kind === 'pool'; }).length, searches: rows.filter(function (x) { return x.kind === 'search'; }).length, ratedVideos: feedback.length, playbackSuccesses: feedback.reduce(function (n, x) { return n + (x.value.successes || 0); }, 0), playbackFailures: feedback.reduce(function (n, x) { return n + (x.value.failures || 0); }, 0), warning: cacheWarning }); }; req.onerror = function () { resolve({ mode: 'indexeddb', warning: cacheWarning }); }; }); },
     extras: async function (genre, partners) {
       var out = [], seen = {};
       try {
@@ -416,21 +448,21 @@
           if (out.length >= MIN_GENRE_TRACKS) break;
         }
       } catch (e) { note = e.message; if (rctx) rctx.status(e.message); }
-      return out;
+      return qualityOrder(out);
     },
     // Era-qualified searches keep decade picks meaningful after the room expands them into genres.
     // Each query is cached like every other playlist, and tags only the genre it actually searched.
     eraTracks: async function (era, genre) {
       try {
         var got = await poolQuery({ q: era + ' ' + genre, tags: [genre] });
-        return got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, genres: [genre] }; });
+        return qualityOrder(got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, genres: [genre] }; }));
       } catch (e) { note = e.message; if (rctx) rctx.status(e.message); return []; }
     },
     // A named artist: one playlist search ("<artist> greatest hits"); the room keeps only that artist's songs.
     artistTracks: async function (name, genre) {
       try {
         var got = await poolQuery({ q: name + ' greatest hits', tags: [genre] });
-        return got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, genres: [genre] }; });
+        return qualityOrder(got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, genres: [genre] }; }));
       } catch (e) { note = e.message; if (rctx) rctx.status(e.message); return []; }
     },
     ready: function () { return on; },
@@ -445,8 +477,9 @@
       var tries = ids.slice(0, 4);
       for (var i = 0; i < tries.length; i++) {
         var r = await tryVideo(tries[i]);
-        if (r === true) return true;
+        if (r === true) { await recordPlayback(tries[i], true); return true; }
         if (r === false) return false;
+        await recordPlayback(tries[i], false);
         await demote(track, tries[i]); // null: this video is unavailable or not embeddable, try the next one
       }
       note = '"' + track.title + '" has no playable video on YouTube, so it was skipped.';
