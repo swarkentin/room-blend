@@ -37,6 +37,9 @@ addVid('plA3', 'Jazz Classics Full Album 2 hours', 'Jazz Radio', 'PT2H0M0S');
 addVid('plA4', 'Ella Fitzgerald - Cheek to Cheek (Live)', 'Ella', 'PT4M0S');
 addVid('plA5', 'Blocked Artist - Blocked Song', 'Blocked', 'PT3M0S', false);
 addVid('plA6', 'So What', 'Miles Davis - Topic', 'PT9M22S');
+addVid('plA7', 'Dave Brubeck - Take Five (Cover Version)', 'Fan Covers', 'PT5M24S');
+addVid('plA8', 'Nina Simone - Feeling Good (Official Remix)', 'Remix Channel', 'PT2M55S');
+addVid('plA9', 'Ella Fitzgerald - Cheek to Cheek (Lyric Video)', 'Fan Lyrics', 'PT4M0S');
 for (let i = 0; i < 14; i++) addVid('plB' + i, 'Pool Artist ' + i + ' - Pool Tune ' + i + ' (Official Video)', 'Pool Artist ' + i, 'PT3M30S');
 const ZITEMS = [['plZ1', 'Zed Obscure - Zed Song One'], ['plZ2', 'Zed Obscure - Zed Song Two'], ['plZ3', 'Someone Else - Not Zed']].map(([id, title]) => { VIDEOS[id] = { id, snippet: { title, channelTitle: title.split(' - ')[0] }, contentDetails: { duration: 'PT3M10S' }, status: { embeddable: true, privacyStatus: 'public' } }; return { snippet: { title, resourceId: { videoId: id } } }; });
 PLITEMS.push({ snippet: { title: 'Private video', resourceId: { videoId: 'plPriv' } } });
@@ -48,7 +51,7 @@ window.YT = { Player: function (id, opts) {
   var self = this; window.__ytPlayer = self; window.__ytOpts = opts;
   setTimeout(function () { opts.events.onReady({}); }, 20);
   self.loadVideoById = function (v) { window.__ytLog.push(v); if (window.__ytBlock) return;
-    if (window.__ytFail === 'all' || (window.__ytFail === 'first' && !/_b$/.test(v))) { setTimeout(function () { opts.events.onError({ data: 150 }); }, 30); return; } setTimeout(function () { opts.events.onStateChange({ data: 1 }); }, 30); };
+    if (window.__ytFail === 'all' || (window.__ytFail === 'first' && !/_a$/.test(v))) { setTimeout(function () { opts.events.onError({ data: 150 }); }, 30); return; } setTimeout(function () { opts.events.onStateChange({ data: 1 }); }, 30); };
   self.pauseVideo = function () { window.__ytPaused = true; }; self.playVideo = function () { window.__ytPaused = false; }; self.stopVideo = function () {};
   self.getCurrentTime = function () { return window.__ytCurrentTime; }; self.getDuration = function () { return window.__ytDuration; };
 } };
@@ -86,7 +89,9 @@ const yt = http.createServer((req, res) => {
     return send(200, 'application/json', JSON.stringify({ items: [
       { id: { videoId: 'vid' + n + '_c' }, snippet: { title: q + ' (cover)', channelTitle: 'Someone' } },
       { id: { videoId: 'vid' + n }, snippet: { title: q + ' (Official Video)', channelTitle: 'ArtistVEVO' } },
-      { id: { videoId: 'vid' + n + '_b' }, snippet: { title: q + ' lyrics', channelTitle: 'Fan' } }] }));
+      { id: { videoId: 'vid' + n + '_b' }, snippet: { title: q + ' lyrics', channelTitle: 'Fan' } },
+      { id: { videoId: 'vid' + n + '_wrong' }, snippet: { title: 'A Completely Different Song', channelTitle: 'Someone Else' } },
+      { id: { videoId: 'vid' + n + '_a' }, snippet: { title: q + ' (Official Audio)', channelTitle: 'Artist - Topic' } }] }));
   }
   send(404, 'text/plain', 'no');
 });
@@ -131,6 +136,7 @@ const yt = http.createServer((req, res) => {
     const id1 = await until(() => host.evaluate(() => window.__ytLog[0]), 8000, 'a video was loaded');
     const cachedSearches = await until(async () => { const rows = await cacheRecords(host); return rows && rows.filter((entry) => entry.kind === 'search').length ? rows : null; }, 8000, 'IndexedDB cache write after a song lookup');
     assert.ok(cachedSearches.filter((entry) => entry.kind === 'search').every((entry) => entry.expiresAt > Date.now())); ok('song lookups are cached in IndexedDB with an expiry');
+    assert.ok(!cachedSearches.some((entry) => entry.kind === 'search' && entry.value.some((id) => /_(c|b|wrong)$/.test(id)))); ok('covers, lyric uploads and unrelated songs are excluded before results are cached');
     assert.strictEqual(log.rateLimited, 1); ok('a YouTube 429 is retried rather than leaving playback stopped');
     assert.ok(/^vid\d+$/.test(id1)); ok('a song was looked up and loaded into the player: ' + t1 + ' -> ' + id1);
     assert.ok(log.searches[0].includes(t1.split(' (')[0])); ok('the search used the song title and artist');
@@ -171,7 +177,7 @@ const yt = http.createServer((req, res) => {
     const cached = (await cacheRecords(host)).filter((entry) => entry.kind === 'search').length;
     assert.ok(cached >= 2); ok('looked-up songs are remembered in the browser (' + cached + ' so far), so repeats cost no search quota');
 
-    // the search is not over-strict, and it ranks covers last
+    // The search keeps multiple acceptable fallbacks without admitting poor matches.
     assert.ok(!/videoCategoryId/.test(log.params[0]) && /maxResults=8/.test(log.params[0])); ok('the search has no category filter and asks for several candidates');
     assert.ok(/^vid\d+$/.test(id1)); ok('the official video is chosen ahead of a cover');
 
@@ -179,8 +185,11 @@ const yt = http.createServer((req, res) => {
     // a video that is unavailable: the next candidate is tried before giving up on the song
     await host.evaluate(() => { window.__ytFail = 'first'; window.__ytLog.length = 0; });
     await host.evaluate(() => window.__ytOpts.events.onStateChange({ data: 0 }));
-    await until(() => host.evaluate(() => window.__ytLog.length >= 2 && /_b$/.test(window.__ytLog[window.__ytLog.length - 1])), 10000, 'fallback video').catch(async (e) => { console.log('LOG', await host.evaluate(() => JSON.stringify(window.__ytLog)), await nowTitle()); throw e; });
-    ok('when the first video is unavailable, the next candidate plays (' + await host.evaluate(() => window.__ytLog.join(', ')) + ')');
+    await until(() => host.evaluate(() => window.__ytLog.length >= 2 && /_a$/.test(window.__ytLog[window.__ytLog.length - 1])), 10000, 'fallback video').catch(async (e) => { console.log('LOG', await host.evaluate(() => JSON.stringify(window.__ytLog)), await nowTitle()); throw e; });
+    const fallbackIds = await host.evaluate(() => window.__ytLog.slice());
+    const failedQuality = await until(() => cacheRecord(host, 'quality:' + fallbackIds[0]), 8000, 'failed playback feedback');
+    assert.strictEqual(failedQuality.value.failures, 1); ok('failed playback is recorded so the video is demoted in future rankings');
+    ok('when the first video is unavailable, the next acceptable candidate plays (' + fallbackIds.join(', ') + ')');
     await host.evaluate(() => { window.__ytFail = 'all'; });
     await new Promise((r) => setTimeout(r, 600));
     const tBefore = await nowTitle();
@@ -207,9 +216,18 @@ const yt = http.createServer((req, res) => {
     assert.ok(log.plItems === 1 && log.videoCalls === 1); ok('reading the playlist took one call for its songs and one for their details (about 2 quota units, not 100 per song)');
     const stored = await until(() => cacheRecord(host, 'pool:jazz'), 8000, 'pool cached');
     const titles = stored.value.map((t) => t.artist + ' - ' + t.title);
-    assert.strictEqual(stored.value.length, 17); assert.ok(stored.expiresAt - stored.at >= 29 * 86400000); ok('17 songs were kept and successful pools are cached for 30 days');
+    assert.strictEqual(stored.value.length, 17); assert.ok(stored.expiresAt - stored.at >= 29 * 86400000); ok('17 usable songs were kept and successful pools are cached for 30 days');
+    await host.waitForFunction(() => /17 tracks/.test(document.querySelector('#yt-catalogue-status') && document.querySelector('#yt-catalogue-status').textContent || ''), null, { timeout: 8000 });
+    ok('the host catalogue coverage count refreshes when discovery adds a pool');
     assert.ok(titles.includes('Dave Brubeck - Take Five') && titles.includes('Nina Simone - Feeling Good') && titles.includes('Miles Davis - So What')); ok('artist and title are read from "Artist - Song (Official Audio)" and from a "- Topic" channel');
-    assert.ok(!titles.some((t) => /Full Album|Cheek to Cheek|Blocked|Private/.test(t))); ok('hour-long uploads, live versions, videos that cannot be embedded and private videos were filtered out');
+    assert.ok(!titles.some((t) => /Full Album|Cheek to Cheek|Blocked|Private|Cover|Remix|Lyrics/.test(t))); ok('hour-long uploads, live versions, covers, remixes, lyric videos, videos that cannot be embedded and private videos were filtered out');
+    const orderedPool = await host.evaluate(async () => window.Providers.get('youtube').extras('jazz', []));
+    assert.strictEqual(orderedPool[0].id, 'plA2'); ok('official artist-channel uploads rank ahead of less authoritative playlist entries');
+    await host.evaluate(async () => { window.__ytFail = 'all'; });
+    assert.strictEqual(await host.evaluate(async () => window.Providers.get('youtube').play({ title: 'Take Five', artist: 'Dave Brubeck', nid: 'plA1' })), null);
+    await host.evaluate(() => { window.__ytFail = ''; });
+    const qualityPool = await host.evaluate(async () => window.Providers.get('youtube').extras('jazz', []));
+    assert.strictEqual(qualityPool[qualityPool.length - 1].id, 'plA1'); ok('a playlist video that fails playback is demoted in future catalogue ordering');
     await host.waitForFunction(() => /Pool Tune|Take Five|Feeling Good|So What/.test([...document.querySelectorAll('#queue .qrow')].map((e) => e.textContent).join(' ') + document.querySelector('#now-title').textContent), null, { timeout: 12000 }); ok('the queue now holds songs from the playlist');
     await host.evaluate(() => { window.__ytLog.length = 0; });
     for (let i = 0; i < 8 && !(await host.evaluate(() => window.__ytLog.some((v) => /^pl/.test(v)))); i++) { await host.click('#btn-next'); await new Promise((r) => setTimeout(r, 900)); }

@@ -6,7 +6,10 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   var STOP = { the: 1, a: 1, an: 1, and: 1, of: 1, feat: 1, ft: 1, featuring: 1, with: 1, official: 1, video: 1, audio: 1, lyrics: 1, lyric: 1, music: 1, hd: 1, hq: 1 };
   // Versions of a song we do not want unless the wanted title asks for them.
-  var BAD = /\b(cover|karaoke|reaction|tutorial|lesson|8d|slowed|nightcore|sped up|instrumental|remix|mashup|live|tribute|made famous|in the style of|originally performed)\b/i;
+  var BAD = /\b(karaoke|reaction|tutorial|lesson|8d|slowed|nightcore|sped up|instrumental|remix|mashup|tribute|made famous|in the style of|originally performed|lyrics?|fan.?made|unofficial|bootleg)\b/i;
+  var COVER = /(?:[([{]\s*cover\b|\bcover\s+(?:version|by|song)\b|\bcovered by\b|\bfan cover\b|\bcover\s*$)/i;
+  var LIVE_VERSION = /(?:\blive\s+(?:at|in|from|on|version|recording|performance|session)\b|[([{]\s*live\b|\s[-\u2013\u2014]\s*live(?:\s+(?:at|in|from|on|version|recording|performance|session)\b|$)|\blive\s*$)/i;
+  function badVersion(title) { return BAD.test(title || '') || COVER.test(title || '') || LIVE_VERSION.test(title || ''); }
 
   // Karaoke and tribute acts are the only artist names worth rejecting (a band may really be called "Live").
   var ARTIST_BAD = /\b(karaoke|tribute|cover band|made famous)\b/i;
@@ -56,14 +59,14 @@
     var title = wt.length ? Math.max(0, inter / wt.length - 0.5 * (extra / Math.max(1, ct.length))) : 0;
     var bag = []; (cand.artists || []).forEach(function (a) { bag = bag.concat(core(a)); });
     var artist = coverage(artistWords(want.artist), bag);
-    var bad = (BAD.test(cand.title || '') || ARTIST_BAD.test((cand.artists || []).join(' '))) && !BAD.test(want.title || '');
+    var bad = (badVersion(cand.title) || ARTIST_BAD.test((cand.artists || []).join(' '))) && !badVersion(want.title);
     return { title: title, artist: artist, bad: bad, score: title * 2 + artist - (bad ? 1.5 : 0) + (cand.popularity ? cand.popularity / 1000 : 0) };
   }
   // Scores a video (YouTube): the title and channel name hold both song and artist, in any order.
   function scoreVideo(want, video) {
     var hay = core(video.title + ' ' + (video.channel || ''));
     var title = coverage(core(cleanTitle(want.title)), hay), artist = coverage(artistWords(want.artist), hay);
-    var bad = BAD.test(video.title || '') && !BAD.test(want.title || '');
+    var bad = badVersion(video.title) && !badVersion(want.title);
     var official = /vevo|official|topic/i.test(video.channel || '') ? 0.2 : 0;
     return { title: title, artist: artist, bad: bad, score: title * 2 + artist - (bad ? 1.5 : 0) + official };
   }
@@ -79,7 +82,7 @@
 
   // True for versions of a song we would not queue unasked: live, karaoke, remix, cover, compilations...
   var JUNK = /full album|playlist|compilation|\bmix\b|\bhours?\b|non-?stop|medley|top \d+|best of|reaction/i;
-  function isBad(title) { return BAD.test(title || '') || JUNK.test(title || ''); }
+  function isBad(title) { return badVersion(title) || JUNK.test(title || ''); }
 
   return { isBad: isBad, words: words, core: core, cleanTitle: cleanTitle, cleanArtist: cleanArtist, scoreTrack: scoreTrack, scoreVideo: scoreVideo, acceptable: acceptable, rank: rank };
 });
