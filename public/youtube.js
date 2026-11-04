@@ -9,8 +9,8 @@
 (function () {
   'use strict';
   var P = window.Providers, C = window.CONFIG || {}, el = P.el, state = P.state;
-  var KEY = 'rb-yt-key', LEGACY_CACHE = 'rb-yt-cache', LEGACY_POOLS = 'rb-yt-pools', CACHE_MAX = 3000, QUOTA_DAY = 'rb-yt-quota-day', API_NEXT = 'rb-yt-api-next';
-  var DB_NAME = 'room-blend-youtube', DB_VERSION = 1, DB_STORE = 'entries', DB_MIGRATION = 'rb-yt-idb-migrated';
+  var KEY = 'rb-yt-key', CACHE_MAX = 3000, QUOTA_DAY = 'rb-yt-quota-day', API_NEXT = 'rb-yt-api-next';
+  var DB_NAME = 'room-blend-youtube', DB_VERSION = 1, DB_STORE = 'entries';
   var cacheDbPromise = null, cacheMemory = Object.create(null), cacheWarning = '';
   var SEARCH_DAILY_LIMIT = 90, DISCOVERY_DAILY_LIMIT = 65, SEARCH_BUDGET_KEY = 'rb-yt-search-budget';
   var on = false, paused = true, busy = false, note = '', player = null, dock = null, cur = null, waiter = null, rctx = null;
@@ -27,7 +27,10 @@
     try { return JSON.parse(lsGet(key) || '{}') || {}; } catch (e) { return {}; }
   }
   function openCacheDb() {
-    if (!window.indexedDB) { cacheWarning = 'Persistent browser storage is unavailable; discoveries will only be cached until this tab closes.'; return Promise.resolve(null); }
+    if (!window.indexedDB) {
+      cacheWarning = 'Persistent browser storage is unavailable; discoveries will only be cached until this tab closes.';
+      return Promise.resolve(null);
+    }
     if (!cacheDbPromise) cacheDbPromise = new Promise(function (resolve, reject) {
       var request = indexedDB.open(DB_NAME, DB_VERSION);
       request.onupgradeneeded = function () {
@@ -37,42 +40,14 @@
       request.onsuccess = function () { resolve(request.result); };
       request.onerror = function () { reject(request.error || new Error('Could not open the browser cache')); };
       request.onblocked = function () { reject(new Error('The browser cache is blocked by another tab')); };
-    }).then(async function (db) {
-      if (lsGet(DB_MIGRATION) !== '1') {
-        var oldSearch = storedObject(LEGACY_CACHE), oldPools = storedObject(LEGACY_POOLS), now = Date.now();
-        await new Promise(function (resolve, reject) {
-          var tx = db.transaction(DB_STORE, 'readwrite'), store = tx.objectStore(DB_STORE);
-          Object.keys(oldSearch).forEach(function (key) {
-            var value = oldSearch[key], empty = !Array.isArray(value) || value.length === 0;
-            store.put({ id: 'search:' + key, kind: 'search', value: value, at: now, usedAt: now, expiresAt: now + (empty ? 6 : 30) * 86400000 });
-          });
-          Object.keys(oldPools).forEach(function (key) {
-            var pool = oldPools[key], tracks = pool && Array.isArray(pool.tracks) ? pool.tracks : [], at = pool && pool.at || now;
-            if (now - at >= (tracks.length ? 30 : 0.5) * 86400000) return;
-            store.put({ id: 'pool:' + key, kind: 'pool', value: tracks, at: at, usedAt: pool.usedAt || at, expiresAt: at + (tracks.length ? 30 : 0.5) * 86400000 });
-          });
-          tx.oncomplete = resolve; tx.onerror = function () { reject(tx.error || new Error('Could not migrate the browser cache')); }; tx.onabort = function () { reject(tx.error || new Error('Browser cache migration was interrupted')); };
-        });
-        lsDel(LEGACY_CACHE); lsDel(LEGACY_POOLS); lsSet(DB_MIGRATION, '1');
-      }
-      return db;
     }).catch(function () {
-      var now = Date.now(), oldSearch = storedObject(LEGACY_CACHE), oldPools = storedObject(LEGACY_POOLS);
-      Object.keys(oldSearch).forEach(function (key) {
-        var value = oldSearch[key], ttl = Array.isArray(value) && value.length ? 30 : 0.25;
-        cacheMemory['search:' + key] = { value: value, usedAt: now, expiresAt: now + ttl * 86400000 };
-      });
-      Object.keys(oldPools).forEach(function (key) {
-        var pool = oldPools[key], tracks = pool && Array.isArray(pool.tracks) ? pool.tracks : [], at = pool && pool.at || now;
-        var ttl = tracks.length ? 30 : 0.5;
-        if (now - at < ttl * 86400000) cacheMemory['pool:' + key] = { value: tracks, usedAt: now, expiresAt: at + ttl * 86400000 };
-      });
       cacheWarning = 'Persistent browser storage is unavailable; discoveries will only be cached until this tab closes.';
       if (rctx) rctx.status(cacheWarning);
       return null;
     });
     return cacheDbPromise;
   }
+
   async function cacheGet(id) {
     var local = cacheMemory[id];
     if (local && local.expiresAt > Date.now()) { local.usedAt = Date.now(); return local.value; }
