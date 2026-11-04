@@ -26,7 +26,7 @@ const cacheRecord = async (page, id) => {
   return records && records.find((record) => record.id === id);
 };
 
-const log = { searches: [], badKey: 0, params: [], plSearches: [], plItems: 0, videoCalls: 0, rateLimited: 0, apiRequests: 0, apiAt: [] };
+const log = { searches: [], badKey: 0, params: [], plSearches: [], chSearches: [], plItems: 0, videoCalls: 0, rateLimited: 0, apiRequests: 0, apiAt: [] };
 let quotaOut = false, rateLimitQuotaOut = false, poolOn = false, rateLimitVideoSearches = 0;
 // a playlist of song videos for "jazz songs": three good ones, 14 filler songs, and entries that must be filtered out
 const VIDEOS = {}, PLITEMS = [];
@@ -41,6 +41,7 @@ addVid('plA7', 'Dave Brubeck - Take Five (Cover Version)', 'Fan Covers', 'PT5M24
 addVid('plA8', 'Nina Simone - Feeling Good (Official Remix)', 'Remix Channel', 'PT2M55S');
 addVid('plA9', 'Ella Fitzgerald - Cheek to Cheek (Lyric Video)', 'Fan Lyrics', 'PT4M0S');
 for (let i = 0; i < 14; i++) addVid('plB' + i, 'Pool Artist ' + i + ' - Pool Tune ' + i + ' (Official Video)', 'Pool Artist ' + i, 'PT3M30S');
+const CHAN = 'UCdjcrocs0123456789abcde', CITEMS = [['chC1', 'Sock Hop Anthem'], ['chC2', 'DJ Crocs n Socks - Slide Into Friday']].map(([id, title]) => { VIDEOS[id] = { id, snippet: { title, channelTitle: 'DJ Crocs n Socks' }, contentDetails: { duration: 'PT3M20S' }, status: { embeddable: true, privacyStatus: 'public' } }; return { snippet: { title, resourceId: { videoId: id } } }; });
 const ZITEMS = [['plZ1', 'Zed Obscure - Zed Song One'], ['plZ2', 'Zed Obscure - Zed Song Two'], ['plZ3', 'Someone Else - Not Zed']].map(([id, title]) => { VIDEOS[id] = { id, snippet: { title, channelTitle: title.split(' - ')[0] }, contentDetails: { duration: 'PT3M10S' }, status: { embeddable: true, privacyStatus: 'public' } }; return { snippet: { title, resourceId: { videoId: id } } }; });
 PLITEMS.push({ snippet: { title: 'Private video', resourceId: { videoId: 'plPriv' } } });
 const SMALLITEMS = PLITEMS.slice(0, 6);
@@ -67,6 +68,10 @@ const yt = http.createServer((req, res) => {
     return res.end(JSON.stringify({ error: { code: 429, errors: [{ reason: 'userRateLimitExceeded' }] } }));
   }
   if (u.pathname.startsWith('/youtube/v3/') && quotaOut) return send(403, 'application/json', JSON.stringify({ error: { code: 403, errors: [{ reason: 'quotaExceeded' }] } }));
+  if (u.pathname === '/youtube/v3/search' && u.searchParams.get('type') === 'channel') {
+    const q = u.searchParams.get('q'); log.chSearches.push(q);
+    return send(200, 'application/json', JSON.stringify({ items: q === 'DJ Crocs & Socks' ? [{ id: { channelId: 'UCother00000000000000000a' }, snippet: { channelTitle: 'Totally Different' } }, { id: { channelId: CHAN }, snippet: { channelTitle: 'DJ Crocs n Socks' } }] : [] }));
+  }
   if (u.pathname === '/youtube/v3/search' && u.searchParams.get('type') === 'playlist') {
     const q = u.searchParams.get('q'); log.plSearches.push(q);
     if (poolOn && q === 'Zed Obscure greatest hits songs') return send(200, 'application/json', JSON.stringify({ items: [{ id: { playlistId: 'PLzed' }, snippet: { title: 'Zed Obscure Greatest Hits' } }] }));
@@ -74,7 +79,7 @@ const yt = http.createServer((req, res) => {
     if (poolOn && (q === 'jazz songs' || q === 'gospel blues songs')) return send(200, 'application/json', JSON.stringify({ items: [{ id: { playlistId: 'PLjazz' }, snippet: { title: 'Best Jazz Songs' } }] }));
     return send(200, 'application/json', JSON.stringify({ items: [] }));
   }
-  if (u.pathname === '/youtube/v3/playlistItems') { log.plItems++; const id = u.searchParams.get('playlistId'); return send(200, 'application/json', JSON.stringify({ items: id === 'PLzed' ? ZITEMS : id === 'PLsmall' ? SMALLITEMS : PLITEMS })); }
+  if (u.pathname === '/youtube/v3/playlistItems') { log.plItems++; const id = u.searchParams.get('playlistId'); return send(200, 'application/json', JSON.stringify({ items: id === 'UU' + CHAN.slice(2) ? CITEMS : id === 'PLzed' ? ZITEMS : id === 'PLsmall' ? SMALLITEMS : PLITEMS })); }
   if (u.pathname === '/youtube/v3/videos') { log.videoCalls++; return send(200, 'application/json', JSON.stringify({ items: u.searchParams.get('id').split(',').map((i) => VIDEOS[i]).filter(Boolean) })); }
   if (u.pathname === '/youtube/v3/search') {
     if (u.searchParams.get('key') !== GOOD) { log.badKey++; return send(400, 'application/json', JSON.stringify({ error: { code: 400, errors: [{ reason: 'keyInvalid' }] } })); }
@@ -265,6 +270,14 @@ const yt = http.createServer((req, res) => {
     const emptySearch = await cacheRecord(host, 'search:nowhere|artist');
     assert.ok(emptySearch && emptySearch.value.length === 0 && emptySearch.expiresAt - emptySearch.at <= 7 * 3600000); ok('empty video lookups expire after 6 hours and can be retried');
 
+    // ---- a smaller artist with no "greatest hits" playlist: their own channel's uploads are read instead ----
+    const dj = await host.evaluate(async (c) => { const r = await fetch('/api/rooms/' + c + '/guests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Dee', genres: ['jazz'], artists: ['DJ Crocs & Socks'] }) }); return r.ok ? r.json() : null; }, codeNow);
+    assert.ok(dj && dj.guestId);
+    await until(() => log.chSearches.includes('DJ Crocs & Socks'), 14000, 'artist channel search'); ok('no playlist found, so the host looks for the artist\'s own YouTube channel');
+    const djRec = await until(() => cacheRecord(host, 'pool:channel:dj crocs & socks'), 8000, 'channel pool cached'), djPool = { tracks: djRec.value };
+    assert.ok(djPool && djPool.tracks.length === 2 && djPool.tracks.every((t) => t.artist === 'DJ Crocs & Socks')); ok('the channel whose name matches (not "Totally Different") gave two songs, credited to the artist as named');
+    assert.ok(djPool.tracks.some((t) => t.title === 'Sock Hop Anthem') && djPool.tracks.some((t) => t.title === 'Slide Into Friday')); ok('a title with "Artist - " in front loses it; plain titles stay as they are');
+    await until(() => host.evaluate(() => /Sock Hop Anthem|Slide Into Friday/.test([...document.querySelectorAll('#queue .qrow')].map((e) => e.textContent).join(' ') + document.querySelector('#now-title').textContent)), 10000, 'dj in lineup'); ok('the artist\'s songs reach the lineup');
 
     // Keep a broad set of genre pools and merge updates made by another host tab.
     const cacheWriter = await ctx.newPage();

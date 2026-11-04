@@ -305,13 +305,10 @@
     var good = items.filter(function (it) { return !/\b(hours?|mix|study|sleep|full albums?)\b/i.test((it.snippet || {}).title || ''); });
     return ((good[0] || items[0] || {}).id || {}).playlistId || '';
   }
-  // Songs for one query ("blues rock"): the best matching playlist, read and filtered to single, embeddable songs.
-  async function poolQuery(q) {
-    var hit = await poolGet(q.q);
-    if (hit !== undefined) return hit;
-    var M = window.Match, pl = await playlistFor(q.q), ids = [], token = '';
-    if (!pl) { await poolPut(q.q, []); return []; }
-    for (var page = 0; page < 2; page++) {
+  // Reads a playlist's videos and keeps single, embeddable songs. parse(title, channel) returns {title, artist} or null.
+  async function readPlaylist(pl, parse, pages) {
+    var M = window.Match, ids = [], token = '';
+    for (var page = 0; page < pages; page++) {
       var p = { part: 'snippet', maxResults: 50, playlistId: pl }; if (token) p.pageToken = token;
       var j = await yapi('/playlistItems', p);
       (j.items || []).forEach(function (it) { var id = it.snippet && it.snippet.resourceId && it.snippet.resourceId.videoId; if (id && !/^(Private|Deleted) video$/.test(it.snippet.title)) ids.push(id); });
@@ -323,12 +320,50 @@
       (v.items || []).forEach(function (it) {
         var st = it.status || {}, sn = it.snippet || {}, d = seconds((it.contentDetails || {}).duration);
         if (st.embeddable !== true || st.privacyStatus !== 'public' || d < 60 || d > 600 || M.isBad(sn.title)) return;
-        var t = parseVideo({ title: sn.title, channel: sn.channelTitle });
+        var t = parse(sn.title, sn.channelTitle);
         if (!t || seen[it.id]) return;
         seen[it.id] = 1; out.push({ title: t.title, artist: t.artist, id: it.id, quality: M.scoreVideo(t, { title: sn.title, channel: sn.channelTitle }).score });
       });
     }
+    return out;
+  }
+  // Songs for one query ("blues rock"): the best matching playlist, read and filtered to single, embeddable songs.
+  async function poolQuery(q) {
+    var hit = await poolGet(q.q);
+    if (hit !== undefined) return hit;
+    var pl = await playlistFor(q.q);
+    if (!pl) { await poolPut(q.q, []); return []; }
+    var out = await readPlaylist(pl, function (title, channel) { return parseVideo({ title: title, channel: channel }); }, 2);
     await poolPut(q.q, out);
+    return qualityOrder(out);
+  }
+  // Share of a named artist's words found in a channel or credit name ("DJ Crocs & Socks" vs "DJ Crocs n Socks" still matches).
+  function nameFit(name, other) {
+    var M = window.Match, want = M.core(name), have = {};
+    M.core(other).forEach(function (w) { have[w] = 1; });
+    if (!want.length) return 0;
+    return want.filter(function (w) { return have[w]; }).length / want.length;
+  }
+  // A smaller artist often has no "greatest hits" playlist but does have their own channel: find it and read its uploads.
+  // Costs one search (100 units) and a few units to read; the result is remembered like any other pool.
+  async function channelSongs(name) {
+    var key = 'channel:' + name.toLowerCase(), hit = await poolGet(key);
+    if (hit !== undefined) return hit;
+    var j = await yapi('/search', { part: 'snippet', type: 'channel', maxResults: 5, q: name }, null, 'discovery');
+    var best = null, bestFit = 0;
+    (j.items || []).forEach(function (it) {
+      var id = it && it.id && it.id.channelId, fit = id ? nameFit(name, (it.snippet || {}).channelTitle || (it.snippet || {}).title || '') : 0;
+      if (fit > bestFit) { best = id; bestFit = fit; }
+    });
+    if (!best || bestFit < 0.99 || !/^UC[\w-]{22}$/.test(best)) { await poolPut(key, []); return []; }
+    // Every channel's uploads are a playlist whose id is the channel id with UC changed to UU.
+    var M = window.Match;
+    var out = await readPlaylist('UU' + best.slice(2), function (title) {
+      var t = M.cleanTitle(title), m = /^(.+?)\s+[-\u2013\u2014|:]\s+(.+)$/.exec(t);
+      var song = m && nameFit(name, m[1]) >= 0.99 ? M.cleanTitle(m[2]) : t;
+      return song && song.length < 100 ? { title: song, artist: name } : null;
+    }, 2);
+    await poolPut(key, out);
     return qualityOrder(out);
   }
 
@@ -469,8 +504,9 @@
     // A named artist: one playlist search ("<artist> greatest hits"); the room keeps only that artist's songs.
     artistTracks: async function (name, genre) {
       try {
-        var got = await poolQuery({ q: name + ' greatest hits', tags: [genre] });
-        return qualityOrder(got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, genres: [genre] }; }));
+        var got = (await poolQuery({ q: name + ' greatest hits', tags: [genre] })).filter(function (t) { return nameFit(name, t.artist) >= 0.99; });
+        if (!got.length) got = await channelSongs(name);
+        return qualityOrder(got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: [genre] }; }));
       } catch (e) { note = e.message; if (rctx) rctx.status(e.message); return []; }
     },
     ready: function () { return on; },
