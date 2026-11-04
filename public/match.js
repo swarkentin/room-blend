@@ -7,7 +7,7 @@
   var STOP = { the: 1, a: 1, an: 1, and: 1, of: 1, feat: 1, ft: 1, featuring: 1, with: 1, official: 1, video: 1, audio: 1, lyrics: 1, lyric: 1, music: 1, hd: 1, hq: 1 };
   // Versions of a song we do not want unless the wanted title asks for them.
   var BAD = /\b(karaoke|reaction|tutorial|lesson|8d|slowed|nightcore|sped up|instrumental|remix|mashup|live|tribute|made famous|in the style of|originally performed|lyrics?|fan.?made|unofficial|bootleg)\b/i;
-  var COVER = /\b(cover(?: version)?|covered by)\b/i;
+  var COVER = /(?:[([{]\s*cover\b|\bcover\s+(?:version|by|song)\b|\bcovered by\b|\bfan cover\b|\bcover\s*$)/i;
 
   // Karaoke and tribute acts are the only artist names worth rejecting (a band may really be called "Live").
   var ARTIST_BAD = /\b(karaoke|tribute|cover band|made famous)\b/i;
