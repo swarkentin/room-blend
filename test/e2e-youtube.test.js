@@ -246,7 +246,7 @@ const yt = http.createServer((req, res) => {
         store.put({ id: 'search:cross tab cached|artist', kind: 'search', value: ['plA1'], at: now, usedAt: now, expiresAt: now + 30 * 86400000 });
         tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
       };
-    });
+    }));
     await cacheWriter.close();
     const beforeCrossTabCache = log.searches.length;
     const crossTabPlayback = await host.evaluate(async () => window.Providers.get('youtube').play({ title: 'Cross tab cached', artist: 'Artist' }));
