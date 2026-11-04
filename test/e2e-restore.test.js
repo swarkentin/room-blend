@@ -75,7 +75,7 @@ const getJson = (p) => new Promise((resolve) => http.get(APP + p, (res) => { con
     const diskName = host2.waitForResponse((r) => r.url().endsWith('/api/rooms/' + code2 + '/host/room') && r.request().method() === 'POST');
     await host2.fill('#room-name', 'Disk recovery');
     await diskName;
-    await until(() => { try { return JSON.parse(fs.readFileSync(path.join(dataDir, 'rooms.json'), 'utf8')).rooms.some((r) => r.code === code2); } catch (e) { return false; } }, 8000, 'disk room identities saved');
+    await until(() => { try { return JSON.parse(fs.readFileSync(path.join(dataDir, 'rooms.json'), 'utf8')).rooms.some((r) => r.code === code2 && r.name === 'Disk recovery'); } catch (e) { return false; } }, 8000, 'disk room identities saved');
     await until(async () => host2.evaluate((code) => new Promise((resolve) => {
       const open = indexedDB.open('room-blend-room-state', 1);
       open.onerror = () => resolve(false);
