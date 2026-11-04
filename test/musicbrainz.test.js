@@ -5,88 +5,119 @@ const { Room } = require('../lib/room');
 
 (async () => {
   let requests = 0, requestedUrl = '';
+  const artistIds = {
+    tool: '11111111-1111-1111-1111-111111111111',
+    nada: '22222222-2222-2222-2222-222222222222',
+    bach: '33333333-3333-3333-3333-333333333333',
+  };
   const client = createClient({
     intervalMs: 0,
     fetchImpl: async (url, options) => {
       requests++;
       requestedUrl = String(url);
+      const parsed = new URL(requestedUrl), path = parsed.pathname, query = parsed.searchParams.get('query') || '';
       assert.ok(options.headers['User-Agent'].startsWith('RoomBlend/'));
-      if (new URL(requestedUrl).searchParams.get('query').includes('Bach')) {
-        return {
+      if (path.endsWith('/artist/')) {
+        if (query.includes('Bach')) return {
           ok: true,
           json: async () => ({ artists: [{
-            name: 'Johann Sebastian Bach', score: 100, aliases: [{ name: 'Bach' }],
-            tags: [{ name: 'classical', count: 40 }, { name: 'baroque', count: 30 }],
+            id: artistIds.bach, name: 'Johann Sebastian Bach', score: 100, aliases: [{ name: 'Bach' }],
+            tags: [{ name: 'jazz', count: 900 }],
           }] }),
         };
-      }
-      if (new URL(requestedUrl).pathname.endsWith('/recording/')) {
+        if (query.includes('Nada Surf')) return {
+          ok: true,
+          json: async () => ({ artists: [{
+            id: artistIds.nada, name: 'Nada Surf', score: 100,
+            tags: [{ name: 'jazz', count: 900 }],
+          }] }),
+        };
         return {
           ok: true,
-          json: async () => ({ recordings: [
-            { title: 'Schism', score: 100, 'artist-credit': [{ name: 'Tool' }] },
-            { title: 'Wrong', score: 40, 'artist-credit': [{ name: 'Other' }] },
+          json: async () => ({ artists: [
+            { id: artistIds.tool, name: 'Tool', score: 100, tags: [{ name: 'jazz', count: 900 }] },
+            { id: '44444444-4444-4444-4444-444444444444', name: 'Tool', score: 70, tags: [{ name: 'classical', count: 50 }] },
           ] }),
         };
       }
-      if (new URL(requestedUrl).pathname.endsWith('/release-group/')) {
-        return {
-          ok: true,
-          json: async () => ({ 'release-groups': [
-            { id: '12345678-1234-1234-1234-123456789abc', title: 'Lateralus', score: 100, 'artist-credit': [{ name: 'Tool' }] },
-          ] }),
-        };
-      }
-      if (new URL(requestedUrl).pathname.endsWith('/release-group/12345678-1234-1234-1234-123456789abc')) {
+      if (path.endsWith('/artist/' + artistIds.tool)) return {
+        ok: true,
+        json: async () => ({ genres: [
+          { name: 'progressive metal', count: 41 },
+          { name: 'metal', count: 5 },
+          { name: 'progressive rock', count: 20 },
+          { name: 'post-metal', count: 1 },
+          { name: 'classical', count: 0 },
+          { name: 'christmas', count: 100 },
+        ] }),
+      };
+      if (path.endsWith('/artist/' + artistIds.nada)) return {
+        ok: true,
+        json: async () => ({ genres: [
+          { name: 'alternative rock', count: 40 },
+          { name: 'indie rock', count: 30 },
+          { name: 'rock', count: 20 },
+        ] }),
+      };
+      if (path.endsWith('/artist/' + artistIds.bach)) return {
+        ok: true,
+        json: async () => ({ genres: [
+          { name: 'classical', count: 40 },
+          { name: 'baroque', count: 30 },
+        ] }),
+      };
+      if (path.endsWith('/recording/')) return {
+        ok: true,
+        json: async () => ({ recordings: [
+          { title: 'Schism', score: 100, 'artist-credit': [{ name: 'Tool' }] },
+          { title: 'Wrong', score: 40, 'artist-credit': [{ name: 'Other' }] },
+        ] }),
+      };
+      if (path.endsWith('/release-group/')) return {
+        ok: true,
+        json: async () => ({ 'release-groups': [
+          { id: '12345678-1234-1234-1234-123456789abc', title: 'Lateralus', score: 100, 'artist-credit': [{ name: 'Tool' }] },
+        ] }),
+      };
+      if (path.endsWith('/release-group/12345678-1234-1234-1234-123456789abc')) {
         return { ok: true, json: async () => ({ releases: [{ id: '00000000-0000-0000-0000-000000000001' }] }) };
       }
-      if (new URL(requestedUrl).pathname.endsWith('/release/00000000-0000-0000-0000-000000000001')) {
-        return {
-          ok: true,
-          json: async () => ({
-            'artist-credit': [{ name: 'Tool' }],
-            media: [{ tracks: [
-              { title: 'Track One', recording: { 'artist-credit': [{ name: 'Tool' }] } },
-              { title: 'Track Two' },
-              { title: 'Track One', recording: { 'artist-credit': [{ name: 'Tool' }] } },
-              { title: 'Track Three' },
-              { title: 'Track Four' },
-              { title: 'Track Five' },
-              { title: 'Track Six' },
-            ] }],
-          }),
-        };
-      }
-      return {
+      if (path.endsWith('/release/00000000-0000-0000-0000-000000000001')) return {
         ok: true,
         json: async () => ({
-          artists: [
-            { name: 'Tool', score: 100, tags: [
-              { name: 'progressive metal', count: 41 },
-              { name: 'metal', count: 5 },
-              { name: 'progressive rock', count: 20 },
-              { name: 'post-metal', count: 1 },
-              { name: 'classical', count: 0 },
-              { name: 'christmas', count: 100 },
-            ] },
-            { name: 'Tool', score: 70, tags: [{ name: 'classical', count: 50 }] },
-          ],
+          'artist-credit': [{ name: 'Tool' }],
+          media: [{ tracks: [
+            { title: 'Track One', recording: { 'artist-credit': [{ name: 'Tool' }] } },
+            { title: 'Track Two' },
+            { title: 'Track One', recording: { 'artist-credit': [{ name: 'Tool' }] } },
+            { title: 'Track Three' },
+            { title: 'Track Four' },
+            { title: 'Track Five' },
+            { title: 'Track Six' },
+          ] }],
         }),
       };
+      throw new Error('unexpected MusicBrainz path: ' + path);
     },
   });
   const tags = await client.lookupArtist('Tool');
-  assert.ok(new URL(requestedUrl).searchParams.get('query').includes('artist:"Tool"'));
+  assert.ok(new URL(requestedUrl).searchParams.get('inc') === 'genres', 'the second request fetches curated genres by MBID');
   assert.ok(tags.some((x) => x.genre === 'metal'));
-  assert.ok(tags.some((x) => x.genre === 'post-rock') === false);
+  assert.ok(tags.some((x) => x.genre === 'rock'));
+  assert.ok(!tags.some((x) => x.genre === 'jazz'), 'arbitrary tags returned by search are ignored');
   assert.ok(!tags.some((x) => x.genre === 'classical'));
   assert.ok(!tags.some((x) => x.genre === 'christmas'), 'holiday styles cannot be inferred');
   assert.deepStrictEqual(await client.lookupArtist('tool'), tags);
-  assert.strictEqual(requests, 1, 'cached lookups avoid another MusicBrainz request');
+  assert.strictEqual(requests, 2, 'cached lookups avoid repeating either MusicBrainz request');
+  const nada = await client.lookupArtist('Nada Surf');
+  assert.ok(nada.some((x) => x.genre === 'alternative'));
+  assert.ok(nada.some((x) => x.genre === 'indie'));
+  assert.ok(nada.some((x) => x.genre === 'rock'));
+  assert.ok(!nada.some((x) => x.genre === 'jazz'), 'Nada Surf is classified from its actual MusicBrainz genres');
   const bach = await client.lookupArtist('Bach');
   assert.ok(bach.some((x) => x.genre === 'classical'), 'exact aliases resolve canonical artist names');
-  console.log('  ok  MusicBrainz maps positive community tags, exact aliases, and cached artist lookups');
-
+  console.log('  ok  MusicBrainz resolves exact artist MBIDs, fetches curated genres, and caches results');
+  
   const found = await client.search('Schism');
   assert.deepStrictEqual(found.songs[0], { title: 'Schism', artist: 'Tool', source: 'musicbrainz' });
   assert.strictEqual(found.albums[0].title, 'Lateralus');
