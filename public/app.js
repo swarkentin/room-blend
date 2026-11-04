@@ -23,15 +23,18 @@
   function songAutocomplete(code, titleInput, artistInput, status, headers) {
     var results = h('div', { class: 'song-suggestions', role: 'list', 'aria-label': 'Matching songs' });
     artistInput.insertAdjacentElement('afterend', results);
-    var timer = null, sequence = 0, searchValue = '';
+    var timer = null, sequence = 0;
     function clear() { results.replaceChildren(); results.hidden = true; }
     async function search() {
-      var q = searchValue, mine = ++sequence;
+      var title = titleInput.value.trim(), artist = artistInput.value.trim(), q = title || artist, mine = ++sequence;
       clear(); status.textContent = '';
       if (q.length < 2) return;
       status.textContent = 'Looking for matching songs…';
+      var params = new URLSearchParams();
+      if (title) params.set('title', title);
+      if (artist) params.set('artist', artist);
       var response;
-      try { response = await http('GET', '/api/rooms/' + code + '/search?q=' + encodeURIComponent(q), null, headers || {}); }
+      try { response = await http('GET', '/api/rooms/' + code + '/search?' + params.toString(), null, headers || {}); }
       catch (e) { if (mine === sequence) status.textContent = 'Song suggestions are unavailable. You can still enter the song yourself.'; return; }
       if (mine !== sequence) return;
       var songs = response.ok && response.data && Array.isArray(response.data.songs) ? response.data.songs : [];
@@ -57,8 +60,7 @@
       });
       status.textContent = 'Choose a match, or keep typing your own song.';
     }
-    function changed(event) {
-      searchValue = event.currentTarget.value.trim();
+    function changed() {
       clearTimeout(timer);
       sequence++;
       clear();
