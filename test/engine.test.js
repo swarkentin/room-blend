@@ -7,6 +7,18 @@ let n = 0; const ok = (s) => { n++; console.log('  ok  ' + s); };
 const person = (id, genres) => ({ id, taste: Object.fromEntries(genres.map((g, i) => [g, [4, 3, 2, 1][i]])) });
 const prim = (q) => q.map((x) => x.track.genres[0]);
 
+// A named artist must not be suppressed by the normal recent-artist diversity rule.
+const artistTracks = [
+  ...Array.from({ length: 5 }, (_, i) => ({ id: 'tool-' + i, title: 'Tool Song ' + i, artist: 'Tool', genres: ['metal', 'rock'] })),
+  ...Array.from({ length: 12 }, (_, i) => ({ id: 'other-' + i, title: 'Other Song ' + i, artist: 'Other Artist ' + i, genres: [i % 2 ? 'rock' : 'alternative'] })),
+];
+const namedSolo = E.buildQueue([{ id: 'listener', taste: { metal: 4, rock: 3, alternative: 2 }, artists: ['Tool'] }], {
+  catalog: E.makeCatalog(artistTracks), n: 5, seed: 7, recentArtists: ['Tool'],
+});
+assert.ok(namedSolo.queue.filter((x) => x.track.artist === 'Tool').length >= 3,
+  'a named artist should recur even when that artist was recently played');
+ok('a solo guest who names an artist hears that artist frequently, despite the recent-artist cooldown');
+
 assert.ok(tracks.length >= 4500); assert.strictEqual(E.GENRES.length, 62); ok('catalogue has ' + tracks.length + ' tracks, 62 genres');
 assert.strictEqual(new Set(E.GENRES).size, 62);
 for (const [pick, expected] of [['80s', 'synth pop'], ['90s', 'hip hop'], ['rap', 'hip hop'], ['phonk', 'trap'], ['korean pop', 'k-pop']]) {
