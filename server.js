@@ -310,6 +310,7 @@ async function api(req, res, url) {
     }
     nr.recoveryNeeded = false;
     rooms.set(code, nr);
+    notify(code);
     for (const guest of nr.guests.values()) {
       if (guest.lookupGenres && !guest.genres.length && ['idle', 'pending'].includes(guest.genreLookupStatus)) enrichGuestGenres(code, nr, guest);
     }
