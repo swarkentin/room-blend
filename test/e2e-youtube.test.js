@@ -14,12 +14,6 @@ let passed = 0; const ok = (s) => { passed++; console.log('  ok  ' + s); };
 const until = async (fn, ms = 10000, what = 'condition') => { const t0 = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) throw new Error('timeout: ' + what); await new Promise((r) => setTimeout(r, 100)); } };
 const cacheRecord = async (page, id) => page.evaluate(async (id) => {
   const db = await (async () => {
-    const deadline = Date.now() + 8000;
-    while (Date.now() < deadline) {
-      const databases = await indexedDB.databases();
-      if (databases.some((item) => item.name === 'room-blend-youtube')) break;
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
     const databases = await indexedDB.databases();
     if (!databases.some((item) => item.name === 'room-blend-youtube')) return null;
     const request = indexedDB.open('room-blend-youtube');
