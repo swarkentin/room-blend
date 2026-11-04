@@ -41,7 +41,7 @@
         var db = req.result;
         // Recovery receipts expire after 30 days by default; discard older ciphertext as well.
         try {
-          var tx = db.transaction(ROOM_STORE, 'readwrite'), cursor = tx.objectStore(ROOM_STORE).openCursor(), cutoff = Date.now() - 30 * 86400000;
+          var tx = db.transaction(ROOM_STORE, 'readwrite'), cursor = tx.objectStore(ROOM_STORE).openCursor(), cutoff = Date.now() - Math.max(1, Number(C.restoreDays) || 30) * 86400000;
           cursor.onsuccess = function () {
             var item = cursor.result;
             if (!item) return;
