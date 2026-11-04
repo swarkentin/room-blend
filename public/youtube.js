@@ -315,7 +315,7 @@
   }
 
   // A video that would not play goes to the back of the song's list, so next time the others are tried first.
-  function demote(track, id) {
+  async function demote(track, id) {
     var ck = (track.title + '|' + track.artist).toLowerCase(), hit = await cacheGet('search:' + ck);
     if (Array.isArray(hit) && hit.indexOf(id) >= 0) await cachePut('search:' + ck, hit.filter(function (x) { return x !== id; }).concat(id), 'search', 30);
   }
@@ -462,7 +462,7 @@
         var r = await tryVideo(tries[i]);
         if (r === true) return true;
         if (r === false) return false;
-        demote(track, tries[i]); // null: this video is unavailable or not embeddable, try the next one
+        await demote(track, tries[i]); // null: this video is unavailable or not embeddable, try the next one
       }
       note = '"' + track.title + '" has no playable video on YouTube, so it was skipped.';
       return null;
