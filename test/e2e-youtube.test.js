@@ -234,6 +234,16 @@ const yt = http.createServer((req, res) => {
     await until(() => log.plSearches.includes('80s classic rock songs') && log.plSearches.includes('80s new wave songs'), 20000, 'era-specific playlist searches');
     ok('an 80s pick triggers decade-qualified searches for representative genres');
 
+    const emptyArtist = await host.evaluate(async () => window.Providers.get('youtube').artistTracks('No Such Artist', 'rock'));
+    assert.deepStrictEqual(emptyArtist, []);
+    const emptyPool = await cacheRecord(host, 'pool:No Such Artist greatest hits');
+    assert.ok(emptyPool && emptyPool.value.length === 0 && emptyPool.expiresAt - emptyPool.at <= 13 * 3600000); ok('empty playlist discoveries are negatively cached for only 12 hours');
+    const emptySearchPlayback = await host.evaluate(async () => window.Providers.get('youtube').play({ title: 'Nowhere', artist: 'Artist' }));
+    assert.strictEqual(emptySearchPlayback, null);
+    const emptySearch = await cacheRecord(host, 'search:nowhere|artist');
+    assert.ok(emptySearch && emptySearch.value.length === 0 && emptySearch.expiresAt - emptySearch.at <= 7 * 3600000); ok('empty video lookups expire after 6 hours and can be retried');
+
+
     // Keep a broad set of genre pools and merge updates made by another host tab.
     const cacheWriter = await ctx.newPage();
     await cacheWriter.goto(APP);
