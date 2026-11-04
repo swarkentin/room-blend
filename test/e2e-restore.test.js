@@ -34,6 +34,25 @@ const getJson = (p) => new Promise((resolve) => http.get(APP + p, (res) => { con
     const guest = await ctx(); await guest.goto(`${APP}/${code}`); await guest.waitForSelector('#gv-form');
     await guest.click('#gv-picker [data-g="rock"]'); await guest.click('#gv-submit'); await guest.waitForSelector('#gv-title');
     ok('a guest joins with rock');
+    await until(async () => host.evaluate((code) => new Promise((resolve) => {
+      const open = indexedDB.open('room-blend-room-state', 1);
+      open.onerror = () => resolve(false);
+      open.onsuccess = () => {
+        const req = open.result.transaction('snapshots', 'readonly').objectStore('snapshots').get(code);
+        req.onsuccess = () => resolve(!!(req.result && req.result.snapshot && req.result.version > 0));
+        req.onerror = () => resolve(false);
+      };
+    }), code), 10000, 'encrypted room checkpoint');
+    const saved = await host.evaluate((code) => new Promise((resolve) => {
+      const open = indexedDB.open('room-blend-room-state', 1);
+      open.onsuccess = () => {
+        const req = open.result.transaction('snapshots', 'readonly').objectStore('snapshots').get(code);
+        req.onsuccess = () => resolve(req.result);
+      };
+      open.onerror = () => resolve(null);
+    }), code);
+    assert.ok(!saved.snapshot.includes('Guest') && !saved.snapshot.includes('rock'), 'the browser stores opaque ciphertext, not readable room data');
+    ok('the host browser checkpoints encrypted room state in IndexedDB');
 
     await stop(srv); srv = await start();
     assert.strictEqual((await getJson('/api/rooms/' + code)).status, 404); ok('the restarted server has forgotten the room');
