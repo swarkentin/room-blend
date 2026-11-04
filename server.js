@@ -278,7 +278,7 @@ async function api(req, res, url) {
   // POST /api/rooms/:code/restore  -> a host's browser brings back a room the server forgot (restart, redeploy, sleep).
   // The signed receipt proves this server issued that host key for that code, so nobody can claim a code they were never given.
   if (parts[0] === 'rooms' && parts[2] === 'restore' && parts.length === 3 && m === 'POST') {
-    const body = await readBody(req);
+    const body = await readBody(req, 9 * 1024 * 1024);
     const hostKey = typeof body.hostKey === 'string' ? body.hostKey : '';
     if (!/^[A-HJ-NP-Z2-9]{5}$/.test(code) || !/^[A-Za-z0-9_-]{16,64}$/.test(hostKey) || !getRestorer().verify(code, hostKey, body.token)) {
       L.count('rooms.restore_refused');
@@ -292,8 +292,16 @@ async function api(req, res, url) {
     if (rooms.size >= MAX_ROOMS) { L.count('limits.full'); return sendJson(res, 503, { error: 'The service is full right now. Try again later.' }); }
     const nr = new Room(code, hostKey);
     nr.netKey = netKeyOf(ip);
-    nr.setInfo({ name: body.name, discoverable: body.discoverable });
-    if (body.opts && typeof body.opts === 'object') nr.setOpts(body.opts);
+    if (body.snapshot !== undefined) {
+      const snapshot = getRestorer().decryptSnapshot(code, hostKey, body.snapshot);
+      if (!snapshot || !nr.restoreSnapshot(snapshot)) {
+        L.count('rooms.restore_snapshot_refused');
+        return sendJson(res, 400, { error: 'The saved room state is invalid or could not be decrypted.' });
+      }
+    } else {
+      nr.setInfo({ name: body.name, discoverable: body.discoverable });
+      if (body.opts && typeof body.opts === 'object') nr.setOpts(body.opts);
+    }
     rooms.set(code, nr);
     saveRooms();
     L.count('rooms.restored');
@@ -418,6 +426,10 @@ async function api(req, res, url) {
     if (act === 'advance' && m === 'POST') { room.advance(); }
     else if (act === 'opts' && m === 'POST') { room.setOpts(body); saveRooms(); }
     else if (act === 'room' && m === 'POST') { room.setInfo(body); saveRooms(); }
+    else if (act === 'snapshot' && m === 'GET') {
+      const snapshot = getRestorer().encryptSnapshot(code, room.hostKey, room.snapshot());
+      return sendJson(res, 200, { version: room.version, snapshot });
+    }
     else if (act === 'guests' && parts.length === 4 && m === 'POST') {
       const g = room.addGuest(body.name, body.genres, { manual: true });
       if (!g) return sendJson(res, 400, { error: 'pick at least one genre' });
