@@ -461,7 +461,7 @@ async function api(req, res, url) {
     }
     else if (act === 'library' && m === 'DELETE') { room.clearLibrary(); }
     else if (act === 'extras' && m === 'POST') { if (body.reset === true) room.clearExtras(); else room.addExtras(body.genre, body.tracks, { pool: body.pool === true, source: body.source, artist: typeof body.artist === 'string' ? body.artist : undefined }); }
-    else if (act === 'reset' && m === 'POST') { L.info('room.reset', { room: L.roomTag(code) }); rooms.set(code, Object.assign(new Room(code, room.hostKey), { opts: room.opts })); subs.get(code)?.forEach((s) => s.res.end()); }
+    else if (act === 'reset' && m === 'POST') { L.info('room.reset', { room: L.roomTag(code) }); const fresh = new Room(code, room.hostKey); fresh.opts = { ...room.opts }; fresh.version = room.version + 1; rooms.set(code, fresh); subs.get(code)?.forEach((s) => s.res.end()); }
     else return sendJson(res, 404, { error: 'unknown action' });
     notify(code);
     return sendJson(res, 200, { ok: true });
