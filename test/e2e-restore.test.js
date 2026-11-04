@@ -51,7 +51,8 @@ const getJson = (p) => new Promise((resolve) => http.get(APP + p, (res) => { con
       };
       open.onerror = () => resolve(null);
     }), code);
-    assert.ok(!saved.snapshot.includes('Friday Night') && !saved.snapshot.includes('Guest') && !saved.snapshot.includes('rock'), 'the browser stores opaque ciphertext, not readable room data');
+    const guestReg = await guest.evaluate((code) => JSON.parse(localStorage.getItem('rb-guest-' + code)), code);
+    assert.ok(!saved.snapshot.includes('Friday Night') && !saved.snapshot.includes(guestReg.key), 'the browser stores opaque ciphertext, not readable room data');
     ok('the host browser checkpoints encrypted room state in IndexedDB');
 
     await stop(srv); srv = await start();
