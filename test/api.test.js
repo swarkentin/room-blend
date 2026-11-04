@@ -100,6 +100,21 @@ function sse(path) {
   const sv = await host.waitFor((s) => s.now && s.now.votes && s.now.votes.down === 1); ok('votes reach the host');
   assert.strictEqual((await req('POST', `/api/rooms/${code}/vote`, { v: 'up' }, { 'x-guest-id': a.guestId, 'x-guest-key': 'bad' })).status, 401); ok('vote needs the guest key');
 
+  // advance and player events
+  const first = sv.now.track.id, second = sv.queue[0].track.id;
+  await req('POST', `/api/rooms/${code}/host/advance`, {}, H);
+  const s2 = await host.waitFor((s) => s.now && s.now.track.id !== first);
+  assert.strictEqual(s2.now.track.id, second); ok('advance moves to the next queued song');
+  await req('POST', `/api/rooms/${code}/host/player`, { event: 'ended', trackId: first }, H);
+  await new Promise((r) => setTimeout(r, 200));
+  assert.strictEqual(host.last().now.track.id, second); ok('a stale ended event is ignored');
+  await req('POST', `/api/rooms/${code}/host/player`, { event: 'ended', trackId: second }, H);
+  const s3 = await host.waitFor((s) => s.now && s.now.track.id !== second); ok('ended event advances');
+  const third = s3.now.track.id;
+  await req('POST', `/api/rooms/${code}/host/player`, { event: 'unplayable', trackId: third }, H);
+  const s4 = await host.waitFor((s) => s.now && s.now.track.id !== third); ok('unplayable track is skipped');
+  assert.ok(!s4.queue.some((q) => q.track.id === third) && s4.now.track.id !== third);
+
   // jukebox requests are free-form and independent of the room catalogue
   const rq1 = await req('POST', `/api/rooms/${code}/request`, { title: 'A song not in the catalogue', artist: 'An unfamiliar artist' }, A);
   assert.strictEqual(rq1.status, 200);
@@ -120,21 +135,6 @@ function sse(path) {
   for (const request of withHost.requests) await req('POST', `/api/rooms/${code}/host/requests`, { remove: true, id: request.id }, H);
   assert.strictEqual((await req('POST', `/api/rooms/${code}/host/requests`, { remove: true, id: 'missing' }, H)).status, 404);
   ok('guest requests accept arbitrary songs, enforce a host-toggleable limit, and host can add/remove requests');
-
-  // advance and player events
-  const first = sv.now.track.id, second = sv.queue[0].track.id;
-  await req('POST', `/api/rooms/${code}/host/advance`, {}, H);
-  const s2 = await host.waitFor((s) => s.now && s.now.track.id !== first);
-  assert.strictEqual(s2.now.track.id, second); ok('advance moves to the next queued song');
-  await req('POST', `/api/rooms/${code}/host/player`, { event: 'ended', trackId: first }, H);
-  await new Promise((r) => setTimeout(r, 200));
-  assert.strictEqual(host.last().now.track.id, second); ok('a stale ended event is ignored');
-  await req('POST', `/api/rooms/${code}/host/player`, { event: 'ended', trackId: second }, H);
-  const s3 = await host.waitFor((s) => s.now && s.now.track.id !== second); ok('ended event advances');
-  const third = s3.now.track.id;
-  await req('POST', `/api/rooms/${code}/host/player`, { event: 'unplayable', trackId: third }, H);
-  const s4 = await host.waitFor((s) => s.now && s.now.track.id !== third); ok('unplayable track is skipped');
-  assert.ok(!s4.queue.some((q) => q.track.id === third) && s4.now.track.id !== third);
 
   // sit out, edit, host controls
   await req('PATCH', `/api/rooms/${code}/guests/${b.guestId}`, { sit: true, genres: ['soul'] }, B);
