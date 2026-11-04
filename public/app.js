@@ -23,11 +23,10 @@
   function songAutocomplete(code, titleInput, artistInput, status, headers) {
     var results = h('div', { class: 'song-suggestions', role: 'list', 'aria-label': 'Matching songs' });
     artistInput.insertAdjacentElement('afterend', results);
-    var timer = null, sequence = 0;
+    var timer = null, sequence = 0, searchValue = '';
     function clear() { results.replaceChildren(); results.hidden = true; }
     async function search() {
-      var title = titleInput.value.trim(), artist = artistInput.value.trim();
-      var q = title || artist, mine = ++sequence;
+      var q = searchValue, mine = ++sequence;
       clear(); status.textContent = '';
       if (q.length < 2) return;
       status.textContent = 'Looking for matching songs…';
@@ -58,7 +57,8 @@
       });
       status.textContent = 'Choose a match, or keep typing your own song.';
     }
-    function changed() {
+    function changed(event) {
+      searchValue = event.currentTarget.value.trim();
       clearTimeout(timer);
       sequence++;
       clear();
