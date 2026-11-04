@@ -123,6 +123,12 @@ const { Room } = require('../lib/room');
   assert.strictEqual(found.albums[0].title, 'Lateralus');
   assert.ok(found.artists.some((x) => x.name === 'Tool'));
   console.log('  ok  MusicBrainz search returns artist, recording and release-group matches');
+  const foundByBoth = await client.search('Schism', 'Tool');
+  assert.deepStrictEqual(foundByBoth.songs[0], { title: 'Schism', artist: 'Tool', source: 'musicbrainz' });
+  const combinedQuery = new URL(requestedUrl).searchParams.get('query');
+  assert.ok(combinedQuery.includes('recording:"Schism" AND artist:"Tool"'), combinedQuery);
+  assert.deepStrictEqual(foundByBoth.artists, [], 'combined song searches do not return artist-only matches');
+  console.log('  ok  combined jukebox search requires both recording title and artist');
 
   const withTracks = createClient({
     intervalMs: 0,
