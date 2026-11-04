@@ -36,6 +36,21 @@ assert.equal(restored.nowItem.request.requester, 'Guest Two', 'requesters rotate
 restored.advance();
 assert.notEqual(restored.nowItem.mode, 'request');
 
+// Position estimates include the blend songs required by the two-request burst limit.
+const positionRoom = new Room('JUKE2', 'p'.repeat(32));
+const p1 = positionRoom.addGuest('One', ['rock'], { immediate: true });
+const p2 = positionRoom.addGuest('Two', ['jazz'], { immediate: true });
+const pReq1 = positionRoom.addRequest(p1.id, 'Position One', 'Artist One').request;
+const pReq2 = positionRoom.addRequest(p2.id, 'Position Two', 'Artist Two').request;
+let positions = positionRoom.requestPositions();
+assert.equal(positions.get(pReq1.id), 1);
+assert.equal(positions.get(pReq2.id), 2);
+positionRoom.requestStreak = 2;
+positionRoom.lastRequestGuest = p2.id;
+positions = positionRoom.requestPositions();
+assert.equal(positions.get(pReq1.id), 2, 'a blend song plays after two requests');
+assert.equal(positions.get(pReq2.id), 3, 'a later request waits behind the blend song');
+
 // The host can add and remove requests; removing a guest also removes their pending requests.
 const hostRequest = restored.addRequest('', 'Host Song', 'Host Artist', true);
 assert.equal(hostRequest.ok, true);
