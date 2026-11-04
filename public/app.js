@@ -288,6 +288,9 @@
         h('span', { class: 'tv-cast-orb orb-one' }),
         h('span', { class: 'tv-cast-orb orb-two' }),
         h('span', { class: 'tv-cast-orb orb-three' }),
+        h('div', { class: 'tv-cast-rings' }),
+        h('div', { class: 'tv-cast-grid' }),
+        h('div', { class: 'tv-cast-glow' }),
         h('div', { class: 'tv-cast-spectrum' }, tvCastBars),
       ]),
       h('div', { class: 'tv-cast-join' }, [
@@ -307,7 +310,10 @@
         ]),
         h('div', { class: 'tv-cast-next-wrap' }, [h('h2', { text: 'Coming up' }), h('ol', { id: 'tv-cast-next', class: 'tv-cast-next' })]),
       ]),
-      h('button', { class: 'btn tv-cast-exit', id: 'tv-cast-exit', type: 'button', text: 'Exit TV view' }),
+      h('div', { class: 'tv-cast-controls' }, [
+        h('button', { class: 'btn tv-cast-next-btn', id: 'tv-cast-next-btn', type: 'button', text: 'Next song' }),
+        h('button', { class: 'btn tv-cast-exit', id: 'tv-cast-exit', type: 'button', text: 'Exit TV view' }),
+      ]),
     ]);
     wrap.appendChild(tvCastView);
 
@@ -315,7 +321,7 @@
     $('rc').textContent = code; $('jl').textContent = joinUrl.replace(/^https?:\/\//, '');
     $('jc').addEventListener('click', function () { copy(joinUrl, $('jc')); });
     $('jtv').setAttribute('href', '/screen/' + code);
-    try { $('tv-cast-qr').innerHTML = window.QR.svg(joinUrl, { ecc: 'M', label: 'QR code to join room ' + code }); } catch (e) { $('tv-cast-qr').hidden = true; }
+    try { $('tv-cast-qr').innerHTML = window.QR.svg(joinUrl, { ecc: 'M', dark: '#dce7ff', light: '#182231', label: 'QR code to join room ' + code }); } catch (e) { $('tv-cast-qr').hidden = true; }
     function setTvMode(on) {
       document.body.classList.toggle('tv-cast-mode', on);
       if (!on) document.body.classList.remove('tv-cast-playing');
@@ -325,6 +331,22 @@
     }
     $('tv-mode').addEventListener('click', function () { setTvMode(!document.body.classList.contains('tv-cast-mode')); });
     $('tv-cast-exit').addEventListener('click', function () { setTvMode(false); });
+    $('tv-cast-next-btn').addEventListener('click', function () { post('advance'); });
+    window.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && document.body.classList.contains('tv-cast-mode')) {
+        e.preventDefault(); setTvMode(false);
+      }
+    });
+    var castScenes = ['cast-scene-a', 'cast-scene-b', 'cast-scene-c', 'cast-scene-d'], castScene = 0;
+    function setCastScene(n) {
+      var view = $('tv-cast-view');
+      castScenes.forEach(function (name) { view.classList.remove(name); });
+      view.classList.add(castScenes[n % castScenes.length]);
+    }
+    setCastScene(0);
+    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setInterval(function () { setCastScene(++castScene); }, 14000);
+    }
     if (navigator.share) {
       $('js').hidden = false;
       $('js').addEventListener('click', function () { navigator.share({ title: ($('room-name').value || 'Room ' + code) + ' on Room Blend', text: 'Join the music. Pick your genres and it fits everyone.', url: joinUrl }).catch(function () { /* dismissed */ }); });
