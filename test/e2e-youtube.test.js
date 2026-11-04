@@ -12,6 +12,37 @@ const APP_PORT = 4895, YT_PORT = 4896, APP = 'http://127.0.0.1:' + APP_PORT, YT 
 const GOOD = 'AIzaFakeKey_0123456789abcdefghijklmnopqrs'; // 39 characters
 let passed = 0; const ok = (s) => { passed++; console.log('  ok  ' + s); };
 const until = async (fn, ms = 10000, what = 'condition') => { const t0 = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) throw new Error('timeout: ' + what); await new Promise((r) => setTimeout(r, 100)); } };
+const cacheRecord = async (page, id) => page.evaluate(async (id) => {
+  const db = await (async () => {
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline) {
+      const databases = await indexedDB.databases();
+      if (databases.some((item) => item.name === 'room-blend-youtube')) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    const databases = await indexedDB.databases();
+    if (!databases.some((item) => item.name === 'room-blend-youtube')) throw new Error('The app did not initialize its YouTube IndexedDB cache');
+    const request = indexedDB.open('room-blend-youtube');
+    const opened = await new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+    if (!opened.objectStoreNames.contains('entries')) { opened.close(); throw new Error('The app YouTube cache database is missing its entries object store'); }
+    return opened;
+  })();
+  return await new Promise((resolve, reject) => { const tx = db.transaction('entries', 'readonly'), r = tx.objectStore('entries').get(id); r.onsuccess = () => resolve(r.result || null); r.onerror = () => reject(r.error); });
+}, id);
+const cacheRecords = (page) => page.evaluate(async () => {
+  const deadline = Date.now() + 8000;
+  while (Date.now() < deadline) {
+    const databases = await indexedDB.databases();
+    if (databases.some((item) => item.name === 'room-blend-youtube')) break;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  const databases = await indexedDB.databases();
+  if (!databases.some((item) => item.name === 'room-blend-youtube')) throw new Error('The app did not initialize its YouTube IndexedDB cache');
+  const request = indexedDB.open('room-blend-youtube');
+  const db = await new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+  if (!db.objectStoreNames.contains('entries')) { db.close(); throw new Error('The app YouTube cache database is missing its entries object store'); }
+  return await new Promise((resolve, reject) => { const tx = db.transaction('entries', 'readonly'), r = tx.objectStore('entries').getAll(); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
+});
 
 const log = { searches: [], badKey: 0, params: [], plSearches: [], plItems: 0, videoCalls: 0, rateLimited: 0, apiRequests: 0, apiAt: [] };
 let quotaOut = false, rateLimitQuotaOut = false, poolOn = false, rateLimitVideoSearches = 0;
@@ -101,12 +132,17 @@ const yt = http.createServer((req, res) => {
     assert.ok(/does not look like an API key/.test(await host.textContent('#yt-msg'))); ok('an obviously wrong key is refused');
 
     await host.fill('#yt-key', GOOD); await host.click('#yt-save');
+    await host.evaluate(() => { localStorage.setItem('rb-yt-cache', JSON.stringify({ 'legacy migration|artist': ['legacy-video'] })); localStorage.setItem('rb-yt-pools', JSON.stringify({ 'legacy-pool': { at: Date.now(), usedAt: Date.now(), tracks: [{ title: 'Legacy Song', artist: 'Legacy Artist', id: 'legacy-video' }] } })); });
     await host.waitForSelector('#yt-start');
     assert.strictEqual(await host.evaluate(() => localStorage.getItem('rb-yt-key')), GOOD); ok('the key is saved in this browser only');
     assert.ok(!(await host.evaluate(() => document.cookie)).includes('AIza')); ok('the key is not in a cookie');
 
     await host.click('#yt-start');
     await host.waitForFunction(() => /Playing through YouTube/.test(document.querySelector('#sp').textContent), null, { timeout: 10000 });
+    await until(async () => (await cacheRecord(host, 'search:legacy migration|artist')) !== null, 8000, 'legacy cache migration');
+    const migratedPool = await cacheRecord(host, 'pool:legacy-pool');
+    assert.ok(migratedPool && migratedPool.value[0].id === 'legacy-video');
+    assert.strictEqual(await host.evaluate(() => localStorage.getItem('rb-yt-cache') === null && localStorage.getItem('rb-yt-pools') === null), true); ok('existing search and playlist caches migrate into IndexedDB and legacy blobs are removed');
     assert.strictEqual(await host.isVisible('#yt-dock'), true); ok('the player dock is visible while it plays (YouTube requires that)');
 
     rateLimitVideoSearches = 1;
@@ -153,7 +189,7 @@ const yt = http.createServer((req, res) => {
     await until(() => host.evaluate(() => window.__ytLog.length >= 2), 8000, 'second video loaded');
 
     // repeats are remembered, so they cost no quota
-    const cached = await host.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('rb-yt-cache') || '{}')).length);
+    const cached = (await cacheRecords(host)).filter((entry) => entry.kind === 'search').length;
     assert.ok(cached >= 2); ok('looked-up songs are remembered in the browser (' + cached + ' so far), so repeats cost no search quota');
 
     // the search is not over-strict, and it ranks covers last
@@ -190,9 +226,9 @@ const yt = http.createServer((req, res) => {
     assert.ok(log.plSearches.includes('jazz songs')); ok('a jazz guest makes the host look for a jazz playlist: ' + log.plSearches.slice(-2).join(' | '));
     assert.deepStrictEqual(log.plSearches.slice(poolsBefore).filter((q) => q.indexOf('jazz') === 0), ['jazz songs']); ok('a full first playlist avoids the second costly playlist search');
     assert.ok(log.plItems === 1 && log.videoCalls === 1); ok('reading the playlist took one call for its songs and one for their details (about 2 quota units, not 100 per song)');
-    const stored = await until(() => host.evaluate(() => { try { return JSON.parse(localStorage.getItem('rb-yt-pools')).jazz; } catch (e) { return null; } }), 8000, 'pool cached');
-    const titles = stored.tracks.map((t) => t.artist + ' - ' + t.title);
-    assert.strictEqual(stored.tracks.length, 17); ok('17 songs were kept from the playlist');
+    const stored = await until(() => cacheRecord(host, 'pool:jazz'), 8000, 'pool cached');
+    const titles = stored.value.map((t) => t.artist + ' - ' + t.title);
+    assert.strictEqual(stored.value.length, 17); assert.ok(stored.expiresAt - stored.at >= 29 * 86400000); ok('17 songs were kept and successful pools are cached for 30 days');
     assert.ok(titles.includes('Dave Brubeck - Take Five') && titles.includes('Nina Simone - Feeling Good') && titles.includes('Miles Davis - So What')); ok('artist and title are read from "Artist - Song (Official Audio)" and from a "- Topic" channel');
     assert.ok(!titles.some((t) => /Full Album|Cheek to Cheek|Blocked|Private/.test(t))); ok('hour-long uploads, live versions, videos that cannot be embedded and private videos were filtered out');
     await host.waitForFunction(() => /Pool Tune|Take Five|Feeling Good|So What/.test([...document.querySelectorAll('#queue .qrow')].map((e) => e.textContent).join(' ') + document.querySelector('#now-title').textContent), null, { timeout: 12000 }); ok('the queue now holds songs from the playlist');
@@ -208,8 +244,8 @@ const yt = http.createServer((req, res) => {
     const zoe = await host.evaluate(async (c) => { const r = await fetch('/api/rooms/' + c + '/guests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Zoe', genres: ['jazz'], artists: ['Zed Obscure'] }) }); return r.ok ? r.json() : null; }, codeNow);
     assert.ok(zoe && zoe.guestId);
     await until(() => log.plSearches.includes('Zed Obscure greatest hits songs'), 14000, 'artist playlist search'); ok('a guest naming an artist makes the host search YouTube playlists for "Zed Obscure greatest hits"');
-    const found = await until(() => host.evaluate(() => { try { return JSON.parse(localStorage.getItem('rb-yt-pools'))['Zed Obscure greatest hits'] || null; } catch (e) { return null; } }), 8000, 'artist pool cached');
-    assert.ok(found && found.tracks.length === 3); ok('three songs were read from it (and cached for a week)');
+    const found = await until(() => cacheRecord(host, 'pool:Zed Obscure greatest hits'), 8000, 'artist pool cached');
+    assert.ok(found && found.value.length === 3); ok('three songs were read from it and cached for 30 days');
     await until(() => host.evaluate(() => /Zed Song/.test([...document.querySelectorAll('#queue .qrow')].map((e) => e.textContent).join(' ') + document.querySelector('#now-title').textContent)), 10000, 'zed in lineup'); ok('Zoe, who named Zed Obscure, has their songs in the lineup');
     const seen = await host.evaluate(async ({ c, z }) => { const f = async (q) => (await fetch('/api/rooms/' + c + '/search?q=' + encodeURIComponent(q), { headers: { 'x-guest-id': z.guestId, 'x-guest-key': z.guestKey } })).json(); return { zed: await f('zed song'), zedArtist: await f('zed obscure'), other: await f('not zed') }; }, { c: codeNow, z: zoe });
     assert.strictEqual(seen.zed.songs.filter((song) => song.source !== 'musicbrainz').length, 2); assert.ok(seen.zedArtist.artists.some((a) => a.name === 'Zed Obscure' && a.songs === 2)); assert.ok(!seen.other.songs.some((x) => x.source !== 'musicbrainz' && /Not Zed/.test(x.title)) && !seen.other.artists.some((a) => a.source !== 'musicbrainz' && /Someone Else/.test(a.name))); ok("the room has Zed Obscure's two songs and not the other artist's song from that playlist")
@@ -223,25 +259,37 @@ const yt = http.createServer((req, res) => {
     await until(() => log.plSearches.includes('80s classic rock songs') && log.plSearches.includes('80s new wave songs'), 20000, 'era-specific playlist searches');
     ok('an 80s pick triggers decade-qualified searches for representative genres');
 
+    const emptyArtist = await host.evaluate(async () => window.Providers.get('youtube').artistTracks('No Such Artist', 'rock'));
+    assert.deepStrictEqual(emptyArtist, []);
+    const emptyPool = await cacheRecord(host, 'pool:No Such Artist greatest hits');
+    assert.ok(emptyPool && emptyPool.value.length === 0 && emptyPool.expiresAt - emptyPool.at <= 13 * 3600000); ok('empty playlist discoveries are negatively cached for only 12 hours');
+    const emptySearchPlayback = await host.evaluate(async () => window.Providers.get('youtube').play({ title: 'Nowhere', artist: 'Artist' }));
+    assert.strictEqual(emptySearchPlayback, null);
+    const emptySearch = await cacheRecord(host, 'search:nowhere|artist');
+    assert.ok(emptySearch && emptySearch.value.length === 0 && emptySearch.expiresAt - emptySearch.at <= 7 * 3600000); ok('empty video lookups expire after 6 hours and can be retried');
+
+
     // Keep a broad set of genre pools and merge updates made by another host tab.
     const cacheWriter = await ctx.newPage();
     await cacheWriter.goto(APP);
-    await cacheWriter.evaluate(() => {
-      const pools = JSON.parse(localStorage.getItem('rb-yt-pools') || '{}');
-      for (let i = 0; i < 100; i++) pools['other-tab-pool-' + i] = { at: Date.now(), usedAt: Date.now(), tracks: [] };
-      localStorage.setItem('rb-yt-pools', JSON.stringify(pools));
-      const searches = JSON.parse(localStorage.getItem('rb-yt-cache') || '{}');
-      searches['cross tab cached|artist'] = ['plA1'];
-      localStorage.setItem('rb-yt-cache', JSON.stringify(searches));
-    });
+    await cacheWriter.evaluate(() => new Promise((resolve, reject) => {
+      const dbRequest = indexedDB.open('room-blend-youtube', 1);
+      dbRequest.onupgradeneeded = () => dbRequest.result.createObjectStore('entries', { keyPath: 'id' });
+      dbRequest.onsuccess = () => {
+        const db = dbRequest.result, tx = db.transaction('entries', 'readwrite'), store = tx.objectStore('entries'), now = Date.now();
+        for (let i = 0; i < 100; i++) store.put({ id: 'pool:other-tab-pool-' + i, kind: 'pool', value: [], at: now, usedAt: now, expiresAt: now + 30 * 86400000 });
+        store.put({ id: 'search:cross tab cached|artist', kind: 'search', value: ['plA1'], at: now, usedAt: now, expiresAt: now + 30 * 86400000 });
+        tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
+      };
+    }));
     await cacheWriter.close();
     const beforeCrossTabCache = log.searches.length;
     const crossTabPlayback = await host.evaluate(async () => window.Providers.get('youtube').play({ title: 'Cross tab cached', artist: 'Artist' }));
     assert.strictEqual(crossTabPlayback, true); assert.strictEqual(log.searches.length, beforeCrossTabCache); ok('a song cached by another tab plays without a new video search');
     const cacheProbeStart = log.plSearches.length;
     await host.evaluate(async () => window.Providers.get('youtube').extras('trip hop', []));
-    const poolSnapshot = await host.evaluate(() => JSON.parse(localStorage.getItem('rb-yt-pools') || '{}'));
-    assert.ok(Object.keys(poolSnapshot).length > 100 && poolSnapshot['other-tab-pool-0']); ok('the host cache retains more than 80 genre pools and preserves pools written by another tab');
+    const poolSnapshot = await cacheRecords(host);
+    assert.ok(poolSnapshot.filter((entry) => entry.kind === 'pool').length > 100 && poolSnapshot.some((entry) => entry.id === 'pool:other-tab-pool-0')); ok('the IndexedDB cache retains more than 80 genre pools and preserves pools written by another tab');
     assert.ok(log.plSearches.slice(cacheProbeStart).includes('trip hop songs')); ok('a new genre pool is added without discarding the existing cache');
 
     // Exhausted quota is persisted for the Pacific day, but cached pools remain usable.
