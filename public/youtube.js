@@ -417,6 +417,13 @@
       } else {
         box.appendChild(state('dot-ok', 'Playing through YouTube.', note || quotaNote || cacheWarning || 'Keep this tab open and the player visible. Free YouTube may play an ad between songs.'));
         box.appendChild(el('div', { class: 'row' }, [el('button', { class: 'btn small', type: 'button', id: 'yt-forget', text: 'Remove key', onclick: function () { yt.stop(); on = false; clearQuotaFuse(); lsDel(KEY); ctx.rerender(); } })]));
+        var catalogue = el('p', { class: 'hint', id: 'yt-catalogue-status', text: 'Loading catalogue quality and coverage…' });
+        box.appendChild(catalogue);
+        yt.cacheInfo().then(function (info) {
+          if (!catalogue.isConnected) return;
+          if (info.mode !== 'indexeddb') catalogue.textContent = 'Catalogue feedback is temporary in this browser session. ' + (info.warning || '');
+          else catalogue.textContent = 'Catalogue: ' + info.pools + ' cached pools · ' + info.poolTracks + ' tracks · ' + info.searches + ' song lookups · playback feedback for ' + info.ratedVideos + ' videos (' + info.playbackSuccesses + ' starts, ' + info.playbackFailures + ' failures).' + (info.warning ? ' ' + info.warning : '');
+        });
       }
       return box;
     },
@@ -437,7 +444,7 @@
     },
     pool: true, // the room's songs come from YouTube playlists for each genre; the built-in list is only a fallback
     canExtras: function () { return on; },
-    cacheInfo: async function () { var db = await openCacheDb(); if (!db) return { mode: 'memory', warning: cacheWarning }; return new Promise(function (resolve) { var tx = db.transaction(DB_STORE, 'readonly'), req = tx.objectStore(DB_STORE).getAll(); req.onsuccess = function () { var rows = req.result.filter(function (x) { return x.expiresAt > Date.now(); }), feedback = rows.filter(function (x) { return x.kind === 'quality'; }); resolve({ mode: 'indexeddb', pools: rows.filter(function (x) { return x.kind === 'pool'; }).length, searches: rows.filter(function (x) { return x.kind === 'search'; }).length, ratedVideos: feedback.length, playbackSuccesses: feedback.reduce(function (n, x) { return n + (x.value.successes || 0); }, 0), playbackFailures: feedback.reduce(function (n, x) { return n + (x.value.failures || 0); }, 0), warning: cacheWarning }); }; req.onerror = function () { resolve({ mode: 'indexeddb', warning: cacheWarning }); }; }); },
+    cacheInfo: async function () { var db = await openCacheDb(); if (!db) return { mode: 'memory', warning: cacheWarning }; return new Promise(function (resolve) { var tx = db.transaction(DB_STORE, 'readonly'), req = tx.objectStore(DB_STORE).getAll(); req.onsuccess = function () { var rows = req.result.filter(function (x) { return x.expiresAt > Date.now(); }), pools = rows.filter(function (x) { return x.kind === 'pool'; }), feedback = rows.filter(function (x) { return x.kind === 'quality'; }); resolve({ mode: 'indexeddb', pools: pools.length, poolTracks: pools.reduce(function (n, x) { return n + (Array.isArray(x.value) ? x.value.length : 0); }, 0), searches: rows.filter(function (x) { return x.kind === 'search'; }).length, ratedVideos: feedback.length, playbackSuccesses: feedback.reduce(function (n, x) { return n + (x.value.successes || 0); }, 0), playbackFailures: feedback.reduce(function (n, x) { return n + (x.value.failures || 0); }, 0), warning: cacheWarning }); }; req.onerror = function () { resolve({ mode: 'indexeddb', warning: cacheWarning }); }; }); },
     extras: async function (genre, partners) {
       var out = [], seen = {};
       try {
