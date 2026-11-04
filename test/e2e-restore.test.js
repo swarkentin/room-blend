@@ -11,7 +11,7 @@ const getJson = (p) => new Promise((resolve) => http.get(APP + p, (res) => { con
 
 (async () => {
   const dirs = [];
-  // Each start gets a brand new empty DATA_DIR, like a free host that loses its disk. Only SESSION_SECRET is kept.
+  // A new DATA_DIR simulates ephemeral hosting; reusing one later exercises disk-loaded room identities.
   const start = async (reuseDir) => {
     const dir = reuseDir || fs.mkdtempSync(path.join(os.tmpdir(), 'rb-restore-'));
     if (!reuseDir) dirs.push(dir);
@@ -87,7 +87,7 @@ const getJson = (p) => new Promise((resolve) => http.get(APP + p, (res) => { con
     }), code2), 10000, 'disk-backed room checkpoint');
 
     await stop(srv); running = await start(dataDir); srv = running.process;
-    await until(async () => { const r = await getJson('/api/rooms/' + code2); return r.status === 200 && r.json.name === 'Disk recovery'; }, 10000, 'disk-loaded room identity');
+    await until(async () => { const r = await getJson('/api/rooms/' + code2); return r.status === 200 && r.json.name === 'Disk recovery' && r.json.people === 1; }, 20000, 'disk-loaded room hydrated with its guest');
     await until(async () => /Guest|1/.test(await host2.textContent('#guests')), 20000, 'host page hydrates disk-loaded room from IndexedDB');
     ok('a room identity loaded from DATA_DIR is hydrated from the host browser snapshot');
     await until(async () => /Guest|rock/i.test(await guest.locator('body').textContent()) && guest.url().includes(code2), 5000, 'guest remains in disk-restored room');
