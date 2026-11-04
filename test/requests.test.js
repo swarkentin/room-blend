@@ -20,6 +20,7 @@ assert.equal(room.requestQueue.length, 2);
 // The two-request limit is a host setting and survives room snapshots.
 room.setOpts({ requestLimitEnabled: false });
 assert.equal(room.addRequest(guest.id, 'Third Song', 'Third Artist').ok, true);
+assert.equal(room.addRequest(other.id, 'Other Guest Song', 'Other Artist').ok, true);
 const restored = new Room('JUKE1', 'h'.repeat(32));
 assert.equal(restored.restoreSnapshot(room.snapshot()), true);
 assert.equal(restored.requestLimitEnabled, false);
@@ -28,8 +29,10 @@ assert.equal(restored.requestQueue.length, 3);
 // Requests get priority, but a blend song is inserted after two consecutive requests.
 restored.advance();
 assert.equal(restored.nowItem.mode, 'request');
+assert.equal(restored.nowItem.request.requester, 'Guest One');
 restored.advance();
 assert.equal(restored.nowItem.mode, 'request');
+assert.equal(restored.nowItem.request.requester, 'Guest Two', 'requesters rotate rather than letting one guest dominate');
 restored.advance();
 assert.notEqual(restored.nowItem.mode, 'request');
 
