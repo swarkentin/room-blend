@@ -511,7 +511,7 @@
       st: function () { return S.st; },
       rerender: function () { renderSource(); },
       status: function (m) { S.status = m; renderSource(); },
-      ended: function () { post('player', { event: 'ended', trackId: S.playing }); },
+      ended: function () { var n = S.st && S.st.now; var genres = n && n.mode === 'request' && window.GenreMap ? window.GenreMap.classifyAll(n.track.title, 2) : []; post('player', { event: 'ended', trackId: S.playing, genres: genres }); },
       uploadLibrary: function (provider, label, tracks, refresh) { return post('library', { provider: provider, label: label, tracks: tracks, refresh: !!refresh }); },
       clearLibrary: function () { return http('DELETE', '/api/rooms/' + code + '/host/library', null, H); },
       changed: function () { S.playing = null; maybePlay(); maybeExtras(); },
@@ -594,7 +594,7 @@
 
     function trackFor(st) {
       var t = st.now.track;
-      return Object.assign({}, t, { nativeId: st.source && st.source.kind === 'library' ? t.id.slice(1) : t.id });
+      return Object.assign({}, t, { nativeId: st.source && st.source.kind === 'library' ? t.id.slice(1) : t.id, request: st.now.mode === 'request' });
     }
     async function maybePlay() {
       var st = S.st, P = S.prov;
