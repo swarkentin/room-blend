@@ -63,6 +63,7 @@ const getJson = (p) => new Promise((resolve) => http.get(APP + p, (res) => { con
     ok('the host page brings back the same room code and name by itself');
     await until(() => guest.evaluate(() => /Guest|rock/i.test(document.body.textContent)) , 5000, 'guest page alive');
     await until(async () => (await host.textContent('#guests')).trim().length > 0 && /Guest|1/.test(await host.textContent('#guests')), 20000, 'guest rejoined');
+    assert.strictEqual(await host.locator('#guests li').count(), 1, 'rejoining preserves the original guest instead of creating a duplicate');
     ok('the guest is rejoined to the restored room without doing anything');
 
     // Settings carry to a new room: same guest browser opens a different room and starts with rock selected.
@@ -89,6 +90,7 @@ const getJson = (p) => new Promise((resolve) => http.get(APP + p, (res) => { con
     await stop(srv); running = await start(dataDir); srv = running.process;
     await until(async () => { const r = await getJson('/api/rooms/' + code2); return r.status === 200 && r.json.name === 'Disk recovery' && r.json.people === 1; }, 20000, 'disk-loaded room hydrated with its guest');
     await until(async () => /Guest|1/.test(await host2.textContent('#guests')), 20000, 'host page hydrates disk-loaded room from IndexedDB');
+    assert.strictEqual(await host2.locator('#guests li').count(), 1, 'disk recovery does not duplicate the restored guest');
     ok('a room identity loaded from DATA_DIR is hydrated from the host browser snapshot');
     await until(async () => /Guest|rock/i.test(await guest.locator('body').textContent()) && guest.url().includes(code2), 5000, 'guest remains in disk-restored room');
     assert.deepStrictEqual(errors, [], errors.join(' | ')); ok('no page errors');
