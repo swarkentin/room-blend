@@ -1187,7 +1187,7 @@
     function songRow(t, withMore) {
       var saved = isSaved(t);
       return h('li', { class: 'prow' }, [
-        h('div', { class: 'ptxt' }, [h('div', { class: 'qtitle' }, [document.createTextNode(t.title + ' '), h('span', { text: t.artist })]), h('div', { class: 'tags' }, tagList(t.genres || []))]),
+        h('div', { class: 'ptxt' }, [h('div', { class: 'qtitle' }, [document.createTextNode(t.title + ' '), h('span', { text: t.artist })]), h('div', { class: 'tags' }, tagList(t.genres || [])), t.mode === 'request' ? h('span', { class: 'modetag' }, [h('i'), document.createTextNode('Requested')]) : null]),
         h('div', { class: 'pact' }, [
           h('button', { class: 'btn small heart', type: 'button', 'aria-pressed': saved ? 'true' : 'false', 'aria-label': (saved ? 'Remove ' : 'Save ') + t.title, text: saved ? '♥ Saved' : '♡ Save', onclick: function () { toggleSaved(t); } }),
           withMore ? h('button', { class: 'btn small', type: 'button', text: 'More like this', onclick: function () { widen(t); } }) : null,
