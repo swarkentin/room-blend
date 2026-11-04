@@ -27,6 +27,7 @@ const cacheRecord = async (page, id) => page.evaluate(async (id) => {
     if (!opened.objectStoreNames.contains('entries')) { opened.close(); throw new Error('The app YouTube cache database is missing its entries object store'); }
     return opened;
   })();
+  if (!db) return null;
   return await new Promise((resolve, reject) => { const tx = db.transaction('entries', 'readonly'), r = tx.objectStore('entries').get(id); r.onsuccess = () => resolve(r.result || null); r.onerror = () => reject(r.error); });
 }, id);
 const cacheRecords = (page) => page.evaluate(async () => {
