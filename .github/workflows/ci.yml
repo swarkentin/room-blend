@@ -12,7 +12,26 @@ permissions:
   contents: read
 
 jobs:
-  checks:
+  unit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit and API checks
+        run: npm test
+
+  browser:
     runs-on: ubuntu-latest
     # Keep this image version in sync with the Playwright version in package-lock.json.
     # It includes Chromium and all of its Linux system dependencies.
@@ -23,6 +42,12 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
       - name: Install dependencies
         run: npm ci
 
@@ -30,9 +55,6 @@ jobs:
         run: |
           apt-get update
           apt-get install --yes ffmpeg python3-opencv
-
-      - name: Run unit and API checks
-        run: npm test
 
       - name: Run Playwright browser checks
         run: npm run test:browser
