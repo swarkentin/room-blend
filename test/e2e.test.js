@@ -224,6 +224,7 @@ const until = async (fn, ms = 8000, what = 'condition') => { const t0 = Date.now
     // ---- guest leaves; reload rejoins ----
     await g1.reload(); await g1.waitForSelector('#gv-title'); assert.ok((await g1.textContent('#gv-me')).includes('Your picks')); ok('guest reload restores their place in the room');
     assert.strictEqual(await g1.locator('#gv-preferences-details').count(), 1);
+    await g1.locator('#gv-preferences-details > summary').click();
     assert.strictEqual(await g1.locator('#gv-profile-name').inputValue(), 'Maya');
     await g1.fill('#gv-profile-name', 'Maya Renamed'); await g1.click('#gv-save-profile');
     await g1.waitForFunction(() => document.querySelector('#gv-profile-status').textContent.includes('saved'));
