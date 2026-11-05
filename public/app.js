@@ -1005,7 +1005,7 @@
           var j = await http('POST', '/api/rooms/' + code + '/guests', { name: name, genres: picked, artists: named.artists, songs: named.songs, lookupGenres: true, since: (reg && reg.since) || undefined });
           if (j.status === 404) { return roomGone(); }
           if (!j.ok) { hint.textContent = 'Could not join. Try again.'; return; }
-          reg = { id: j.data.guestId, key: j.data.guestKey, name: name, genres: picked.slice(), artists: named.artists.slice(), songs: named.songs.slice(), lookupGenres: !!(lookupInput && lookupInput.checked), since: (reg && reg.since) || j.data.since || Date.now() }; saveReg();
+          reg = { id: j.data.guestId, key: j.data.guestKey, name: name, genres: picked.slice(), artists: named.artists.slice(), songs: named.songs.slice(), lookupGenres: true, since: (reg && reg.since) || j.data.since || Date.now() }; saveReg();
           history.replaceState(null, '', '/r/' + code); showLive();
         }
       });
