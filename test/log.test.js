@@ -74,7 +74,7 @@ const events = (o) => o.lines.map((l) => JSON.parse(l));
   assert.strictEqual((await req('GET', '/status?key=wrong')).status, 404);
   assert.strictEqual((await req('GET', '/status?key=sekret-1', null, { 'x-forwarded-for': '203.0.113.9' })).status, 200); ok('with STATUS_KEY set, /status needs the key and then works from anywhere');
   assert.strictEqual((await req('GET', '/status', null, { 'x-status-key': 'sekret-1' })).json.rooms.total, 1); ok('the key can also be sent as a header');
-  child.kill('SIGTERM'); await new Promise((r) => child.on('exit', r));
+  child.send({ type: 'shutdown' }); await new Promise((r) => child.on('exit', r));
   assert.strictEqual(out.lines.length, 0); ok('LOG_LEVEL=silent writes nothing');
   console.log('\n' + n + ' checks passed'); process.exit(0);
 })().catch((e) => { console.error('FAILED:', e.stack || e.message); process.exit(1); });
