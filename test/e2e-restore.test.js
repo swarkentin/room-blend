@@ -43,7 +43,7 @@ const readCheckpoint = (page, code) => page.evaluate((code) => new Promise((reso
     await until(async () => (await getJson('/healthz')).status === 200, 8000, 'server up');
     return { process: p, dir: dir };
   };
-  const stop = (p) => new Promise((r) => { p.once('exit', r); p.kill('SIGKILL'); });
+  const stop = (p) => new Promise((r) => { if (p.exitCode !== null || p.signalCode !== null) return r(); p.once('exit', r); p.kill('SIGKILL'); });
   let running = await start(), srv = running.process, dataDir = running.dir;
   const browser = await chromium.launch(); const errors = [];
   const ctx = async (vp) => { const c = await browser.newContext({ viewport: vp || { width: 420, height: 850 } }); const p = await c.newPage(); p.on('pageerror', (e) => errors.push(e.message)); return p; };
@@ -105,7 +105,7 @@ const readCheckpoint = (page, code) => page.evaluate((code) => new Promise((reso
     await until(async () => /Guest|rock/i.test(await guest.locator('body').textContent()) && guest.url().includes(code2), 5000, 'guest remains in disk-restored room');
     assert.deepStrictEqual(errors, [], errors.join(' | ')); ok('no page errors');
   } finally {
-    await browser.close(); srv.kill();
+    await browser.close(); await stop(srv);
     for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
   }
   console.log(`\n${passed} checks passed`);
