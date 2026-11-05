@@ -8,7 +8,7 @@ Room Blend only decides what plays next. The host's own music service plays the 
 
 ## How it works
 
-1. The host starts a room and says where their music is: Spotify, a folder of files, a Navidrome server, YouTube, or a list they play by hand.
+1. The host starts a room and says where their music is: Spotify, a folder of files, a Navidrome server, or YouTube.
 2. No login - guests scan a QR code and pick genres and artists for their tastes.
 3. Songs come from a shared genre mashup of all guests selections.
 4. The queue automatically adjusts as people come and go.

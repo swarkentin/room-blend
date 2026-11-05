@@ -120,7 +120,7 @@ const yt = http.createServer((req, res) => {
     await host.goto(APP); await host.click('#start-room'); await host.waitForURL(/\/host\/[A-Z0-9]{5}$/);
     const nowTitle = () => host.textContent('#now-title');
 
-    assert.strictEqual((await host.$$('.src')).length, 7); ok('YouTube is offered alongside the other sources');
+    assert.strictEqual((await host.$$('.src')).length, 5); ok('YouTube is offered alongside the other sources');
     await host.click('[data-src="youtube"]');
     assert.ok(/free Google API key/.test(await host.textContent('#sp'))); ok('without a key it explains how to get a free one');
     assert.ok(/not.*restrict it to websites/i.test(await host.textContent('#sp')) || /Do not restrict it to websites/.test(await host.textContent('#sp'))); ok('it warns against a website restriction, since Room Blend sends no referrer');
@@ -359,7 +359,7 @@ const yt = http.createServer((req, res) => {
     poolOn = false;
 
     // switching away hides the player; removing the key forgets it
-    await host.click('[data-src="manual"]');
+    await host.click('[data-src="spotify"]');
     assert.strictEqual(await host.isVisible('#yt-dock'), false); ok('choosing another source hides the player');
     await host.click('[data-src="youtube"]');
     await host.click('#yt-forget');

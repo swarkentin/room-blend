@@ -52,7 +52,7 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
 
     const href = await g.getAttribute('#gv-played .prow:nth-child(1) .findlinks a', 'href');
     assert.ok(/^https:\/\/open\.spotify\.com\/search\//.test(href)); const links = await g.$$eval('#gv-played .prow:nth-child(1) .findlinks a', (as) => as.map((a) => a.textContent));
-    assert.deepStrictEqual(links, ['Spotify', 'Apple Music', 'YouTube Music']); ok('Find it links to Spotify, Apple Music and YouTube Music');
+    assert.deepStrictEqual(links, ['Spotify', 'YouTube Music']); ok('Find it links to Spotify and YouTube Music');
     const findTitle = (await g.textContent('#gv-played .prow:nth-child(1) .qtitle')).trim();
     await g.click('#gv-played .prow:nth-child(1) .find summary');
     const afterFind = await next();

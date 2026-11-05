@@ -83,8 +83,9 @@ const until = async (fn, ms = 8000, what = 'condition') => { const t0 = Date.now
     const host = await mk(); await blockExt(host);
     await host.goto(APP + '/'); await host.click('#start-room');
     await host.waitForURL(/\/host\/[A-Z0-9]{5}$/); const code = host.url().split('/').pop(); ok('host starts a room ' + code);
-    assert.ok((await host.textContent('#sp')).includes('Manual mode')); ok('a new host starts in manual mode with a source picker');
-    assert.strictEqual((await host.$$('.src')).length, 7); ok('seven music sources are offered');
+    assert.strictEqual(await host.getAttribute('.src[aria-pressed="true"]', 'data-src'), 'spotify'); ok('a new host starts on Spotify with a source picker');
+    assert.strictEqual((await host.$$('.src')).length, 5); ok('five music sources are offered');
+    assert.strictEqual(await host.$('[data-src="manual"]'), null); assert.strictEqual(await host.$('[data-src="apple"]'), null); ok('there is no "just show the songs" or Apple Music option');
     await host.click('[data-src="spotify"]');
     if (OWN) {
       assert.ok((await host.textContent('#sp')).includes('Not connected')); ok('no service Spotify app: Spotify asks for the host\'s own');
@@ -222,7 +223,7 @@ const until = async (fn, ms = 8000, what = 'condition') => { const t0 = Date.now
     // ---- server restart: guest rejoins quietly ----
     // covered by the SSE reconnect path; verified manually in the README checklist
 
-    // ---- manual host (no Spotify) layout still works at phone width ----
+    // ---- host layout (no Spotify connected) still works at phone width ----
     const w = await host.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
     assert.ok(w, 'horizontal scroll on host at 420px'); ok('host page has no horizontal scroll at phone width');
     assert.deepStrictEqual(errors, [], 'console errors: ' + errors.join(' | ')); ok('no page errors in any browser');

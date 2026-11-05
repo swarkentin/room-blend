@@ -614,7 +614,7 @@ if (require.main === module) {
   server.listen(PORT, '0.0.0.0', () => {
     L.info('server.start', { port: PORT, node: process.version, rooms: rooms.size, logLevel: level, trustProxy: TRUST_PROXY, publicUrl: !!PUBLIC_URL, ownSpotifyApp: !CLIENT_CONFIG.clientId });
     // A person running this in a terminal gets a plain sentence as well as the JSON line.
-    if (process.stdout.isTTY) console.log(`Room Blend listening on port ${PORT}${PUBLIC_URL ? ' (' + PUBLIC_URL + ')' : ''}${TRUST_PROXY ? ', trusting proxy' : ''}. Hosts ${CLIENT_CONFIG.clientId ? 'can use the built-in Spotify app or their own' : 'bring their own Spotify app, or run manual mode'}.`);
+    if (process.stdout.isTTY) console.log(`Room Blend listening on port ${PORT}${PUBLIC_URL ? ' (' + PUBLIC_URL + ')' : ''}${TRUST_PROXY ? ', trusting proxy' : ''}. Hosts ${CLIENT_CONFIG.clientId ? 'can use the built-in Spotify app or their own' : 'bring their own Spotify app'}.`);
   });
   // Crashes are logged before the process exits (a platform or Docker restarts it). Stopping saves the rooms first.
   process.on('uncaughtException', (e) => { L.error('process.crash', { message: String(e && e.message), stack: String(e && e.stack || '').split('\n').slice(1, 4).join(' | ') }); writeRooms(); process.exit(1); });
