@@ -405,8 +405,8 @@
           '<div class="controls" style="margin-top:16px"><button class="btn primary" type="button" id="btn-next">Next song</button>' +
           '<button class="btn" type="button" id="btn-pause" hidden>Pause</button></div>' +
           '<div class="host-media" id="host-media" hidden><label class="sr" for="host-seek">Seek through the current song</label><input id="host-seek" type="range" min="0" max="0" step="0.1" value="0" aria-label="Seek through the current song"><div class="media-times"><span id="host-time">0:00</span><span id="host-duration">--:--</span></div></div></div>' +
-          '<div class="panel" style="margin-top:18px"><div class="sec-h"><h2>Jukebox requests</h2><span class="meta" id="request-count"></span></div><ol class="queue" id="host-requests"></ol><details class="secondary"><summary>Queue a song manually</summary><form class="add" id="host-request-form"><h3>Queue a song</h3><div><label for="host-request-title">Song title</label><input id="host-request-title" maxlength="100" required autocomplete="off"></div><div><label for="host-request-artist">Artist</label><input id="host-request-artist" maxlength="100" required autocomplete="off"></div><div><button class="btn small" type="submit">Add request</button><p class="hint" id="host-request-search-status" role="status"></p><p class="hint" id="host-request-hint" role="status"></p></div></form></details></div>' +
-          '<div class="panel" style="margin-top:28px"><div class="sec-h"><h2>Up next</h2><span class="meta"><span id="q-meta"></span> <button class="btn small" type="button" id="copy-queue">Copy list</button></span></div>' +
+          '<div class="panel request-panel" style="margin-top:18px"><div class="sec-h"><h2>Jukebox requests</h2><span class="meta" id="request-count"></span></div><ol class="queue" id="host-requests"></ol><details class="secondary" id="host-request-details"><summary>Queue a song manually</summary><form class="add" id="host-request-form"><h3>Queue a song</h3><div><label for="host-request-title">Song title</label><input id="host-request-title" maxlength="100" required autocomplete="off"></div><div><label for="host-request-artist">Artist</label><input id="host-request-artist" maxlength="100" required autocomplete="off"></div><div><button class="btn small" type="submit">Add request</button><p class="hint" id="host-request-search-status" role="status"></p><p class="hint" id="host-request-hint" role="status"></p></div></form></details></div>' +
+          '<div class="panel up-next-panel" style="margin-top:28px"><div class="sec-h"><h2>Up next</h2><span class="meta"><span id="q-meta"></span> <button class="btn small" type="button" id="copy-queue">Copy list</button></span></div>' +
           '<p class="overlap" id="overlap"></p><ol class="queue" id="queue"></ol></div>' +
         '</section>' +
         '<section class="room" aria-label="In the room"><div class="sec-h"><h2>In the room</h2><span class="meta" id="room-count"></span></div>' +
@@ -427,6 +427,7 @@
           '<textarea class="notes" id="notes" readonly hidden aria-label="Session notes"></textarea></details>' +
         '</aside>' +
       '</main>';
+    $('host-request-details').open = window.matchMedia('(min-width: 701px)').matches;
 
     var tvCastBars = [];
     for (var tvBar = 0; tvBar < 22; tvBar++) tvCastBars.push(h('span'));
@@ -593,7 +594,15 @@
         ]);
       }));
       var body = h('div', { class: 'srcbody', id: 'sp-body' }, [P.render(ctx)]);
-      box.replaceChildren.apply(box, [h('h3', { text: 'Where is your music?' }), picker, body].concat(S.status ? [h('p', { class: 'hint', role: 'status', id: 'sp-status', text: S.status })] : []));
+      var sourceReady = P.ready() || (P.kind === 'manual' && !!lsGet('rb-source'));
+      var settings = h('details', { class: 'source-settings' });
+      settings.open = !sourceReady;
+      settings.appendChild(h('summary', { class: 'source-summary' }, [
+        h('span', { text: 'Music source' }), h('strong', { text: P.name }),
+        h('span', { class: 'source-state', text: sourceReady ? 'Ready' : 'Setup needed' }),
+      ]));
+      settings.appendChild(picker); settings.appendChild(body);
+      box.replaceChildren.apply(box, [settings].concat(S.status ? [h('p', { class: 'hint', role: 'status', id: 'sp-status', text: S.status })] : []));
       $('btn-pause').hidden = !P.ready();
     }
 

@@ -157,7 +157,8 @@ const until = async (fn, ms = 8000, what = 'condition') => { const t0 = Date.now
     ok('guest autocomplete sends title and artist together when both are entered');
     await g1.unroute(searchPath);
     await host.route(searchPath, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ songs: [{ title: 'Blade Runner Blues', artist: 'Vangelis', source: 'musicbrainz' }] }) }));
-    await host.locator('details:has(#host-request-form) > summary').click();
+    const hostRequestDetails = host.locator('details:has(#host-request-form)');
+    if (!(await hostRequestDetails.evaluate((el) => el.open))) await hostRequestDetails.locator('summary').click();
     await host.fill('#host-request-artist', 'Vange');
     await host.waitForSelector('#host-request-form .song-suggestion');
     await host.click('#host-request-form .song-suggestion');
