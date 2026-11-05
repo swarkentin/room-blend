@@ -10,6 +10,7 @@ const path = require('path');
 const assert = require('assert');
 const { spawn, execFileSync } = require('child_process');
 const { chromium } = require('playwright');
+const { openSourceSettings, chooseSource } = require('./helpers/source-settings');
 
 const PORT = 4902, APP = 'http://127.0.0.1:' + PORT;
 let passed = 0; const ok = (s) => { passed++; console.log('  ok  ' + s); };
@@ -47,7 +48,6 @@ const SEED = SONGS.map(([f]) => ({ path: 'Album/' + f, b64: b64(f) }))
     const host = await ctx.newPage();
     host.on('pageerror', (e) => errors.push(e.message)); host.on('console', (m) => { if (m.type() === 'error' && !/fonts|ERR_|Failed to load resource|qrcode/.test(m.text())) errors.push(m.text()); });
     const panel = () => host.textContent('#sp');
-    const openSourceSettings = async () => { const d = host.locator('#sp details.source-settings'); if (!(await d.evaluate((el) => el.open))) await d.locator('summary').click(); };
     const nowTitle = () => host.textContent('#now-title');
     const playingSrc = () => host.evaluate(() => { const a = window.__audios[window.__audios.length - 1]; return a && !a.paused && a.currentTime > 0 ? a.src : ''; });
     const panelHas = (re, ms) => host.waitForFunction((s) => new RegExp(s).test(document.querySelector('#sp').textContent), re.source, { timeout: ms || 20000 });
@@ -67,7 +67,7 @@ const SEED = SONGS.map(([f]) => ({ path: 'Album/' + f, b64: b64(f) }))
     }, SEED);
 
     await host.click('#start-room'); await host.waitForURL(/\/host\/[A-Z0-9]{5}$/);
-    await host.click('[data-src="local"]');
+    await chooseSource(host, 'local');
     await host.waitForSelector('#loc-fsa', { state: 'attached' });
     assert.ok(/view the folder/.test(await panel())); ok('before the click, the panel says the browser will ask to "view" the folder, and that it only reads song tags');
     await host.waitForSelector('#loc-dir', { state: 'attached' }); ok('the older folder picker is still offered');
