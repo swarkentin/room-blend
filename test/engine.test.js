@@ -102,6 +102,15 @@ r = E.buildQueue([person('a', ['rock', 'jazz']), person('b', ['rock', 'jazz'])],
 const sharedCounts = Object.fromEntries(['rock', 'jazz'].map((g) => [g, prim(r.queue).filter((x) => x === g).length]));
 assert.ok(Math.max(...Object.values(sharedCounts)) - Math.min(...Object.values(sharedCounts)) <= 1, 'multi-user genres are balanced: ' + JSON.stringify(sharedCounts)); ok('multi-user queue distributes songs across each user\'s selected genres');
 
+// Recent room history seeds the next queue's genre balancing instead of resetting at every rebuild.
+const historyBalanced = E.buildQueue([person('a', ['rock', 'jazz'])], {
+  catalog, n: 1, seed: 3, genreHistory: { a: { rock: 20, jazz: 0 } },
+});
+assert.strictEqual(historyBalanced.queue[0].track.genres[0], 'jazz',
+  'a genre neglected over recent plays should be selected ahead of an over-served genre');
+ok('rolling historical genre exposure influences the next queue');
+
+
 const keep = E.buildQueue([person('a', ['rock']), person('b', ['blues'])], { catalog, n: 6, seed: 4 });
 const kept = E.buildQueue([person('a', ['rock']), person('b', ['blues'])], { catalog, n: 6, seed: 5, keep: keep.queue.slice(0, 3) });
 assert.deepStrictEqual(kept.queue.slice(0, 3).map((x) => x.track.id), keep.queue.slice(0, 3).map((x) => x.track.id)); ok('kept songs stay in place');
