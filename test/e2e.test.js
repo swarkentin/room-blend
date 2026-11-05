@@ -4,6 +4,7 @@ const http = require('http');
 const assert = require('assert');
 const { spawn } = require('child_process');
 const { chromium } = require('playwright');
+const { openSourceSettings, chooseSource } = require('./helpers/source-settings');
 
 const OWN = process.argv[2] === 'own'; // service has no Spotify app; the host brings their own
 const SP_PORT = 4871, APP_PORT = 4870;
@@ -86,7 +87,7 @@ const until = async (fn, ms = 8000, what = 'condition') => { const t0 = Date.now
     assert.strictEqual(await host.getAttribute('.src[aria-pressed="true"]', 'data-src'), 'spotify'); ok('a new host starts on Spotify with a source picker');
     assert.strictEqual((await host.$$('.src')).length, 5); ok('five music sources are offered');
     assert.strictEqual(await host.$('[data-src="manual"]'), null); assert.strictEqual(await host.$('[data-src="apple"]'), null); ok('there is no "just show the songs" or Apple Music option');
-    await host.click('[data-src="spotify"]');
+    await chooseSource(host, 'spotify');
     if (OWN) {
       assert.ok((await host.textContent('#sp')).includes('Not connected')); ok('no service Spotify app: Spotify asks for the host\'s own');
       await host.fill('#own-id', 'nope'); await host.click('#own-save');
@@ -97,6 +98,7 @@ const until = async (fn, ms = 8000, what = 'condition') => { const t0 = Date.now
     assert.ok((await host.textContent('#sp')).includes('Connect Spotify')); ok('host sees Connect Spotify');
     await host.click('#sp-connect');
     await host.waitForURL(/\/host\/[A-Z0-9]{5}$/); await host.waitForSelector('#sp-start'); ok('Spotify PKCE login round trip returns to the room, connected');
+    await openSourceSettings(host);
     await host.click('#sp-start');
     await host.waitForFunction(() => /Playing through this browser/.test(document.querySelector('#sp').textContent)); ok('web player starts and the host transfers playback');
     assert.strictEqual(log.transfers, 1);
