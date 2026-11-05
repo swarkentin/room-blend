@@ -107,6 +107,7 @@ const sub = http.createServer((req, res) => {
       if (!(await sourceSettings.evaluate((el) => el.open))) await sourceSettings.locator('summary').click();
       await host.selectOption('#loc-default', 'jazz');
       await host.waitForFunction(() => /6 songs in the room/.test(document.querySelector('#sp').textContent)); ok('untagged songs can be counted as a chosen genre');
+      if (!(await sourceSettings.evaluate((el) => el.open))) await sourceSettings.locator('summary').click();
       await host.selectOption('#loc-default', '');
       await host.waitForFunction(() => /5 songs in the room/.test(document.querySelector('#sp').textContent));
   
