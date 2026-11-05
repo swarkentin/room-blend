@@ -421,9 +421,12 @@
           // to recover title/artist, then use MusicBrainz only for confirmed successful plays
           // whose title/artist text is not enough to classify locally.
           var artistMetadataGenres = successfulMatches.length ? await artistGenres(artist) : [];
-          // For successful historical plays, combine local title/artist clues with curated artist
-          // metadata. This both improves coverage and avoids treating a weak local guess as complete.
-          var blendedGenres = genres.concat(artistMetadataGenres).filter(function (g, i, a) {
+          // For confirmed historical plays, prefer curated artist metadata over fuzzy local
+          // title guesses. Otherwise three weak local matches can crowd out the artist's genres.
+          var genreSources = successfulMatches.length
+            ? artistMetadataGenres.concat(genres)
+            : genres;
+          var blendedGenres = genreSources.filter(function (g, i, a) {
             return allowed.indexOf(g) >= 0 && a.indexOf(g) === i;
           }).slice(0, 3);
           if (!blendedGenres.length) continue; // Unplayed, unclassifiable search entries stay untouched.
