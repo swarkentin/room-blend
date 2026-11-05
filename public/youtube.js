@@ -420,15 +420,16 @@
           // Older playback feedback stores only the video ID. Join it to the cached search key
           // to recover title/artist, then use MusicBrainz only for confirmed successful plays
           // whose title/artist text is not enough to classify locally.
-          var usedArtistMetadata = false;
-          if (!genres.length && successfulMatches.length) {
-            genres = await artistGenres(artist);
-            usedArtistMetadata = genres.length > 0;
-          }
-          if (!genres.length) continue; // Unplayed, unclassifiable search entries stay untouched.
-          var idsToBlend = usedArtistMetadata ? successfulMatches : row.value;
+          var artistMetadataGenres = successfulMatches.length ? await artistGenres(artist) : [];
+          // For successful historical plays, combine local title/artist clues with curated artist
+          // metadata. This both improves coverage and avoids treating a weak local guess as complete.
+          var blendedGenres = genres.concat(artistMetadataGenres).filter(function (g, i, a) {
+            return allowed.indexOf(g) >= 0 && a.indexOf(g) === i;
+          }).slice(0, 3);
+          if (!blendedGenres.length) continue; // Unplayed, unclassifiable search entries stay untouched.
+          var idsToBlend = successfulMatches.length ? successfulMatches : row.value;
           idsToBlend.forEach(function (videoId) {
-            if (typeof videoId === 'string') addCandidate({ title: title, artist: artist, id: videoId }, genres);
+            if (typeof videoId === 'string') addCandidate({ title: title, artist: artist, id: videoId }, blendedGenres);
           });
         }
       }
