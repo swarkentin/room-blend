@@ -513,6 +513,9 @@
       Array.prototype.forEach.call($('picker').querySelectorAll('button'), function (c) { c.setAttribute('aria-pressed', 'false'); c.disabled = false; });
     });
     songAutocomplete(code, $('host-request-title'), $('host-request-artist'), $('host-request-search-status'), H, function () { $('host-request-form').requestSubmit(); });
+    $('host-request-artist').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); $('host-request-form').requestSubmit(); }
+    });
     $('host-request-form').addEventListener('submit', async function (e) { e.preventDefault(); var result = await post('requests', { title: $('host-request-title').value, artist: $('host-request-artist').value }); $('host-request-hint').textContent = result.ok ? 'Added to the jukebox.' : (result.data && result.data.error) || 'Could not add that request.'; if (result.ok) { $('host-request-title').value = ''; $('host-request-artist').value = ''; $('host-request-search-status').textContent = ''; $('host-request-form').querySelector('.song-suggestions').hidden = true; } });
     $('btn-next').addEventListener('click', function () { post('advance'); });
     $('btn-pause').addEventListener('click', function () {
