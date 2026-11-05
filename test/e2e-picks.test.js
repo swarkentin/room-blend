@@ -21,7 +21,8 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
 
     const g = await page(); await g.goto(`${APP}/r/${code}`);
     await g.click('#gv-picker [data-g="classical"]'); await g.click('#gv-submit'); await g.waitForSelector('#gv-title');
-    assert.ok(await g.locator('#gv-picks h2').isVisible()); assert.strictEqual(await g.textContent('#gv-picks h2'), 'Artists and songs you want to hear'); assert.ok(await g.locator('#gv-picks #gv-q').isVisible()); ok('after joining, the guest page shows "Artists and songs you want to hear" with its search open, no tap needed');
+    await g.locator('details:has(#gv-picks) > summary').click();
+    assert.ok(await g.locator('#gv-picks h2').isVisible()); assert.strictEqual(await g.textContent('#gv-picks h2'), 'Artists and songs you want to hear'); assert.ok(await g.locator('#gv-picks #gv-q').isVisible()); ok('after joining, the guest can expand "Artists and songs you want to hear" and search');
 
     await g.fill('#gv-picks #gv-q', 'quee');
     assert.match(await g.textContent('#gv-picks #gv-picks-msg'), /Searching the room and MusicBrainz/);
@@ -43,7 +44,8 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
     const mine = await g.evaluate(async (c) => { const reg = JSON.parse(localStorage.getItem('rb-guest-' + c)); const r = await fetch('/api/rooms/' + c + '/events?gid=' + reg.id + '&gkey=' + reg.key); const rd = r.body.getReader(); const { value } = await rd.read(); rd.cancel(); return JSON.parse(new TextDecoder().decode(value).match(/data: (.*)\n/)[1]).me; }, code);
     assert.deepStrictEqual(mine.artists, ['Queen']); assert.strictEqual(mine.songs.length, 1); ok('the server holds the picks for this guest');
 
-    await g.reload(); await g.waitForSelector('#gv-title'); 
+    await g.reload(); await g.waitForSelector('#gv-title');
+    await g.locator('details:has(#gv-picks) > summary').click();
     await g.waitForSelector('#gv-picks #gv-chosen .chip'); assert.strictEqual(await g.locator('#gv-picks #gv-chosen .chip').count(), 2); ok('a reload keeps the picks');
 
     // another guest sees nothing of them
@@ -81,6 +83,7 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
     await until(async () => /Starting you on/.test(await g3.textContent('#gv-me')), 6000, 'guessed genres shown to the guest'); ok('a guest who joined with only an artist is told which genres the room guessed for them');
     await until(async () => /Named 1 artist/.test(await host.evaluate(() => document.querySelector('#guests').innerText)), 6000, 'host sees a count');
     assert.ok(!/Fleetwood/.test(await host.evaluate(() => document.querySelector('#guests').innerText))); ok('the host sees "Named 1 artist" and never the name');
+    await g3.locator('details:has(#gv-picks) > summary').click();
     await g3.locator('#gv-picks #gv-chosen .chip', { hasText: 'Fleetwood' }).click();
     await g3.waitForFunction(() => /Add a genre before removing/.test(document.querySelector('#gv-picks #gv-picks-msg').textContent), null, { timeout: 4000 });
     assert.strictEqual(await g3.locator('#gv-picks #gv-chosen .chip').count(), 1); ok('the last artist of a guest with no genres stays until they add a genre');

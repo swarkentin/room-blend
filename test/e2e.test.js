@@ -156,6 +156,7 @@ const until = async (fn, ms = 8000, what = 'condition') => { const t0 = Date.now
     ok('guest autocomplete sends title and artist together when both are entered');
     await g1.unroute(searchPath);
     await host.route(searchPath, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ songs: [{ title: 'Blade Runner Blues', artist: 'Vangelis', source: 'musicbrainz' }] }) }));
+    await host.locator('details:has(#host-request-form) > summary').click();
     await host.fill('#host-request-artist', 'Vange');
     await host.waitForSelector('#host-request-form .song-suggestion');
     await host.click('#host-request-form .song-suggestion');
@@ -198,6 +199,7 @@ const until = async (fn, ms = 8000, what = 'condition') => { const t0 = Date.now
     assert.ok(!log.searches.some((q) => q.startsWith('track:') && /Pool Song/.test(q))); ok('playing it needed no title lookup');
 
     // ---- a guest names an artist the room's songs do not have: Spotify is searched for that artist ----
+    await g1.locator('details:has(#gv-picks) > summary').click();
     await g1.fill('#gv-picks #gv-q', 'Zed Obscure');
     await g1.waitForSelector('#gv-picks #gv-add-typed'); assert.ok(/You can still add this name as an artist/.test(await g1.textContent('#gv-picks #gv-picks-msg'))); ok('searching for an artist the room does not have offers to add them anyway');
     await g1.click('#gv-picks #gv-add-typed');
@@ -213,6 +215,7 @@ const until = async (fn, ms = 8000, what = 'condition') => { const t0 = Date.now
 
     // ---- guest leaves; reload rejoins ----
     await g1.reload(); await g1.waitForSelector('#gv-title'); assert.ok((await g1.textContent('#gv-me')).includes('Your picks')); ok('guest reload restores their place in the room');
+    await g2.locator('details:has(#gv-leave) > summary').click();
     await g2.click('#gv-leave'); await g2.waitForSelector('#gv-form');
     await host.waitForFunction(() => document.querySelectorAll('#guests .guest').length === 1); ok('guest leaving updates the host');
 

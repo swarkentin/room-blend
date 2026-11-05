@@ -18,6 +18,7 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     const [, host] = await mk({ width: 1200, height: 900 });
     await host.goto(APP); await host.click('#start-room'); await host.waitForURL(/\/host\/[A-Z0-9]{5}$/);
     const code = host.url().split('/').pop();
+    await host.locator('details:has(#add-form) > summary').click();
     await host.fill('#g-name', 'Pat'); await host.click('#picker [data-g="blues"]'); await host.click('#add-form button[type=submit]');
     await until(async () => (await host.textContent('#now-title')).trim().length > 0 && (await host.$('#btn-next')), 12000, 'first song');
     const titleOf = async () => (await host.textContent('#now-title')).trim();
@@ -28,7 +29,8 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     const [gc, g] = await mk();
     await g.goto(APP + '/' + code); await g.waitForSelector('#gv-picker .chip'); await g.fill('#gv-name', 'Ana');
     await g.click('#gv-picker [data-g="blues"]'); await g.click('#gv-submit'); await g.waitForSelector('#gv-title');
-    await until(async () => (await g.$$('#gv-played .prow .qtitle')).length >= 1, 8000, 'played list');
+    await g.locator('#gv-played-sec > summary').click();
+    await until(async () => (await g.$('#gv-played .prow .qtitle')).length >= 1, 8000, 'played list');
     let rows = await g.$$eval('#gv-played .prow .qtitle', (els) => els.map((e) => e.textContent));
     assert.ok(rows.some((r) => r.startsWith(atJoin)) && !rows.some((r) => r.startsWith(before)) && !rows.some((r) => r.startsWith(alsoBefore)));
     ok('a guest sees the song playing when they arrived, not the songs from before');
@@ -42,6 +44,7 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     assert.ok(/Saved/.test(await g.textContent('#gv-played .prow:nth-child(1) .heart'))); assert.ok(/Songs I saved \(1\)/.test(await g.textContent('#gv-saved-sum'))); ok('tapping Save keeps the song in "Songs I saved"');
     await g.reload(); await g.waitForSelector('#gv-saved-sum');
     assert.ok(/Songs I saved \(1\)/.test(await g.textContent('#gv-saved-sum'))); ok('the saved list survives a reload (it lives on the phone)');
+    await g.locator('#gv-played-sec > summary').click();
     await g.click('#gv-saved-sum'); assert.ok((await g.textContent('#gv-saved-list')).startsWith(first.slice(0, 8))); ok('the saved list shows the song');
 
     const href = await g.getAttribute('#gv-played .prow:nth-child(1) .findlinks a', 'href');

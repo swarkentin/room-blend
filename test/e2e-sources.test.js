@@ -22,13 +22,33 @@ const SONGS = [
   ['blues1.flac', 'flac', 'Blues One', 'Band B', 'Blues'], ['blues2.mp3', 'libmp3lame', 'Blues Two', 'Band B', 'Blues; Soul'],
   ['jazz1.ogg', 'libvorbis', 'Jazz One', 'Band C', 'Jazz'], ['mystery.mp3', 'libmp3lame', 'Mystery', 'Band D', ''],
 ];
-SONGS.forEach(([f, codec, title, artist, genre], i) => {
-  const args = ['-loglevel', 'error', '-y', '-f', 'lavfi', '-i', `sine=frequency=${300 + i * 60}:duration=1.5`, '-c:a', codec, '-metadata', `title=${title}`, '-metadata', `artist=${artist}`];
-  if (genre) args.push('-metadata', `genre=${genre}`);
-  execFileSync('ffmpeg', [...args, path.join(music, f)]);
-});
+let ffmpegAvailable = true;
+try { execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' }); } catch { ffmpegAvailable = false; }
+if (ffmpegAvailable) {
+  SONGS.forEach(([f, codec, title, artist, genre], i) => {
+    const args = ['-loglevel', 'error', '-y', '-f', 'lavfi', '-i', `sine=frequency=${300 + i * 60}:duration=1.5`, '-c:a', codec, '-metadata', `title=${title}`, '-metadata', `artist=${artist}`];
+    if (genre) args.push('-metadata', `genre=${genre}`);
+    execFileSync('ffmpeg', [...args, path.join(music, f)]);
+  });
+} else {
+  console.log('  skip local-file format checks: ffmpeg is not installed (install ffmpeg to run these checks)');
+}
 fs.writeFileSync(path.join(music, 'notes.txt'), 'not music');
-const WAV = fs.readFileSync(path.join(music, 'rock1.mp3'));
+
+// A tiny PCM WAV keeps the Subsonic streaming test independent of ffmpeg.
+function makeWav() {
+  const sampleRate = 44100, samples = Math.floor(sampleRate * 1.5), dataSize = samples * 2;
+  const b = Buffer.alloc(44 + dataSize);
+  b.write('RIFF', 0); b.writeUInt32LE(36 + dataSize, 4); b.write('WAVE', 8);
+  b.write('fmt ', 12); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20);
+  b.writeUInt16LE(1, 22); b.writeUInt32LE(sampleRate, 24);
+  b.writeUInt32LE(sampleRate * 2, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34);
+  b.write('data', 36); b.writeUInt32LE(dataSize, 40);
+  for (let i = 0; i < samples; i++) b.writeInt16LE(Math.round(Math.sin(2 * Math.PI * 440 * i / sampleRate) * 5000), 44 + i * 2);
+  return b;
+}
+const WAV = ffmpegAvailable ? fs.readFileSync(path.join(music, 'rock1.mp3')) : makeWav();
+const AUDIO_TYPE = ffmpegAvailable ? 'audio/mpeg' : 'audio/wav';
 
 // ---- fake Subsonic / Navidrome ----
 const subLog = { pings: 0, bad: 0, streams: [], searches: 0 };
@@ -43,7 +63,7 @@ const sub = http.createServer((req, res) => {
   if (!authOk()) { subLog.bad++; return json({ status: 'failed', error: { code: 40, message: 'Wrong username or password' } }); }
   if (u.pathname === '/rest/ping.view') { subLog.pings++; return json({ status: 'ok', version: '1.16.1' }); }
   if (u.pathname === '/rest/search3.view') { subLog.searches++; const off = Number(u.searchParams.get('songOffset') || 0); return json({ status: 'ok', searchResult3: { song: off === 0 ? SUB : [] } }); }
-  if (u.pathname === '/rest/stream.view') { subLog.streams.push(u.searchParams.get('id')); res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Content-Length': WAV.length, ...cors }); return res.end(WAV); }
+  if (u.pathname === '/rest/stream.view') { subLog.streams.push(u.searchParams.get('id')); res.writeHead(200, { 'Content-Type': AUDIO_TYPE, 'Content-Length': WAV.length, ...cors }); return res.end(WAV); }
   res.writeHead(404, cors); res.end();
 });
 
@@ -60,6 +80,7 @@ const sub = http.createServer((req, res) => {
     host.on('pageerror', (e) => errors.push(e.message)); host.on('console', (m) => { if (m.type() === 'error' && !/fonts|ERR_|Failed to load resource|qrcode/.test(m.text())) errors.push(m.text()); });
     await host.route(/^https:\/\//, (r) => r.abort());
     const addGuest = async (name, genres) => {
+      await host.locator('details:has(#add-form) > summary').click();
       await host.fill('#g-name', name);
       for (const g of genres) await host.click(`#picker [data-g="${g}"]`);
       await host.click('#add-form button[type=submit]');
@@ -69,27 +90,30 @@ const sub = http.createServer((req, res) => {
 
     // ===== local files =====
     await host.goto(APP); await host.click('#start-room'); await host.waitForURL(/\/host\/[A-Z0-9]{5}$/);
-    await host.click('[data-src="local"]');
-    await host.waitForSelector('#loc-dir', { state: 'attached' });
-    await host.setInputFiles('#loc-dir', path.join(dir, 'Music'));
-    await host.waitForFunction(() => /Playing from your files/.test(document.querySelector('#sp').textContent), null, { timeout: 20000 });
-    const panel = await host.textContent('#sp');
-    assert.ok(/5 songs in the room/.test(panel) && /1 have no genre tag/.test(panel)); ok('folder scanned: 5 tagged songs found, the untagged one left out, notes.txt ignored');
-    await host.selectOption('#loc-default', 'jazz');
-    await host.waitForFunction(() => /6 songs in the room/.test(document.querySelector('#sp').textContent)); ok('untagged songs can be counted as a chosen genre');
-    await host.selectOption('#loc-default', '');
-    await host.waitForFunction(() => /5 songs in the room/.test(document.querySelector('#sp').textContent));
+    if (ffmpegAvailable) {
+      await host.click('[data-src="local"]');
+      await host.waitForSelector('#loc-dir', { state: 'attached' });
+      await host.setInputFiles('#loc-dir', path.join(dir, 'Music'));
+      await host.waitForFunction(() => /Playing from your files/.test(document.querySelector('#sp').textContent), null, { timeout: 20000 });
+      const panel = await host.textContent('#sp');
+      assert.ok(/5 songs in the room/.test(panel) && /1 have no genre tag/.test(panel)); ok('folder scanned: 5 tagged songs found, the untagged one left out, notes.txt ignored');
+      await host.selectOption('#loc-default', 'jazz');
+      await host.waitForFunction(() => /6 songs in the room/.test(document.querySelector('#sp').textContent)); ok('untagged songs can be counted as a chosen genre');
+      await host.selectOption('#loc-default', '');
+      await host.waitForFunction(() => /5 songs in the room/.test(document.querySelector('#sp').textContent));
+  
+      await addGuest('Maya', ['rock']);
+      const t1 = await until(async () => { const t = await nowTitle(); return /^(Rock|Blues|Jazz|Mystery)/.test(t) ? t : ''; }, 12000, 'first local song');
+      assert.ok(/^Rock/.test(t1), 'a rock fan should hear rock first, got ' + t1); ok('a rock fan is played a rock file from the library: ' + t1);
+      const src1 = await until(playingSrc, 12000, 'audio element playing');
+      assert.ok(src1.startsWith('blob:')); ok('the browser is really playing the local file (blob audio, currentTime advancing)');
+      await until(async () => (await nowTitle()) !== t1, 12000, 'advance on natural end');
+      ok('when the file ends, the next song starts by itself: ' + await nowTitle());
+      assert.ok(!(await host.textContent('#queue')).includes('Mr. Brightside')); ok('the queue comes only from the host\'s files, not the built-in list');
+      const next = await host.textContent('#queue .qrow:first-child .listen').catch(() => '');
+      ok('"Find it" links are hidden while playing from files: ' + (next === '' ? 'yes' : 'no'));
+    }
 
-    await addGuest('Maya', ['rock']);
-    const t1 = await until(async () => { const t = await nowTitle(); return /^(Rock|Blues|Jazz|Mystery)/.test(t) ? t : ''; }, 12000, 'first local song');
-    assert.ok(/^Rock/.test(t1), 'a rock fan should hear rock first, got ' + t1); ok('a rock fan is played a rock file from the library: ' + t1);
-    const src1 = await until(playingSrc, 12000, 'audio element playing');
-    assert.ok(src1.startsWith('blob:')); ok('the browser is really playing the local file (blob audio, currentTime advancing)');
-    await until(async () => (await nowTitle()) !== t1, 12000, 'advance on natural end');
-    ok('when the file ends, the next song starts by itself: ' + await nowTitle());
-    assert.ok(!(await host.textContent('#queue')).includes('Mr. Brightside')); ok('the queue comes only from the host\'s files, not the built-in list');
-    const next = await host.textContent('#queue .qrow:first-child .listen').catch(() => '');
-    ok('"Find it" links are hidden while playing from files: ' + (next === '' ? 'yes' : 'no'));
 
     // ===== switch to Navidrome / Subsonic =====
     await host.click('[data-src="subsonic"]');
@@ -100,6 +124,8 @@ const sub = http.createServer((req, res) => {
     await host.fill('#sub-pass', 'secret'); await host.click('#sub-go');
     await host.waitForFunction(() => /Playing from your music server/.test(document.querySelector('#sp').textContent), null, { timeout: 15000 }).catch(async (e) => { console.log('PANEL:', (await host.textContent('#sp')).slice(0, 600), 'LOG', JSON.stringify(subLog), errors); throw e; });
     assert.ok(/4 songs in the room/.test(await host.textContent('#sp'))); assert.strictEqual(subLog.bad, 1); ok('Subsonic token login works (md5 salt/token verified by the server); 4 tagged songs loaded');
+    // The local-file section is skipped without ffmpeg, so create the guest here too.
+    if (!ffmpegAvailable) await addGuest('Maya', ['rock']);
     const t2 = await until(async () => { const t = await nowTitle(); return /^Server/.test(t) ? t : ''; }, 12000, 'first server song');
     ok('now playing from the server library: ' + t2);
     await until(() => subLog.streams.length >= 1, 8000, 'stream request');

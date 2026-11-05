@@ -80,6 +80,7 @@ const SEED = SONGS.map(([f]) => ({ path: 'Album/' + f, b64: b64(f) }))
     assert.ok(await host.locator('#loc-forget').count() === 1); ok('a remembered folder can be forgotten');
 
     const addGuest = async (name, genres) => {
+      await host.locator('details:has(#add-form) > summary').click();
       await host.fill('#g-name', name);
       for (const g of genres) await host.click(`#picker [data-g="${g}"]`);
       await host.click('#add-form button[type=submit]');

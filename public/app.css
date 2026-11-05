@@ -377,3 +377,18 @@ a.btn.primary { color: var(--on-primary, #fff); }
 .song-suggestion strong { font-size: 14px; font-weight: 600; }
 .song-suggestion span { grid-column: 1; font-size: 13px; color: var(--muted); }
 .song-suggestion small { grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--muted); font-size: 11px; }
+
+
+/* Secondary controls stay available without competing with the main room flow. */
+.secondary { border: 1px solid var(--line); border-radius: 12px; padding: 0 14px; background: var(--surface); }
+.secondary > summary { cursor: pointer; list-style: none; padding: 13px 0; font-weight: 600; color: var(--ink); }
+.secondary > summary::-webkit-details-marker { display: none; }
+.secondary > summary::after { content: '+'; float: right; color: var(--muted); font: 500 18px/1 var(--font-mono); }
+.secondary[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+.secondary[open] > summary::after { content: '−'; }
+.secondary > .add { margin: 0 0 14px; }
+.side .secondary { margin-bottom: 12px; }
+.guest-wrap .secondary { margin: 0; }
+.guest-wrap .secondary > summary { padding: 12px 0; }
+.guest-wrap .secondary[open] > summary { margin-bottom: 10px; }
+.guest-actions .gbtns { padding: 0 0 12px; }
