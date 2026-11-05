@@ -49,6 +49,8 @@ const intersects = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x && a.y <
     assert.ok(tb.x >= 0 && tb.x + tb.width <= 1920 && !intersects(tb, qr)); ok('hovering an avatar shows their stats, on screen and off the QR code');
 
     // movement is occasional: at most one walker at a time, and standing still most of the time
+    // (guests walking in when they first arrive is separate, so let those entrances finish before counting strolls)
+    await until(async () => (await host.locator('.av.is-walking').count()) === 0, 45000, 'entrances finished');
     let walkers = 0, maxAtOnce = 0;
     for (let i = 0; i < 20; i++) { const w = await host.locator('.av.is-walking').count(); maxAtOnce = Math.max(maxAtOnce, w); walkers += w ? 1 : 0; await host.waitForTimeout(250); }
     assert.ok(maxAtOnce <= 1); ok('only one avatar walks at a time');
