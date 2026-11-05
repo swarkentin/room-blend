@@ -493,18 +493,26 @@
     }
     setCastScene(0);
     if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      var castWalkIndex = 0;
+      var castIdleIndex = 0, castWalkIndex = 0;
+      setInterval(function () {
+        var listeners = $('tv-cast-floor').querySelectorAll('.tv-listener-avatar');
+        if (!listeners.length) return;
+        var listener = listeners[castIdleIndex++ % listeners.length];
+        listener.classList.remove('is-idling');
+        void listener.offsetWidth;
+        listener.classList.add('is-idling');
+        listener.addEventListener('animationend', function () { listener.classList.remove('is-idling'); }, { once: true });
+      }, 8500);
       setInterval(function () {
         setCastScene(++castScene);
         var walkers = $('tv-cast-floor').querySelectorAll('.tv-listener-avatar');
-        if (walkers.length) {
-          var walker = walkers[castWalkIndex++ % walkers.length];
-          walker.classList.remove('is-walking');
-          void walker.offsetWidth;
-          walker.classList.add('is-walking');
-          walker.addEventListener('animationend', function () { walker.classList.remove('is-walking'); }, { once: true });
-        }
-      }, 14000);
+        if (!walkers.length) return;
+        var walker = walkers[castWalkIndex++ % walkers.length];
+        walker.classList.remove('is-walking');
+        void walker.offsetWidth;
+        walker.classList.add('is-walking');
+        walker.addEventListener('animationend', function () { walker.classList.remove('is-walking'); }, { once: true });
+      }, 28000);
     }
     if (navigator.share) {
       $('js').hidden = false;
@@ -1424,7 +1432,16 @@
       st.next.forEach(function (n) { ol.appendChild(h('li', null, [document.createTextNode(n.title + ' '), h('span', { text: n.artist })])); });
     }
     if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      var screenWalkIndex = 0;
+      var screenIdleIndex = 0, screenWalkIndex = 0;
+      setInterval(function () {
+        var listeners = $('tv-listeners').querySelectorAll('.tv-listener-avatar');
+        if (!listeners.length) return;
+        var listener = listeners[screenIdleIndex++ % listeners.length];
+        listener.classList.remove('is-idling');
+        void listener.offsetWidth;
+        listener.classList.add('is-idling');
+        listener.addEventListener('animationend', function () { listener.classList.remove('is-idling'); }, { once: true });
+      }, 8500);
       setInterval(function () {
         var walkers = $('tv-listeners').querySelectorAll('.tv-listener-avatar');
         if (!walkers.length) return;
@@ -1433,7 +1450,7 @@
         void walker.offsetWidth;
         walker.classList.add('is-walking');
         walker.addEventListener('animationend', function () { walker.classList.remove('is-walking'); }, { once: true });
-      }, 13000);
+      }, 28000);
     }
     var es = new EventSource('/api/rooms/' + code + '/events?screen=1');
     es.onmessage = function (m) { try { draw(JSON.parse(m.data)); } catch (e) { console.error(e); } };
