@@ -945,7 +945,7 @@
     var reg = null; try { reg = JSON.parse(lsGet(regKey) || 'null'); } catch (e) { reg = null; }
     function saveReg() { lsSet(regKey, JSON.stringify(reg)); savePrefs(reg); }
     var params = new URLSearchParams(location.search);
-    var es = null, st = null, findOpen = Object.create(null), goneAt = 0;
+    var es = null, st = null, findOpen = Object.create(null), goneAt = 0, requestDetails = null;
 
     app.replaceChildren(h('div', { class: 'wrap guest-wrap' }, [
       h('header', { class: 'top' }, [h('div', null, [h('h1', { id: 'gv-title-h', text: 'Room ' + code }), h('p', { id: 'g-sub', text: 'Pick genres, or name artists and songs you like. The room\'s music shifts to fit everyone who is here.' })])]),
@@ -1038,12 +1038,12 @@
           h('div', { class: 'now-head' }, [h('span', { class: 'label', id: 'gv-count', text: 'Connecting…' }), h('span', { id: 'gv-mode', class: 'badge' }, [h('i'), h('span', { id: 'gv-mode-text', text: 'Waiting' })])]),
           h('h2', { class: 'now-title', id: 'gv-title', text: 'Waiting for the music' }), h('p', { class: 'now-artist', id: 'gv-artist' }),
           h('p', { class: 'why', id: 'gv-why' }),
-          h('div', { class: 'controls' }, [h('span', { class: 'label', text: 'Your call' }), h('button', { class: 'btn small', type: 'button', id: 'gv-good', 'aria-pressed': 'false', text: 'Good pick', onclick: function () { vote('up'); } }), h('button', { class: 'btn small', type: 'button', id: 'gv-bad', 'aria-pressed': 'false', text: 'Bad pick', onclick: function () { vote('down'); } })]),
+          h('div', { class: 'controls' }, [h('span', { class: 'label', text: 'Your call' }), h('button', { class: 'btn small', type: 'button', id: 'gv-good', title: 'Tell the host you like this song. Your vote is shown with the current song.', 'aria-label': 'Good pick: tell the host you like this song', 'aria-pressed': 'false', text: 'Good pick', onclick: function () { vote('up'); } }), h('button', { class: 'btn small', type: 'button', id: 'gv-bad', title: 'Tell the host this song is not working for you. Your vote is shown with the current song.', 'aria-label': 'Bad pick: tell the host this song is not working for you', 'aria-pressed': 'false', text: 'Bad pick', onclick: function () { vote('down'); } })]),
         ]),
-        h('div', null, [h('div', { class: 'sec-h' }, [h('h2', { text: 'Up next' })]), h('ol', { class: 'gnext', id: 'gv-next' })]),
+        h('section', { class: 'up-next-strip' }, [h('div', { class: 'sec-h' }, [h('h2', { text: 'Up next' }), h('span', { class: 'meta', id: 'gv-next-count' })]), h('ol', { class: 'gnext', id: 'gv-next' })]),
         h('section', { class: 'panel' }, [h('div', { class: 'sec-h' }, [h('h2', { text: 'Request a song' })]), h('p', { class: 'hint', text: 'Ask the host to play any song. It does not need to be in the room’s music library.' }), h('form', { id: 'guest-request-form', class: 'guest-add-song', autocomplete: 'off', 'aria-label': 'Request a song' }, [h('label', { htmlFor: 'guest-request-title', text: 'Song' }), h('input', { id: 'guest-request-title', type: 'text', maxlength: '100', required: 'required', autocomplete: 'off', placeholder: 'Song title' }), h('label', { htmlFor: 'guest-request-artist', text: 'Artist' }), h('input', { id: 'guest-request-artist', type: 'text', maxlength: '100', required: 'required', autocomplete: 'off', placeholder: 'Artist name' }), h('p', { class: 'hint guest-request-status', id: 'guest-request-search-status', role: 'status' }), h('p', { class: 'hint guest-request-status', id: 'guest-request-hint', role: 'status' })])]),
-        h('details', { class: 'secondary' }, [h('summary', { text: 'Requested songs' }), h('ol', { class: 'gnext', id: 'gv-requests' })]),
-        h('details', { class: 'secondary' }, [h('summary', { text: 'Your music preferences' }), picksSection()]),
+        (requestDetails = h('details', { class: 'secondary', id: 'gv-request-details' }, [h('summary', { text: 'Requested songs' }), h('ol', { class: 'gnext', id: 'gv-requests' })])),
+        h('details', { class: 'secondary', id: 'gv-preferences-details' }, [h('summary', { text: 'Profile & music preferences' }), picksSection()]),
         h('details', { class: 'secondary', id: 'gv-played-sec' }, [h('summary', { text: 'Played while you were here' }),
           h('div', { class: 'sec-h' }, [h('span', { class: 'meta', id: 'gv-played-n' })]),
           h('p', { class: 'hint', id: 'gv-played-msg', role: 'status' }),
@@ -1055,9 +1055,8 @@
           h('button', { class: 'btn primary', type: 'button', id: 'gv-here', text: 'I\'m still here', onclick: function () { touch(true); } }),
         ]),
         h('p', { class: 'hint', id: 'gv-me' }),
-        h('details', { class: 'secondary guest-actions' }, [h('summary', { text: 'Room and account options' }), h('div', { class: 'gbtns' }, [
+        h('details', { class: 'secondary guest-actions' }, [h('summary', { text: 'Room options' }), h('div', { class: 'gbtns' }, [
           h('button', { class: 'btn', type: 'button', id: 'gv-sit', 'aria-pressed': 'false', text: 'Sit out for now', onclick: function () { patch({ sit: !(st && st.me && st.me.sit) }); } }),
-          h('button', { class: 'btn', type: 'button', id: 'gv-edit', text: 'Change my genres', onclick: function () { showForm(true); } }),
           h('button', { class: 'btn', type: 'button', id: 'gv-leave', text: 'Leave the room', onclick: leave }),
         ])])
       );
@@ -1183,20 +1182,43 @@
       return { el: h('div', { class: 'picker' }, [chosen, input, results, msg]), refresh: function () { showChosen(); draw(); } };
     }
 
-    // The same picker inside the room, high on the page where a guest can see it.
+    // One place for a guest's name, genres, artists and songs.
     function picksSection() {
       var meta = h('span', { class: 'meta', id: 'gv-picks-n' });
       var holder = { get artists() { return reg.artists || []; }, set artists(v) { reg.artists = v; }, get songs() { return reg.songs || []; }, set songs(v) { reg.songs = v; } };
-      function count() { var n = holder.artists.length + holder.songs.length; meta.textContent = n ? n + ' added' : ''; }
+      var nameInput = h('input', { type: 'text', id: 'gv-profile-name', maxlength: '20', value: reg.name || '', autocomplete: 'given-name', 'aria-label': 'Your name' });
+      var genreBox = h('div', { class: 'chips', id: 'gv-profile-genres' });
+      var genreStatus = h('p', { class: 'hint', id: 'gv-profile-status', role: 'status' });
+      var pickedGenres = (reg.genres || []).slice();
+      var saveProfile = h('button', { class: 'btn small primary', type: 'button', id: 'gv-save-profile', text: 'Save profile', onclick: async function () {
+        var name = nameInput.value.trim() || 'Guest';
+        var genres = pickedGenres.slice();
+        var r = await http('PATCH', '/api/rooms/' + code + '/guests/' + reg.id, { name: name, genres: genres }, auth());
+        if (!r.ok) { genreStatus.textContent = (r.data && r.data.error) || 'Could not save your profile. Try again.'; return; }
+        reg.name = name; reg.genres = genres; saveReg(); nameInput.value = name;
+        genreStatus.textContent = 'Your name and music preferences are saved.';
+      } });
+      function count() { var n = holder.artists.length + holder.songs.length; meta.textContent = n ? n + ' named' : ''; }
+      var genreSync = chipPicker(genreBox, pickedGenres);
       var lookupInput = h('input', { type: 'checkbox', id: 'gv-mb-lookup-live', checked: reg.lookupGenres ? 'checked' : null, onchange: function () { reg.lookupGenres = lookupInput.checked; saveReg(); patch({ lookupGenres: reg.lookupGenres }); } });
       var pk = namedPicker(holder, function () { saveReg(); patch({ artists: reg.artists, songs: reg.songs }); count(); }, function () { return !(reg.genres && reg.genres.length); });
-      picksSection.refresh = function () { lookupInput.checked = !!reg.lookupGenres; pk.refresh(); count(); };
+      picksSection.refresh = function () {
+        lookupInput.checked = !!reg.lookupGenres; nameInput.value = reg.name || '';
+        pickedGenres.splice(0, pickedGenres.length); (reg.genres || []).forEach(function (g) { pickedGenres.push(g); });
+        Array.prototype.forEach.call(genreBox.querySelectorAll('button'), function (c) {
+          var on = pickedGenres.indexOf(c.getAttribute('data-g')) >= 0;
+          c.setAttribute('aria-pressed', on ? 'true' : 'false'); c.disabled = !on && pickedGenres.length >= 4;
+        });
+        pk.refresh(); count();
+      };
       count();
       return h('div', { id: 'gv-picks' }, [
-        h('div', { class: 'sec-h' }, [h('h2', { text: 'Artists and songs you want to hear' }), meta]),
-        h('p', { class: 'hint', text: 'Songs by these artists play when they fit the room, and on your turn when it rotates. Only you can see them.' }),
-        h('label', { class: 'hint' }, [lookupInput, ' Use MusicBrainz to improve artist genre guesses. Up to five names from your artist and song picks are sent to MusicBrainz.']),
-        pk.el,
+        h('div', { class: 'sec-h' }, [h('h2', { text: 'Your profile and music preferences' }), meta]),
+        h('label', { class: 'hint profile-name-label', for: 'gv-profile-name', text: 'Your name' }), nameInput,
+        h('h3', { class: 'pref-subhead', text: 'Favourite genres (up to 4; first pick counts most)' }), genreBox,
+        h('p', { class: 'hint', text: 'Artists and songs you name count as perfect matches for you, but only play when they fit the room or it is your turn. Only you can see them.' }),
+        h('label', { class: 'hint' }, [lookupInput, ' Use MusicBrainz to improve artist genre guesses.']),
+        pk.el, h('div', { class: 'row profile-save-row' }, [saveProfile, genreStatus]),
       ]);
     }
 
@@ -1291,10 +1313,15 @@
       $('gv-good').setAttribute('aria-pressed', it && it.myVote === 'up' ? 'true' : 'false');
       $('gv-bad').setAttribute('aria-pressed', it && it.myVote === 'down' ? 'true' : 'false');
       var ol = $('gv-next'); ol.replaceChildren();
-      (s.next || []).forEach(function (n) { ol.appendChild(h('li', { class: 'nextrow' }, [document.createTextNode(n.title + ' '), h('span', { text: n.artist + (n.mine ? ' (your turn)' : '') })])); });
-      if (!s.next || !s.next.length) ol.appendChild(h('li', { class: 'nextrow' }, [h('span', { text: 'Nothing lined up yet.' })]));
-      var rq = $('gv-requests'); rq.replaceChildren(); (s.requests || []).forEach(function (x) { rq.appendChild(h('li', { class: 'nextrow' }, [document.createTextNode(x.title + ' '), h('span', { text: x.artist + ' · ' + (x.mine ? 'your request' : 'requested by ' + x.requester) + ' · about ' + x.position + (x.position === 1 ? ' song away' : ' songs away') })])); });
-      if (!(s.requests || []).length) rq.appendChild(h('li', { class: 'nextrow', text: 'No requests waiting.' }));
+      var upcoming = s.next || [];
+      $('gv-next-count').textContent = upcoming.length ? upcoming.length + ' queued' : 'Queue empty';
+      upcoming.forEach(function (n, i) { ol.appendChild(h('li', { class: 'nextrow' }, [h('span', { class: 'next-position', text: String(i + 1) }), h('span', { class: 'next-track' }, [document.createTextNode(n.title + ' '), h('span', { text: n.artist + (n.mine ? ' · your turn' : '') })])])); });
+      if (!upcoming.length) ol.appendChild(h('li', { class: 'nextrow', text: 'Nothing lined up yet.' }));
+      var requests = s.requests || [];
+      var rq = $('gv-requests'); rq.replaceChildren();
+      requests.forEach(function (x) { rq.appendChild(h('li', { class: 'nextrow' }, [document.createTextNode(x.title + ' '), h('span', { text: x.artist + ' · ' + (x.mine ? 'your request' : 'requested by ' + x.requester) + ' · about ' + x.position + (x.position === 1 ? ' song away' : ' songs away') })])); });
+      if (!requests.length) rq.appendChild(h('li', { class: 'nextrow', text: 'No requests waiting.' }));
+      if (requestDetails) requestDetails.open = requests.length > 0;
       var rh = $('guest-request-hint'); if (rh) rh.textContent = s.requestLimitEnabled === false ? 'There is no per-guest request limit.' : (s.myRequestCount || 0) + ' of 2 requests waiting for you.';
       var me = s.me;
       if (me && reg && typeof me.lookupGenres === 'boolean' && me.lookupGenres !== !!reg.lookupGenres) { reg.lookupGenres = me.lookupGenres; saveReg(); if (picksSection.refresh) picksSection.refresh(); }
