@@ -138,9 +138,10 @@ const until = async (fn, ms = 8000, what = 'condition') => { const t0 = Date.now
     await g1.waitForSelector('#guest-request-form .song-suggestion');
     assert.ok((await g1.textContent('#guest-request-form .song-suggestion')).includes('Vangelis'));
     await g1.click('#guest-request-form .song-suggestion');
-    assert.strictEqual(await g1.inputValue('#guest-request-title'), 'Tears in the Rain');
-    assert.strictEqual(await g1.inputValue('#guest-request-artist'), 'Vangelis');
-    ok('guest can find a song by partial title and select its canonical title and artist');
+    await g1.waitForFunction(() => document.querySelector('#guest-request-hint').textContent === 'Request added to the queue.');
+    assert.strictEqual(await g1.inputValue('#guest-request-title'), '');
+    assert.strictEqual(await g1.inputValue('#guest-request-artist'), '');
+    ok('selecting a guest song suggestion immediately adds the request');
     await g1.unroute(searchPath);
     let pairedSearch = null;
     await g1.route(searchPath, (route) => {
@@ -158,9 +159,10 @@ const until = async (fn, ms = 8000, what = 'condition') => { const t0 = Date.now
     await host.fill('#host-request-artist', 'Vange');
     await host.waitForSelector('#host-request-form .song-suggestion');
     await host.click('#host-request-form .song-suggestion');
-    assert.strictEqual(await host.inputValue('#host-request-title'), 'Tears in the Rain');
-    assert.strictEqual(await host.inputValue('#host-request-artist'), 'Vangelis');
-    ok('host can search by artist and select a song');
+    await host.waitForFunction(() => document.querySelector('#host-request-hint').textContent === 'Added to the jukebox.');
+    assert.strictEqual(await host.inputValue('#host-request-title'), '');
+    assert.strictEqual(await host.inputValue('#host-request-artist'), '');
+    ok('selecting a host song suggestion immediately adds the request');
     await host.unroute(searchPath);
     await g1.fill('#guest-request-title', 'A completely unknown song');
     await g1.fill('#guest-request-artist', 'An unknown artist');
