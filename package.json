@@ -2,6 +2,7 @@
   "name": "room-blend",
   "version": "0.1.0",
   "description": "Music that blends the tastes of everyone in the room.",
+  "license": "Apache-2.0",
   "private": true,
   "main": "server.js",
   "scripts": {

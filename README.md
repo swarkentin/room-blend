@@ -1,108 +1,88 @@
 # Room Blend
 
-One service, many rooms. Anyone can open it, press **Start a room**, and send friends a link. Friends pick up to four genres on their phones; the host's Spotify plays songs from the overlap, and takes fair turns when there is none. No accounts, no dependencies, Node 22+.
+Music that fits everyone in the room, not just whoever holds the aux cord.
 
-## For someone who just wants to host a room
+In a shared space, one person's playlist usually wins and everyone else tunes out. With Room Blend, each person picks a few genres on their phone and the room plays songs from what they have in common. When there's no overlap, it takes fair turns so everyone gets heard.
 
-Open the service, press **Start a room**, then choose where your music is:
+Room Blend only decides what plays next. The host's own music service plays the songs, so there are no streaming accounts to manage and almost nothing to host.
 
-- **Spotify: my songs**: plays your own saved songs through your Premium account and re-reads them automatically, so the catalogue is as big as your library.
-- **Spotify**: plays through your Premium account, using Spotify's own songs for the genres in the room. A short guide helps you create your own free Spotify app (2 minutes).
-- **My music files**: pick a folder on your computer. Nothing is uploaded except song names and genres. Chrome, Edge and Opera remember the folder, so after a reload you reopen it with one click.
-- **YouTube (free)**: plays songs in YouTube's own player, so no Premium and no files are needed. You bring a free Google API key (about 5 minutes, steps are on the host page and in `docs/SETUP.md`). It searches a second playlist for a genre only when the first has fewer than 12 usable songs. Live versions, covers, remixes, lyric videos, compilations and unembeddable uploads are filtered out; song searches keep only candidates whose title and artist both match. Official artist-channel uploads rank higher, and playback successes/failures are remembered for 90 days so unreliable videos move down the list. The host can see cached catalogue coverage and observed playback quality. Successful discoveries are cached in IndexedDB in the host browser for 30 days; empty searches expire after 12 hours so a temporarily poor result can be retried. The cache survives redeploys at the same site address, but is not shared with other browsers or devices. New lookups pause for the day if Google's daily quota is exhausted or rate limits persist, and uncached songs are skipped so playback can continue.
-- **Navidrome / Subsonic**: connect your own music server.
-- **Holiday blends**: guests can pick Christmas or Halloween. Those songs play only while someone in the room has picked the holiday, and everyone else is served by the style of each song.
-- **Just show the songs**: you play them yourself.
-- **Apple Music**: not available yet (needs a paid Apple developer account; see `docs/PROVIDERS.md`).
+## How it works
 
-Your friends never need any of these. They join with a link and pick genres.
+1. The host starts a room and says where their music is: Spotify, a folder of files, a Navidrome server, YouTube, or a list they play by hand.
+2. Guests scan a QR code and tap up to four genres. No app, no account, and a name is optional.
+3. Room Blend picks songs from the overlap, protecting whoever likes the current song least. When there's no overlap, it takes turns.
+4. People come and go and the queue adjusts, without reshuffling for a passer-by.
 
-## How guests join
+Guests can also join from a short link, from the "Playing near you" list on the same Wi-Fi, or by typing the 5-letter room code.
 
-No app, no account, no typing needed. Any one of these works:
+## Quick start
 
-1. **Scan the QR code** on the host's screen. For a TV, **TV / cast view** gives the host page a clean presentation while keeping its music player running; cast that same browser tab. **QR screen** opens a separate join-code display and does not play music.
-2. **Tap the room** under "Playing near you" when they open the site. It lists rooms started on the same Wi-Fi whose host is online. The host can switch this off, and rooms are shown by name, head count and code only.
-3. **Open the short link** `yoursite.com/ABCDE`, shared with the Share button (the phone's share sheet), copy, or any chat.
-4. **Type the 5-letter code, or paste the link,** into the box on the home page. It joins the moment the code is complete.
+You need Node 22 or newer. There is nothing to install.
 
-On the join page a guest taps one to four genres, names an artist or song, or both, and is in. A name is optional. Returning guests get a one-tap **Rejoin** on the home page, and reloading the page keeps them in the room. Shared links show a preview with the room name in chat apps.
+    node server.js
 
-### Naming artists and songs
+Open <http://127.0.0.1:3000> and press **Start a room**. To let phones on your Wi-Fi join, set `PUBLIC_URL` to your machine's address. [docs/SETUP.md](docs/SETUP.md) walks through it.
 
-Under the name field on the join page, and again in the room after joining, a guest can search the room's music and MusicBrainz for artists, songs and albums, then name up to 5 artists and 5 songs (or type an artist the search does not find). Searches of two or more characters are sent to MusicBrainz for matching results. Selecting an album adds up to five tracks as song picks. A guest who does not know their genres can join with only artists or songs: the room guesses genres from matching songs, and can optionally use MusicBrainz's artist genres for a stronger guess. The separate genre lookup option is off by default; enabling it sends up to five artist names from the guest's artist and song picks to MusicBrainz. The guest can always choose genres manually. A named artist or song counts as a perfect match for that guest. It never overrides the room: when the room agrees on a style, a named song only gets a small nudge and only if everyone could nearly accept it, and when songs rotate, it is the first choice on that guest's own turn. Only the guest sees their picks. The host sees how many artists and songs each guest named, never which ones, and the server logs only counts. If the room's songs do not include a named artist, the host's browser looks them up once in its music source (Spotify artist search, or one YouTube playlist search of "<artist> greatest hits") and keeps only that artist's songs. Hosts playing their own complete library are never asked to look anything up.
+With Docker:
 
-"Near you" matches the public network address, so it suits a home, party or venue Wi-Fi. On a mobile network, where many strangers share an address, the host should untick "Show to people on this Wi-Fi".
-
-## Run the service
-
-First time, or testing on your home network? Follow [docs/SETUP.md](docs/SETUP.md): install check, phones joining over Wi-Fi, Spotify setup, running several rooms, and every setting.
-
-    node server.js                      # http://localhost:3000, works with no settings
     docker build -t room-blend . && docker run -p 8080:8080 -v rb-data:/data room-blend
 
-No settings are required. The address is picked up from the browser, so there is no URL to configure. Optional:
+## Music sources
 
-| Setting | Meaning |
+The host picks one per room. Guests never need any of these.
+
+| Source | What you need |
 |---|---|
-| `TRUST_PROXY=1` | Behind Render, Fly, Cloudflare and so on, use the real visitor IP for limits. Set in the Dockerfile; turn off if you expose Node directly. |
-| `PUBLIC_URL` | Address friends should open. Only needed for the laptop + tunnel setup below. |
-| `SPOTIFY_CLIENT_ID` | A Spotify app for everyone to use. See the note below before you rely on it. |
-| `MAX_ROOMS`, `ROOMS_PER_IP_HOUR` | Capacity (2000) and how many rooms one visitor may start per hour (8). |
-| `SESSION_SECRET` | Signs restore receipts and encrypts the host browser's room-state snapshots so a room can be restored after a restart or redeploy, even with no disk. `render.yaml` generates one. Any long random string works. |
-| `RESTORE_DAYS` | How long after the host last opened a room it can still be restored (30). |
-| `DATA_DIR` | Where room codes, host keys and room settings are also kept across restarts when the host has a real disk. Full live-state recovery is anchored in the host browser. |
-| `LOG_LEVEL` | `silent`, `error`, `warn`, `info` (default), or `debug` (adds one line per request). Logs are JSON lines: warnings and errors on stderr, the rest on stdout. They never contain names, picks, room codes, host keys or IP addresses. Rooms and visitors appear as short salted hashes. |
-| `STATUS_KEY` | `/status` shows rooms, guests, connections, timings, memory and top genres. By default it answers only on the machine itself. Set a key to read it remotely with `?key=...` or an `x-status-key` header. |
+| Spotify | Premium, and your own free Spotify app (see below) |
+| Spotify: my songs | The same, plays from your saved songs |
+| My music files | A folder of songs on your computer. Files stay in your browser |
+| YouTube | A free Google API key. No Premium or files needed |
+| Navidrome / Subsonic | Your own music server |
+| Just show the songs | Nothing. You play them yourself |
 
-`/healthz` answers `ok` for platform health checks.
+Apple Music isn't supported yet. Christmas and Halloween are optional picks that only play while someone in the room asks for them.
 
-### Why hosts bring their own Spotify app
+Each host creates their own Spotify app because Spotify limits development-mode apps to five users and grants wider access only to established products. If you have extended access, set `SPOTIFY_CLIENT_ID` and hosts can use your app instead.
 
-Spotify limits a development-mode app to five authorised users, and extended access is granted only to established products. One shared app cannot serve a public service. A host's own app only ever needs the host, so the limit never applies, and the service owner needs no Spotify approval. If you do get extended access, set `SPOTIFY_CLIENT_ID` and hosts can use it with one click (guest genre import also turns on).
+Details on each source, how matching works, and how to add a new one are in [docs/PROVIDERS.md](docs/PROVIDERS.md).
+
+## Documentation
+
+- [docs/SETUP.md](docs/SETUP.md): running it, letting phones join, connecting music, running several rooms, going online, and the [settings reference](docs/SETUP.md#settings-reference)
+- [docs/PROVIDERS.md](docs/PROVIDERS.md): [how music sources work](docs/PROVIDERS.md#two-kinds-of-source), [adding one](docs/PROVIDERS.md#adding-a-source), and [genres](docs/PROVIDERS.md#genres)
 
 ## Free ways to run it
 
-- **Your laptop plus a Cloudflare Tunnel** (free, always HTTPS): `node server.js` then `cloudflared tunnel --url http://localhost:3000`. Set `PUBLIC_URL` to the tunnel address so join links and QR codes use it. The host opens `http://127.0.0.1:3000` themselves, which Spotify accepts for login. Best for testing with friends tonight.
-- **Render free web service**: `render.yaml` is included (New > Blueprint). Free services sleep after 15 minutes with no incoming requests (the host page pings every 5 minutes while a room is open), wake in about a minute, have no persistent disk, and can be restarted at any time. Rooms survive that anyway: the host's browser keeps an encrypted room snapshot in IndexedDB and restores the same room, guests, picks, fairness, queue, votes and listening history when it reconnects. Guests reconnect with their existing credentials; the host's own music library is refreshed from its provider. This needs the `SESSION_SECRET` that `render.yaml` generates. 750 free hours a month covers one always-on service. See `docs/SETUP.md` section 5.
-- **Oracle Cloud Always Free VM**: genuinely always on, but you manage a small Linux server (install Node or Docker, put Caddy in front for HTTPS). Availability varies by region.
-- **Railway** gives a one-time trial credit; **Fly.io** (`fly.toml` included) asks for a card and costs a few dollars a month. Serverless platforms (Vercel, Netlify, Workers) are not suitable: this needs a long-running server.
+- **Your laptop plus a Cloudflare Tunnel.** Run `node server.js`, then `cloudflared tunnel --url http://localhost:3000`, and set `PUBLIC_URL` to the tunnel address. Good for trying it with friends tonight.
+- **Render free web service.** `render.yaml` is included. The service sleeps when idle, but the host's browser keeps a snapshot and restores the room when it wakes.
+- **Oracle Cloud Always Free VM.** Always on, but you manage a small Linux server.
+- **Fly.io.** `fly.toml` is included. It asks for a card and costs a few dollars a month.
 
-## Tests
+It needs a long-running server, so serverless platforms like Vercel and Netlify won't work. More in [docs/SETUP.md](docs/SETUP.md#5-when-you-want-it-outside-your-home).
 
-    npm test                    # engine, tag reader (needs ffmpeg), API
-    npm run test:browser        # Spotify (shared, own app, saved-songs sync), local files (folder input and the File System Access API), Navidrome/Subsonic sync, join paths, genre picker. Needs Playwright, ffmpeg and Python OpenCV (CI installs these).
+## Privacy
 
-## Not verified against real Spotify
+The server only sees song titles, artists and genres. Audio, files and music-service logins stay in the host's browser. Logs don't contain names, picks, room codes or IP addresses.
 
-Local files were tested with real mp3, ogg and flac files played in Chromium. Subsonic was tested against a fake server that checks the real token login. Spotify was tested against a fake built from the documented API. YouTube was tested against a fake of its search and player APIs. Not yet tried against real Navidrome, Spotify or YouTube. Check these first on a real run:
-- YouTube: that your API key is accepted, that songs start by themselves (browsers may need one click on the player first), and that most songs are found and embeddable.
-- Navidrome: that your server allows requests from the page (CORS) and that an empty search returns your whole library. If it does not, the app falls back to walking albums.
-- The player reports end-of-track the way `public/spotify.js` expects. If songs do not advance, **Next song** still works.
-- Genre search and top-artists import still work for new apps. If not, the app uses the built-in list of about 6,700 songs and manual picks.
-- Built-in songs are matched by title and artist, so a few may be a different version.
+## Status
 
-Licensing: Spotify is for private listening. Use this at home or with friends, not in a business.
+Room Blend works end to end: host console, guest page, live queue, big-screen view and the music sources above. It is tested against fakes of Spotify, YouTube and Navidrome, and against real local files. It has not been tried against the real services or with a room full of real guests yet, so expect rough edges. If something breaks, please open an issue.
 
-## Layout
+Spotify is for private listening, so use Room Blend at home or with friends, not in a business.
 
-    server.js          HTTP, live updates (SSE), limits, encrypted room recovery
-    lib/               engine.js (blend / rotation), room.js (state), catalog.js (about 360 tracks)
-    public/            app.js (UI), providers.js + spotify.js + local.js + subsonic.js (music sources),
-                       tags.js (reads song tags), genremap.js, app.css
-    docs/PROVIDERS.md  how music sources work, how to add one, Apple Music plan
-    test/              engine, API and browser tests
-    Dockerfile  render.yaml  fly.toml
+## License
 
-## What guests take home
+Apache License 2.0. See [LICENSE](LICENSE).
 
-Each guest sees **Played while you were here**: every song since they arrived (including the one already playing), newest first. Per song they can **Save** it (kept on their phone, with a Copy my list button), open **Find it** links for Spotify, Apple Music and YouTube Music, or tap **More like this** to add the song's genre to their picks, so a good surprise widens what the room plays for them. A guest who rejoins keeps their original start time.
+## Development
 
-## How the room knows who is still here
+    npm test                # engine, tag reader (needs ffmpeg), API
+    npm run test:browser    # end-to-end tests. Needs Playwright, ffmpeg and Python OpenCV
 
-- **Connection:** each guest's page keeps a live connection. If it vanishes (closed tab, bad signal), the guest is kept for 3 minutes, then removed.
-- **Locked phone:** a page that goes to the background says so, and the guest then stays counted for the host's "keep a guest counted after their phone locks" time (30 minutes by default, 5 to 240). This works for guests on mobile data who never join the host's Wi-Fi. Opening the page again renews it, or rejoins them with their picks if the time ran out.
-- **Leaving the Wi-Fi:** for guests who joined from the room's own Wi-Fi, the page checks in once a minute. Two checks in a row from another network mark them away, so songs are chosen without them. They return on their own when back, and are removed after 15 minutes away. Guests who joined by link from outside the Wi-Fi are never judged this way.
-- **Still here?** After an hour without touching the page, the guest is asked. No answer in 5 minutes sets them to sit out; touching the page brings them back.
-- The host sees "Away" or "Quiet" next to a guest's name. Guests added by hand never time out.
-- Tunable with `DISCONNECT_GRACE_MS`, `DOZE_DEFAULT_MIN`, `AWAY_REMOVE_MS`, `IDLE_ASK_S`, `IDLE_ANSWER_MS` and `BEAT_MS`.
+Where things live:
+
+    server.js           HTTP, live updates, limits, room recovery
+    lib/                engine.js (blending and turns), room.js (room state), built-in song list
+    public/             the UI and the music source modules
+    docs/               setup and provider guides
+    test/               engine, API and browser tests
