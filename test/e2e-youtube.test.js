@@ -354,7 +354,7 @@ const yt = http.createServer((req, res) => {
       });
       db.close();
     });
-    await host.route('**/api/musicbrainz/artist-genres?artist=red', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ genres: ['alternative', 'metal'] }) }));
+    await host.route('**/api/musicbrainz/artist-genres*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ genres: ['alternative', 'metal'] }) }));
     await host.evaluate(() => localStorage.removeItem('rb-yt-genre-enrichment-v2'));
     const apiBeforeEnrichment = log.apiRequests;
     const enrichment = await host.evaluate(async () => window.Providers.get('youtube').enrichCatalogue());
@@ -363,7 +363,7 @@ const yt = http.createServer((req, res) => {
     const enrichedBlues = await cacheRecord(host, 'pool:blues'), enrichedRock = await cacheRecord(host, 'pool:rock'), enrichedTechno = await cacheRecord(host, 'pool:techno');
     const enrichedAlternative = await cacheRecord(host, 'pool:alternative'), enrichedMetal = await cacheRecord(host, 'pool:metal');
     assert.ok(enrichedAlternative.value.some((song) => song.id === 'Zv-0sL6uPBg') && enrichedMetal.value.some((song) => song.id === 'Zv-0sL6uPBg')); ok('a previously successful unclassifiable play is backfilled from cached search metadata and MusicBrainz artist genres');
-    await host.unroute('**/api/musicbrainz/artist-genres?artist=red');
+    await host.unroute('**/api/musicbrainz/artist-genres*');
     assert.ok(enrichedBlues.value.some((t) => t.id === 'oldBlues1') && enrichedRock.value.some((t) => t.id === 'oldBlues1')); ok('a cached compound blues-rock pool is blended into both canonical genre pools');
     assert.ok(enrichedTechno.value.some((t) => t.id === 'searchTechno1')); ok('a clearly classifiable cached search is blended into its genre pool');
     const secondEnrichment = await host.evaluate(async () => window.Providers.get('youtube').enrichCatalogue());
