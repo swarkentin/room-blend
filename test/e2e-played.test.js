@@ -29,6 +29,9 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     const [gc, g] = await mk();
     await g.goto(APP + '/' + code); await g.waitForSelector('#gv-picker .chip'); await g.fill('#gv-name', 'Ana');
     await g.click('#gv-picker [data-g="blues"]'); await g.click('#gv-submit'); await g.waitForSelector('#gv-title');
+    // The live view mounts before its first SSE snapshot. Wait for the snapshot
+    // to reflect the song playing at join before checking the played history.
+    await until(async () => (await g.textContent('#gv-title')).trim() === atJoin, 8000, 'guest initial live snapshot');
     await g.locator('#gv-played-sec > summary').click();
     await until(async () => (await g.$('#gv-played .prow .qtitle')).length >= 1, 8000, 'played list');
     let rows = await g.$$eval('#gv-played .prow .qtitle', (els) => els.map((e) => e.textContent));
