@@ -348,7 +348,9 @@ const yt = http.createServer((req, res) => {
         store.put({ id: 'pool:blues rock', kind: 'pool', value: [{ title: 'Old Blues Track', artist: 'Cached Artist', id: 'oldBlues1' }], at: now, usedAt: now, expiresAt: now + 30 * 86400000 });
         store.put({ id: 'search:techno anthem|sample artist', kind: 'search', value: ['searchTechno1'], at: now, usedAt: now, expiresAt: now + 30 * 86400000 });
         // Existing playback feedback records only the video ID; the cached search key supplies its metadata.
-        store.put({ id: 'search:ordinary world|red', kind: 'search', value: ['Zv-0sL6uPBg'], at: now, usedAt: now, expiresAt: now + 30 * 86400000 });
+        // Keep this historical fixture distinct from the earlier live-play RED fixture, which
+        // correctly populated the same genre pools and would dedupe this video by title/artist.
+        store.put({ id: 'search:metadata only song|metadata only artist', kind: 'search', value: ['Zv-0sL6uPBg'], at: now, usedAt: now, expiresAt: now + 30 * 86400000 });
         store.put({ id: 'quality:Zv-0sL6uPBg', kind: 'quality', value: { successes: 1, failures: 0, lastSuccessAt: now }, at: now, usedAt: now, expiresAt: now + 90 * 86400000 });
         tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
       });
