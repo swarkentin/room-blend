@@ -183,7 +183,9 @@ function sse(path) {
   assert.strictEqual((await req('GET', '/screen/' + code)).status, 200); ok('the big-screen page is served');
   const scr = sse(`/api/rooms/${code}/events?screen=1`);
   const sv2 = await scr.waitFor((x) => x.role === 'screen' && x.next); const sj = JSON.stringify(sv2);
-  assert.ok(!sj.includes(a.guestId) && !sj.includes('genres') && !sj.includes('hostKey') && !sj.includes('fits')); ok('the screen view carries no guest details'); scr.close();
+  assert.ok(!sj.includes(a.guestId) && !sj.includes('genres') && !sj.includes('hostKey') && !sj.includes('fits')); ok('the screen view carries no guest identifiers or private taste data');
+  assert.ok(Array.isArray(sv2.listeners) && sv2.listeners.some((g) => g.name === 'Sam' && typeof g.avg === 'number' && typeof g.songs === 'number' && typeof g.own === 'number'));
+  ok('the screen view exposes only the listener display name and aggregate fairness stats for avatars'); scr.close();
   assert.ok(!(await req('GET', '/')).headers['content-security-policy'].includes('cdnjs')); ok('no third-party scripts are allowed (the QR code is built in)');
 
   // host-supplied library
