@@ -629,7 +629,7 @@
       var tries = ids.slice(0, 4);
       for (var i = 0; i < tries.length; i++) {
         var r = await tryVideo(tries[i]);
-        if (r === true) { await recordPlayback(tries[i], true); if (track.request) await rememberPlayed(track, tries[i]); return true; }
+        if (r === true) { await recordPlayback(tries[i], true); if (track.request || (track.genres && track.genres.length)) await rememberPlayed(track, tries[i]); return true; }
         if (r === false) return false;
         await recordPlayback(tries[i], false);
         await demote(track, tries[i]); // null: this video is unavailable or not embeddable, try the next one
