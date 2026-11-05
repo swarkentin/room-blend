@@ -74,7 +74,7 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
 
     // joining with only an artist: no genre picked
     const g3 = await page(); await g3.goto(`${APP}/r/${code}`);
-    assert.ok(await g3.locator('#gv-q').isVisible()); ok('the join page shows the artist and song search without opening anything');
+    assert.ok(await g3.locator('#gv-q').isVisible()); assert.strictEqual(await g3.locator('#gv-form input[type=checkbox]').count(), 0); ok('the join page shows the artist and song search without a MusicBrainz opt-in');
     await g3.click('#gv-submit');
     assert.ok(/Pick a genre, or name an artist or song/.test(await g3.textContent('#gv-hint'))); ok('joining with nothing picked says what to do');
     await g3.fill('#gv-q', 'fleetwood'); await g3.waitForSelector('#gv-results .rrow');
