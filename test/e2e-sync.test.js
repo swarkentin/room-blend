@@ -4,6 +4,7 @@ const http = require('http');
 const assert = require('assert');
 const { spawn } = require('child_process');
 const { chromium } = require('playwright');
+const { openSourceSettings, chooseSource } = require('./helpers/source-settings');
 const SP_PORT = 4873, APP_PORT = 4872;
 const APP = 'http://127.0.0.1:' + APP_PORT, SP = 'http://127.0.0.1:' + SP_PORT;
 let passed = 0; const ok = (s) => { passed++; console.log('  ok  ' + s); };
@@ -52,7 +53,7 @@ const until = async (fn, ms = 10000, what = 'condition') => { const t0 = Date.no
     host.on('pageerror', (e) => errors.push(e.message)); await host.route(/^https:\/\//, (r) => r.abort());
     await host.goto(APP + '/'); await host.click('#start-room'); await host.waitForURL(/\/host\/[A-Z0-9]{5}$/);
     const code = host.url().split('/').pop();
-    await host.click('[data-src="spotify-lib"]'); await host.click('#spl-connect');
+    await chooseSource(host, 'spotify-lib'); await host.click('#spl-connect');
     await host.waitForURL(/\/host\/[A-Z0-9]{5}$/); await host.waitForSelector('#spl-start');
     assert.ok(/user-library-read/.test(log.scopes)); ok('connecting asks Spotify for permission to read saved songs');
     await host.click('#spl-start');
@@ -66,8 +67,7 @@ const until = async (fn, ms = 10000, what = 'condition') => { const t0 = Date.no
     assert.ok(/^spotify:track:sp[123]$/.test(log.plays[0])); ok('a saved song plays through the host\'s Spotify by id: ' + log.plays[0]);
     const played = log.plays.length;
     SAVED.push({ id: 'sp5', name: 'Saved Soul', artists: [{ id: 'A5', name: 'Band E' }] });
-    const sourceSettings = host.locator('#sp details.source-settings');
-    if (!(await sourceSettings.evaluate((el) => el.open))) await sourceSettings.locator('summary').click();
+    await openSourceSettings(host);
     await host.click('#spl-sync');
     await host.waitForFunction(() => /4 songs in the room/.test(document.querySelector('#sp').textContent), null, { timeout: 10000 });
     assert.strictEqual(log.plays.length, played); ok('Sync now picks up a newly saved song (4 songs) without interrupting the one playing');
