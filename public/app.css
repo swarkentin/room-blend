@@ -460,3 +460,31 @@ a.btn.primary { color: var(--on-primary, #fff); }
 @media (max-width: 700px) {
   .host-add-song { grid-template-columns: 58px minmax(0, 1fr); }
 }
+
+/* Guest song requests share the compact search-and-select layout used by hosts. */
+.guest-add-song {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 10px;
+  margin-top: 12px;
+}
+.guest-add-song > label { font-size: 12px; color: var(--muted); }
+.guest-add-song > input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: inherit;
+  border-radius: 8px;
+  padding: 9px 10px;
+  font: inherit;
+}
+.guest-add-song .song-suggestions,
+.guest-add-song .guest-request-status { grid-column: 1 / -1; }
+.guest-add-song .guest-request-status:empty { display: none; }
+.guest-add-song .song-suggestions { margin: 0 0 2px; }
+@media (max-width: 700px) {
+  .guest-add-song { grid-template-columns: 58px minmax(0, 1fr); }
+}
