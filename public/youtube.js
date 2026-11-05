@@ -341,7 +341,19 @@
     var hit = await cacheGet('pool:' + k);
     return hit === undefined ? undefined : qualityOrder(hit);
   }
-  async function poolPut(k, tracks) { var saved = await cachePut('pool:' + k, tracks, 'pool', tracks.length ? 30 : 0.5); if (rctx && rctx.rerender) rctx.rerender(); return saved; }
+  async function poolPut(k, tracks) {
+    var saved = await cachePut('pool:' + k, tracks, 'pool', tracks.length ? 30 : 0.5);
+    if (rctx && rctx.rerender) rctx.rerender();
+    // Refresh the visible coverage summary after a discovery is committed. The initial
+    // render's cacheInfo() may have completed before this pool was written.
+    if (yt && yt.cacheInfo) yt.cacheInfo().then(function (info) {
+      var catalogue = document.querySelector('#yt-catalogue-status');
+      if (!catalogue) return;
+      if (info.mode !== 'indexeddb') catalogue.textContent = 'Catalogue feedback is temporary in this browser session. ' + (info.warning || '');
+      else catalogue.textContent = 'Catalogue: ' + info.pools + ' cached pools · ' + info.poolTracks + ' tracks · ' + info.searches + ' song lookups · playback feedback for ' + info.ratedVideos + ' videos (' + info.playbackSuccesses + ' starts, ' + info.playbackFailures + ' failures).' + (info.warning ? ' ' + info.warning : '');
+    });
+    return saved;
+  }
   function seconds(iso) { var m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso || ''); return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : 0; }
   // "Artist - Song (Official Video)" on a channel, or "Song" on the artist's "Artist - Topic" channel.
   function parseVideo(v) {
