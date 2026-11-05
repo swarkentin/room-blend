@@ -13,7 +13,7 @@
   var DB_NAME = 'room-blend-youtube', DB_VERSION = 2, DB_STORE = 'entries';
   var cacheDbPromise = null, cacheMemory = Object.create(null), cacheWarning = '';
   var SEARCH_DAILY_LIMIT = 90, DISCOVERY_DAILY_LIMIT = 65, SEARCH_BUDGET_KEY = 'rb-yt-search-budget';
-  var on = false, paused = true, busy = false, note = '', player = null, dock = null, cur = null, waiter = null, rctx = null;
+  var on = false, paused = true, busy = false, note = '', player = null, dock = null, cur = null, waiter = null, rctx = null, catalogueRequestId = 0;
   var apiQueue = Promise.resolve(), apiRetryMs = 1000, playbackAttempt = 0;
   var quotaPausedDay = '', API_INTERVAL_MS = Number.isFinite(Number(C.ytApiIntervalMs)) && Number(C.ytApiIntervalMs) >= 0 ? Number(C.ytApiIntervalMs) : 2000, MAX_RETRY_WAIT_MS = 5000, MIN_GENRE_TRACKS = 12;
 
@@ -343,17 +343,9 @@
   }
   async function poolPut(k, tracks) {
     var saved = await cachePut('pool:' + k, tracks, 'pool', tracks.length ? 30 : 0.5);
-    // Refresh the existing status node only after the IndexedDB write has committed.
-    // Rerendering the provider here can replace that node while an earlier cacheInfo()
-    // callback is still pending, allowing the stale callback to win the race.
-    if (yt && yt.cacheInfo) {
-      var info = await yt.cacheInfo();
-      var catalogue = document.querySelector('#yt-catalogue-status');
-      if (catalogue) {
-        if (info.mode !== 'indexeddb') catalogue.textContent = 'Catalogue feedback is temporary in this browser session. ' + (info.warning || '');
-        else catalogue.textContent = 'Catalogue: ' + info.pools + ' cached pools · ' + info.poolTracks + ' tracks · ' + info.searches + ' song lookups · playback feedback for ' + info.ratedVideos + ' videos (' + info.playbackSuccesses + ' starts, ' + info.playbackFailures + ' failures).' + (info.warning ? ' ' + info.warning : '');
-      }
-    }
+    // Re-render after the committed write. Each render invalidates older asynchronous
+    // catalogue reads, so an initial read cannot overwrite this up-to-date summary.
+    if (rctx && rctx.rerender) rctx.rerender();
     return saved;
   }
   function seconds(iso) { var m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso || ''); return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : 0; }
@@ -574,9 +566,10 @@
         box.appendChild(state('dot-ok', 'Playing through YouTube.', note || quotaNote || cacheWarning || 'Keep this tab open and the player visible. Free YouTube may play an ad between songs.'));
         box.appendChild(el('div', { class: 'row' }, [el('button', { class: 'btn small', type: 'button', id: 'yt-forget', text: 'Remove key', onclick: function () { yt.stop(); on = false; clearQuotaFuse(); lsDel(KEY); ctx.rerender(); } })]));
         var catalogue = el('p', { class: 'hint', id: 'yt-catalogue-status', text: 'Loading catalogue quality and coverage…' });
+        var requestId = ++catalogueRequestId;
         box.appendChild(catalogue);
         yt.cacheInfo().then(function (info) {
-          if (!catalogue.isConnected) return;
+          if (requestId !== catalogueRequestId || !catalogue.isConnected) return;
           if (info.mode !== 'indexeddb') catalogue.textContent = 'Catalogue feedback is temporary in this browser session. ' + (info.warning || '');
           else catalogue.textContent = 'Catalogue: ' + info.pools + ' cached pools · ' + info.poolTracks + ' tracks · ' + info.searches + ' song lookups · playback feedback for ' + info.ratedVideos + ' videos (' + info.playbackSuccesses + ' starts, ' + info.playbackFailures + ' failures).' + (info.warning ? ' ' + info.warning : '');
         });
