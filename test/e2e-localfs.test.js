@@ -104,11 +104,11 @@ const SEED = SONGS.map(([f]) => ({ path: 'Album/' + f, b64: b64(f) }))
 
     // A jukebox request has a synthetic server ID, not the local catalogue ID.
     // It must still resolve to the matching file in the host's scanned library.
-    const requestDetails = host.locator('details:has(#host-request-form)');
-    if (!(await requestDetails.evaluate((el) => el.open))) await requestDetails.locator('summary').click();
+    assert.strictEqual(await host.locator('details:has(#host-request-form)').count(), 0);
+    assert.strictEqual(await host.locator('#host-request-form button[type=submit]').count(), 0);
     await host.fill('#host-request-title', 'Rock One');
     await host.fill('#host-request-artist', 'Band A');
-    await host.click('#host-request-form button[type=submit]');
+    await host.press('#host-request-artist', 'Enter');
     await host.waitForFunction(() => document.querySelector('#host-request-hint').textContent === 'Added to the jukebox.');
     await host.click('#btn-next');
     await until(async () => (await nowTitle()) === 'Rock One', 5000, 'requested local song selected');
