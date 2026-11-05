@@ -459,16 +459,19 @@
         h('div', { class: 'tv-cast-next-wrap' }, [h('h2', { text: 'Coming up' }), h('ol', { id: 'tv-cast-next', class: 'tv-cast-next' })]),
       ]),
       h('div', { class: 'tv-cast-controls' }, [
+        h('button', { class: 'btn tv-cast-next-btn', id: 'tv-cast-guests-btn', type: 'button', 'aria-pressed': 'true', text: 'Guests: on' }),
         h('button', { class: 'btn tv-cast-next-btn', id: 'tv-cast-next-btn', type: 'button', text: 'Next song' }),
         h('button', { class: 'btn tv-cast-exit', id: 'tv-cast-exit', type: 'button', text: 'Exit TV view' }),
       ]),
     ]);
     wrap.appendChild(tvCastView);
     // Little avatars for the guests, who mostly stand still and only wander now and then. They keep clear of the QR code and the video.
+    var avatarsOn = lsGet('rb-tv-avatars') !== 'off';   // remembered per browser; on by default
     var castAvatars = window.Avatars ? window.Avatars.create($('tv-cast-avatars'), {
+      enabled: avatarsOn,
       avoid: function () { return [tvCastView.querySelector('.tv-cast-join'), $('yt-dock')]; },
       reduced: function () { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; },
-    }) : { update: function () {}, layout: function () {} };
+    }) : { update: function () {}, layout: function () {}, setEnabled: function () {} };
     function castEntries(st) {
       var fits = {}, fair = {};
       if (st.now) st.now.fits.forEach(function (f) { fits[f.id] = f.fit; });
@@ -503,6 +506,14 @@
     }
     $('tv-mode').addEventListener('click', function () { setTvMode(!document.body.classList.contains('tv-cast-mode')); });
     $('tv-cast-exit').addEventListener('click', function () { setTvMode(false); });
+    function setAvatars(on) {
+      avatarsOn = on; lsSet('rb-tv-avatars', on ? 'on' : 'off');
+      castAvatars.setEnabled(on);
+      $('tv-cast-guests-btn').setAttribute('aria-pressed', on ? 'true' : 'false');
+      $('tv-cast-guests-btn').textContent = on ? 'Guests: on' : 'Guests: off';
+    }
+    $('tv-cast-guests-btn').addEventListener('click', function () { setAvatars(!avatarsOn); });
+    setAvatars(avatarsOn);
     $('tv-cast-next-btn').addEventListener('click', function () { post('advance'); });
     window.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && document.body.classList.contains('tv-cast-mode')) {

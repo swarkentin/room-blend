@@ -73,7 +73,7 @@
 
   function create(stage, opts) {
     opts = opts || {};
-    var recs = new Map(), timer = null, avW = 0;
+    var recs = new Map(), timer = null, avW = 0, enabled = opts.enabled !== false;
 
     function reduced() { return !!(opts.reduced && opts.reduced()); }
     function visible() { return stage.getClientRects().length > 0; }
@@ -157,7 +157,7 @@
     // Now and then one guest takes a short stroll. Never while hovered, resting, or while someone else is already walking.
     function stroll() {
       schedule();
-      if (reduced() || (typeof document !== 'undefined' && document.hidden) || !visible()) return;
+      if (!enabled || reduced() || (typeof document !== 'undefined' && document.hidden) || !visible()) return;
       var cands = [], busy = false;
       recs.forEach(function (r) { if (r.walking) busy = true; else if (r.placed && !r.hovered && r.mood !== 'resting') cands.push(r); });
       if (busy || !cands.length) return;
@@ -239,8 +239,16 @@
         rec.el.style.transition = 'opacity .5s ease'; rec.el.style.opacity = '0'; rec.el.style.pointerEvents = 'none';
         setTimeout(function () { rec.el.remove(); }, 600);
       });
-      stage.hidden = recs.size === 0;
+      stage.hidden = !enabled || recs.size === 0;
       layout();
+    }
+
+    /** Show or hide all the avatars. Guests are still tracked while hidden, so turning it back on is instant. */
+    function setEnabled(on) {
+      enabled = !!on;
+      if (!enabled) recs.forEach(function (rec) { stopWalking(rec); });
+      stage.hidden = !enabled || recs.size === 0;
+      if (enabled) layout();
     }
 
     if (typeof window !== 'undefined') {
@@ -248,7 +256,7 @@
       window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(layout, 150); });
     }
     schedule();
-    return { update: update, layout: layout };
+    return { update: update, layout: layout, setEnabled: setEnabled };
   }
 
   return { mood: mood, create: create, LABELS: LABELS };

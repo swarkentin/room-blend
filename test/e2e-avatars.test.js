@@ -53,6 +53,18 @@ const intersects = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x && a.y <
     for (let i = 0; i < 20; i++) { const w = await host.locator('.av.is-walking').count(); maxAtOnce = Math.max(maxAtOnce, w); walkers += w ? 1 : 0; await host.waitForTimeout(250); }
     assert.ok(maxAtOnce <= 1); ok('only one avatar walks at a time');
 
+    // the toggle hides every avatar, stops the strolling, and is remembered
+    const btn = host.locator('#tv-cast-guests-btn');
+    assert.strictEqual(await btn.getAttribute('aria-pressed'), 'true');
+    await btn.click();
+    assert.ok(await host.locator('#tv-cast-avatars').isHidden()); assert.strictEqual(await btn.getAttribute('aria-pressed'), 'false'); ok('the Guests button hides the avatars');
+    assert.strictEqual(await host.locator('.av.is-walking').count(), 0);
+    await host.reload(); await host.click('#tv-mode');
+    assert.ok(await host.locator('#tv-cast-avatars').isHidden()); ok('the choice is remembered after a reload');
+    await host.locator('#tv-cast-guests-btn').click();
+    await until(async () => (await host.locator('.av').count()) === 3 && await host.locator('#tv-cast-avatars').isVisible(), 5000, 'avatars back');
+    ok('turning it back on brings everyone back');
+
     // leaving removes the avatar
     await host.evaluate(([c, g]) => fetch('/api/rooms/' + c + '/guests/' + g.guestId, { method: 'DELETE', headers: { 'x-guest-id': g.guestId, 'x-guest-key': g.guestKey } }), [code, ana]);
     await until(async () => (await host.locator('.av').count()) === 2, 5000, 'avatar removed');
