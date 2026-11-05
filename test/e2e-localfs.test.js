@@ -102,6 +102,7 @@ const SEED = SONGS.map(([f]) => ({ path: 'Album/' + f, b64: b64(f) }))
 
     // A jukebox request has a synthetic server ID, not the local catalogue ID.
     // It must still resolve to the matching file in the host's scanned library.
+    await host.locator('details:has(#host-request-form) > summary').click();
     await host.fill('#host-request-title', 'Rock One');
     await host.fill('#host-request-artist', 'Band A');
     await host.click('#host-request-form button[type=submit]');
