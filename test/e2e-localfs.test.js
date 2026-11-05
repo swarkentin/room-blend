@@ -77,7 +77,7 @@ const SEED = SONGS.map(([f]) => ({ path: 'Album/' + f, b64: b64(f) }))
     await host.click('#loc-fsa');
     await panelHas(/Playing from your files/);
     const p1 = await panel();
-    await openSourceSettings();
+    await openSourceSettings(host);
     assert.ok(/5 songs in the room/.test(p1) && /1 have no genre tag/.test(p1)); ok('the folder is walked: 5 tagged songs found in a subfolder; notes.txt and the ._ file are ignored; 1 untagged');
     assert.ok(await host.locator('#loc-forget').count() === 1); ok('a remembered folder can be forgotten');
 
