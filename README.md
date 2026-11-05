@@ -1,17 +1,17 @@
 # Room Blend
 
-Music that fits everyone in the room, not just whoever holds the aux cord.
+A Modern jukebox that blends music discovery and sharing with a group or solo.
 
 In a shared space, one person's playlist usually wins and everyone else tunes out. With Room Blend, each person picks a few genres on their phone and the room plays songs from what they have in common. When there's no overlap, it takes fair turns so everyone gets heard.
 
-Room Blend only decides what plays next. The host's own music service plays the songs, so there are no streaming accounts to manage and almost nothing to host.
+Room Blend only decides what plays next. The host's own music service plays the songs, so there are no streaming accounts to manage. Everything is run in the host's browser.
 
 ## How it works
 
 1. The host starts a room and says where their music is: Spotify, a folder of files, a Navidrome server, YouTube, or a list they play by hand.
-2. Guests scan a QR code and tap up to four genres. No app, no account, and a name is optional.
-3. Room Blend picks songs from the overlap, protecting whoever likes the current song least. When there's no overlap, it takes turns.
-4. People come and go and the queue adjusts, without reshuffling for a passer-by.
+2. No login - guests scan a QR code and pick genres and artists for their tastes.
+3. Songs come from a shared genre mashup of all guests selections.
+4. The queue automatically adjusts as people come and go.
 
 ![Guests send their genres to Room Blend, which sends a queue to the host's browser, which plays the songs from the host's own music](docs/images/architecture.svg)
 
@@ -38,7 +38,7 @@ Guests can also join from a short link, from the "Playing near you" list on the 
   </tr>
 </table>
 
-## Quick start
+## Quick start (Hosting the server)
 
 You need Node 22 or newer. There is nothing to install.
 
@@ -56,14 +56,10 @@ The host picks one per room. Guests never need any of these.
 
 | Source | What you need |
 |---|---|
-| Spotify | Premium, and your own free Spotify app (see below) |
-| Spotify: my songs | The same, plays from your saved songs |
+| Spotify | Needs Premium |
 | My music files | A folder of songs on your computer. Files stay in your browser |
-| YouTube | A free Google API key. No Premium or files needed |
+| YouTube | A free Google API key. Subject to API Rate Limits set by Google |
 | Navidrome / Subsonic | Your own music server |
-| Just show the songs | Nothing. You play them yourself |
-
-Apple Music isn't supported yet. Christmas and Halloween are optional picks that only play while someone in the room asks for them.
 
 Each host creates their own Spotify app because Spotify limits development-mode apps to five users and grants wider access only to established products. If you have extended access, set `SPOTIFY_CLIENT_ID` and hosts can use your app instead.
 
@@ -89,7 +85,7 @@ The server only sees song titles, artists and genres. Audio, files and music-ser
 
 ## Status
 
-Room Blend works end to end: host console, guest page, live queue, big-screen view and the music sources above. It is tested against fakes of Spotify, YouTube and Navidrome, and against real local files. It has not been tried against the real services or with a room full of real guests yet, so expect rough edges. If something breaks, please open an issue.
+Room Blend works end to end: host console, guest page, live queue, big-screen view and the music sources above. Expect rough edges. If something breaks, please open an issue. Even better, fix the issue.
 
 Spotify is for private listening, so use Room Blend at home or with friends, not in a business.
 
