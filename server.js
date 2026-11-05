@@ -200,10 +200,10 @@ function notify(code) {
 
 function enrichGuestGenres(code, room, guest) {
   const key = `${code}:${guest.id}`;
-  if (artistLookups.has(key) || !guest.lookupGenres || guest.genres.length) return;
+  if (artistLookups.has(key) || guest.genres.length) return;
   artistLookups.add(key);
   const task = (async () => {
-    while (rooms.get(code) === room && room.guests.get(guest.id) === guest && guest.lookupGenres && !guest.genres.length) {
+    while (rooms.get(code) === room && room.guests.get(guest.id) === guest && !guest.genres.length) {
       const artists = [...new Set([...guest.artists, ...guest.songs.map((song) => song.artist)].map((name) => String(name).trim()).filter(Boolean))].slice(0, 5);
       if (!artists.length) return;
       const signature = artists.map(Engine.normKey).join('|');
@@ -212,7 +212,7 @@ function enrichGuestGenres(code, room, guest) {
       const found = {};
       let failed = false;
       for (const artist of artists) {
-        if (!guest.lookupGenres || guest.genres.length) break;
+        if (guest.genres.length) break;
         try {
           found[Engine.normKey(artist)] = await musicBrainz.lookupArtist(artist);
         } catch (e) {
@@ -223,7 +223,7 @@ function enrichGuestGenres(code, room, guest) {
       const current = [...new Set([...guest.artists, ...guest.songs.map((song) => song.artist)].map((name) => String(name).trim()).filter(Boolean))].slice(0, 5);
       const currentSignature = current.map(Engine.normKey).join('|');
       if (currentSignature !== signature) continue;
-      if (rooms.get(code) !== room || room.guests.get(guest.id) !== guest || !guest.lookupGenres || guest.genres.length) return;
+      if (rooms.get(code) !== room || room.guests.get(guest.id) !== guest || guest.genres.length) return;
       guest.artistGenres = found;
       const hasTags = Object.values(found).some((tags) => tags.length);
       guest.genreLookupStatus = failed ? (hasTags ? 'partial' : 'unavailable') : hasTags ? 'ready' : 'no-match';
@@ -312,7 +312,7 @@ async function api(req, res, url) {
     rooms.set(code, nr);
     notify(code);
     for (const guest of nr.guests.values()) {
-      if (guest.lookupGenres && !guest.genres.length && ['idle', 'pending'].includes(guest.genreLookupStatus)) enrichGuestGenres(code, nr, guest);
+      if (!guest.genres.length && ['idle', 'pending'].includes(guest.genreLookupStatus)) enrichGuestGenres(code, nr, guest);
     }
     saveRooms();
     L.count('rooms.restored');
