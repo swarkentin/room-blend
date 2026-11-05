@@ -66,6 +66,8 @@ const until = async (fn, ms = 10000, what = 'condition') => { const t0 = Date.no
     assert.ok(/^spotify:track:sp[123]$/.test(log.plays[0])); ok('a saved song plays through the host\'s Spotify by id: ' + log.plays[0]);
     const played = log.plays.length;
     SAVED.push({ id: 'sp5', name: 'Saved Soul', artists: [{ id: 'A5', name: 'Band E' }] });
+    const sourceSettings = host.locator('#sp details.source-settings');
+    if (!(await sourceSettings.evaluate((el) => el.open))) await sourceSettings.locator('summary').click();
     await host.click('#spl-sync');
     await host.waitForFunction(() => /4 songs in the room/.test(document.querySelector('#sp').textContent), null, { timeout: 10000 });
     assert.strictEqual(log.plays.length, played); ok('Sync now picks up a newly saved song (4 songs) without interrupting the one playing');
