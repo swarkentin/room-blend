@@ -7,6 +7,7 @@ const path = require('path');
 const assert = require('assert');
 const { spawn } = require('child_process');
 const { chromium } = require('playwright');
+const { openSourceSettings, chooseSource } = require('./helpers/source-settings');
 
 const APP_PORT = 4895, YT_PORT = 4896, APP = 'http://127.0.0.1:' + APP_PORT, YT = 'http://127.0.0.1:' + YT_PORT, TEST_API_INTERVAL_MS = 100;
 const GOOD = 'AIzaFakeKey_0123456789abcdefghijklmnopqrs'; // 39 characters
@@ -121,7 +122,7 @@ const yt = http.createServer((req, res) => {
     const nowTitle = () => host.textContent('#now-title');
 
     assert.strictEqual((await host.$$('.src')).length, 5); ok('YouTube is offered alongside the other sources');
-    await host.click('[data-src="youtube"]');
+    await chooseSource(host, 'youtube');
     assert.ok(/free Google API key/.test(await host.textContent('#sp'))); ok('without a key it explains how to get a free one');
     assert.ok(/not.*restrict it to websites/i.test(await host.textContent('#sp')) || /Do not restrict it to websites/.test(await host.textContent('#sp'))); ok('it warns against a website restriction, since Room Blend sends no referrer');
     await host.fill('#yt-key', 'short'); await host.click('#yt-save');
@@ -359,12 +360,10 @@ const yt = http.createServer((req, res) => {
     poolOn = false;
 
     // switching away hides the player; removing the key forgets it
-    const sourceSettings = host.locator('#sp details.source-settings');
-    if (!(await sourceSettings.evaluate((el) => el.open))) await sourceSettings.locator('summary').click();
+    await openSourceSettings(host);
     await host.click('[data-src="spotify"]');
     assert.strictEqual(await host.isVisible('#yt-dock'), false); ok('choosing another source hides the player');
-    if (!(await sourceSettings.evaluate((el) => el.open))) await sourceSettings.locator('summary').click();
-    await host.click('[data-src="youtube"]');
+    await chooseSource(host, 'youtube');
     await host.click('#yt-forget');
     await host.waitForSelector('#yt-key');
     assert.strictEqual(await host.evaluate(() => localStorage.getItem('rb-yt-key')), null); ok('Remove key forgets the key');
