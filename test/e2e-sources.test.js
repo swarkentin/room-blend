@@ -142,12 +142,10 @@ const sub = http.createServer((req, res) => {
     assert.strictEqual(await nowTitle(), before); ok('Sync now picks up a song added on the server (5 songs) and keeps the current song playing');
     assert.ok(/Synced/.test(await host.textContent('#sp'))); ok('the panel says when it last synced');
 
-    // ===== back to manual clears the library =====
-    await host.click('[data-src="manual"]');
+    // ===== switching to a curated source clears the library =====
+    await host.click('[data-src="spotify"]');
     await until(async () => (await host.textContent('#queue')).trim() && !/Server /.test(await host.textContent('#queue')), 8000, 'curated queue');
-    ok('choosing "just show the songs" returns to the built-in list');
-    await host.click('[data-src="apple"]');
-    assert.ok((await host.textContent('#sp')).includes('not available yet')); ok('Apple Music explains why it is not available yet');
+    ok('choosing Spotify (not connected) returns to the built-in list');
     assert.deepStrictEqual(errors, [], 'page errors: ' + errors.join(' | ')); ok('no page errors');
   } finally { await browser.close(); srv.kill(); sub.close(); fs.rmSync(dir, { recursive: true, force: true }); }
   console.log('\n' + passed + ' checks passed'); process.exit(0);

@@ -560,7 +560,7 @@
     setInterval(function () { try { fetch('/healthz', { cache: 'no-store' }).catch(function () {}); } catch (e) { /* ignore */ } }, 300000);
 
     // ----- music source (provider) -----
-    var Pv = window.Providers; Pv.finish();
+    var Pv = window.Providers;
     var ctx = {
       code: code, genres: C.genres,
       st: function () { return S.st; },
@@ -571,9 +571,7 @@
       clearLibrary: function () { return http('DELETE', '/api/rooms/' + code + '/host/library', null, H); },
       changed: function () { S.playing = null; maybePlay(); maybeExtras(); },
     };
-    var firstChoice = lsGet('rb-source');
-    S.prov = Pv.get(firstChoice || (SP && SP.clientId() && SP.connected() ? 'spotify' : 'manual'));
-    if (S.prov.unavailable) S.prov = Pv.get('manual');
+    S.prov = Pv.get(lsGet('rb-source') || 'spotify');
 
     function choose(id) {
       var prev = S.prov, next = Pv.get(id);
@@ -581,7 +579,7 @@
       try { prev.stop(); } catch (e) { /* ignore */ }
       S.prov = next; S.status = ''; S.playing = null; S.reup = 0; S.tried = {};
       if (prev.pool) post('extras', { reset: true });
-      if (!next.unavailable) lsSet('rb-source', id);
+      lsSet('rb-source', id);
       if (next.kind !== 'library' && S.st && S.st.source && S.st.source.kind === 'library') ctx.clearLibrary();
       if (next.kind === 'library' && next.activate) next.activate(ctx);
       renderSource();
@@ -596,7 +594,7 @@
       }));
       var body = h('div', { class: 'srcbody', id: 'sp-body' }, [P.render(ctx)]);
       box.replaceChildren.apply(box, [h('h3', { text: 'Where is your music?' }), picker, body].concat(S.status ? [h('p', { class: 'hint', role: 'status', id: 'sp-status', text: S.status })] : []));
-      $('btn-pause').hidden = !(P.ready() && P.kind !== 'manual');
+      $('btn-pause').hidden = !P.ready();
     }
 
     function castPalette(genres) {
@@ -1227,7 +1225,6 @@
         ontoggle: function () { findOpen[key] = details.open; },
       }, [h('summary', { text: 'Find it', onclick: function () { findOpen[key] = !details.open; } }), h('span', { class: 'findlinks' }, [
         h('a', { href: 'https://open.spotify.com/search/' + q, target: '_blank', rel: 'noopener', text: 'Spotify' }),
-        h('a', { href: 'https://music.apple.com/search?term=' + q, target: '_blank', rel: 'noopener', text: 'Apple Music' }),
         h('a', { href: 'https://music.youtube.com/search?q=' + q, target: '_blank', rel: 'noopener', text: 'YouTube Music' }),
       ])]);
       return details;

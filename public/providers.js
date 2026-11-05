@@ -3,7 +3,7 @@
 //
 // A provider is a plain object:
 //   id, name, blurb
-//   kind        'manual' | 'curated' (plays songs from the built-in list, found on the service)
+//   kind        'curated' (songs come from the service, by genre; the built-in list is the fallback)
 //               | 'library' (plays the host's own catalogue, which is sent to the server as metadata)
 //   render(ctx) -> DOM node for the setup / status panel
 //   ready()     -> true when it can play right now
@@ -94,15 +94,6 @@
     return api;
   }
 
-  // ---------- Just show me the songs ----------
-  var manual = {
-    id: 'manual', name: 'Just show the songs', blurb: 'You play them yourself, from anything.', kind: 'manual',
-    render: function () {
-      return el('div', null, [state('dot-off', 'Manual mode.', 'Room Blend picks the songs and you play them yourself. Use "Find it" next to each song, or Copy list.')]);
-    },
-    ready: function () { return false; }, play: function () { return Promise.resolve(false); }, pause: function () {}, resume: function () {}, stop: function () {},
-  };
-
   // ---------- Spotify ----------
   var HOST_SCOPES = ['streaming', 'user-read-email', 'user-read-private', 'user-modify-playback-state', 'user-read-playback-state'];
   var spotify = (function () {
@@ -178,26 +169,13 @@
     return p;
   })();
 
-  // ---------- Apple Music (designed for, not built) ----------
-  var apple = {
-    id: 'apple', name: 'Apple Music', blurb: 'Not available yet.', kind: 'curated', unavailable: true,
-    render: function () {
-      return el('div', null, [
-        state('dot-off', 'Apple Music is not available yet.', 'It needs an Apple Developer account (paid) to issue the keys the web player requires, so it cannot be turned on without cost to whoever runs the service.'),
-        el('p', { class: 'hint', text: 'Meanwhile, use Spotify, your own files, or a Navidrome / Subsonic server. See docs/PROVIDERS.md for how Apple Music will plug in.' }),
-      ]);
-    },
-    ready: function () { return false; }, play: function () { return Promise.resolve(false); }, pause: function () {}, resume: function () {}, stop: function () {},
-  };
-
   registry.push(spotify);
 
   window.Providers = {
     list: registry,
     register: function (p) { registry.push(p); },
-    get: function (id) { for (var i = 0; i < registry.length; i++) if (registry[i].id === id) return registry[i]; return manual; },
+    // An unknown id (for example a source this browser remembered that no longer exists) falls back to Spotify, the first source.
+    get: function (id) { for (var i = 0; i < registry.length; i++) if (registry[i].id === id) return registry[i]; return registry[0]; },
     el: el, state: state, makeAudio: makeAudio,
-    // Called once every provider script has loaded: fixes the order of the last two cards.
-    finish: function () { if (registry.indexOf(apple) < 0) registry.push(apple, manual); },
   };
 })();
