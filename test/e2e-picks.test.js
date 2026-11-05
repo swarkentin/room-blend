@@ -22,7 +22,7 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
     const g = await page(); await g.goto(`${APP}/r/${code}`);
     await g.click('#gv-picker [data-g="classical"]'); await g.click('#gv-submit'); await g.waitForSelector('#gv-title');
     await g.locator('details:has(#gv-picks) > summary').click();
-    assert.ok(await g.locator('#gv-picks h2').isVisible()); assert.strictEqual(await g.textContent('#gv-picks h2'), 'Artists and songs you want to hear'); assert.ok(await g.locator('#gv-picks #gv-q').isVisible()); ok('after joining, the guest can expand "Artists and songs you want to hear" and search');
+    assert.ok(await g.locator('#gv-picks h2').isVisible()); assert.strictEqual(await g.textContent('#gv-picks h2'), 'Your profile and music preferences'); assert.ok(await g.locator('#gv-picks #gv-q').isVisible()); ok('after joining, the guest can expand "Your profile and music preferences" and search');
 
     await g.fill('#gv-picks #gv-q', 'quee');
     assert.match(await g.textContent('#gv-picks #gv-picks-msg'), /Searching the room and MusicBrainz/);
