@@ -359,7 +359,7 @@
       if (!db) throw new Error('The local YouTube catalogue is unavailable in IndexedDB.');
       var rows = await new Promise(function (resolve, reject) {
         var tx = db.transaction(DB_STORE, 'readonly'), req = tx.objectStore(DB_STORE).getAll();
-        req.onsuccess = function () { resolve((req.result || []).filter(function (r) { return r.expiresAt > Date.now(); }); };
+        req.onsuccess = function () { resolve((req.result || []).filter(function (r) { return r.expiresAt > Date.now(); })); };
         req.onerror = function () { reject(req.error || new Error('Could not read the local catalogue.')); };
       });
       var GM = window.GenreMap, allowed = window.CONFIG.genres, candidates = [], candidateById = Object.create(null), scanned = 0, added = 0;
@@ -642,19 +642,7 @@
         var catalogue = el('p', { class: 'hint', id: 'yt-catalogue-status', text: 'Loading catalogue quality and coverage…' });
         var requestId = ++catalogueRequestId;
         box.appendChild(catalogue);
-        var enrichStatus = el('p', { class: 'hint', id: 'yt-enrichment-status', text: lsGet(ENRICHMENT_KEY) === 'done' ? 'Existing catalogue enrichment is complete.' : 'Blend cached searches and playlist pools into your genre catalogue without using YouTube quota.' });
-        var enrichButton = el('button', { class: 'btn small', type: 'button', id: 'yt-enrich-catalogue', text: 'Enrich existing catalogue', disabled: lsGet(ENRICHMENT_KEY) === 'done' ? 'disabled' : false, onclick: async function () {
-          enrichButton.disabled = true; enrichStatus.textContent = 'Scanning cached searches and playlist pools…';
-          try {
-            var result = await enrichCatalogue(function (done, total, count) { enrichStatus.textContent = 'Blending catalogue genres: ' + done + ' of ' + total + ' · ' + count + ' added'; });
-            enrichStatus.textContent = result.skipped ? 'Existing catalogue enrichment is already complete.' : 'Catalogue enrichment complete: ' + result.added + ' tracks added from ' + result.scanned + ' cached entries. No YouTube API calls were made.';
-            enrichButton.textContent = 'Enrichment complete';
-          } catch (error) {
-            enrichStatus.textContent = 'Catalogue enrichment could not finish: ' + error.message + ' You can safely retry.';
-            enrichButton.disabled = false;
-          }
-        } });
-        box.appendChild(enrichButton); box.appendChild(enrichStatus);
+        // Catalogue enrichment runs automatically once per local database; no host action required.
         yt.cacheInfo().then(function (info) {
           if (requestId !== catalogueRequestId || !catalogue.isConnected) return;
           if (info.mode !== 'indexeddb') catalogue.textContent = 'Catalogue feedback is temporary in this browser session. ' + (info.warning || '');
@@ -680,7 +668,6 @@
     },
     pool: true, // the room's songs come from YouTube playlists for each genre; the built-in list is only a fallback
     canExtras: function () { return on; },
-    enrichCatalogue: enrichCatalogue,
     cacheInfo: async function () { var db = await openCacheDb(); if (!db) return { mode: 'memory', warning: cacheWarning }; return new Promise(function (resolve) { var tx = db.transaction(DB_STORE, 'readonly'), req = tx.objectStore(DB_STORE).getAll(); req.onsuccess = function () { var rows = req.result.filter(function (x) { return x.expiresAt > Date.now(); }), pools = rows.filter(function (x) { return x.kind === 'pool'; }), feedback = rows.filter(function (x) { return x.kind === 'quality'; }); resolve({ mode: 'indexeddb', pools: pools.length, poolTracks: pools.reduce(function (n, x) { return n + (Array.isArray(x.value) ? x.value.length : 0); }, 0), searches: rows.filter(function (x) { return x.kind === 'search'; }).length, ratedVideos: feedback.length, playbackSuccesses: feedback.reduce(function (n, x) { return n + (x.value.successes || 0); }, 0), playbackFailures: feedback.reduce(function (n, x) { return n + (x.value.failures || 0); }, 0), warning: cacheWarning }); }; req.onerror = function () { resolve({ mode: 'indexeddb', warning: cacheWarning }); }; }); },
     extras: async function (genre, partners) {
       var out = [], seen = {};
@@ -743,4 +730,15 @@
     },
   };
   P.register(yt);
+  // Automatically enrich this browser's existing cache once. This is entirely local and quota-free.
+  Promise.resolve().then(function () {
+    return enrichCatalogue(function (done, total, added) {
+      if (rctx && rctx.status) rctx.status('Enriching your cached music catalogue: ' + done + ' of ' + total + ' genres (' + added + ' tracks added)');
+    });
+  }).then(function (result) {
+    if (!result.skipped && rctx && rctx.status) rctx.status('Music catalogue enrichment complete: ' + result.added + ' tracks added locally');
+    if (rctx && rctx.rerender) rctx.rerender();
+  }).catch(function (error) {
+    if (rctx && rctx.status) rctx.status('Local catalogue enrichment will retry next time: ' + error.message);
+  });
 })();
