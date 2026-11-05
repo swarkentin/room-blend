@@ -30,6 +30,14 @@ ok('a view stays a few kilobytes however long the room has run');
 const ids = r.history.slice(-30).map((h) => h.track.id);
 assert.ok(new Set(ids).size > 15, 'recent songs are not all repeats');
 ok('songs still do not repeat back to back after trimming');
+assert.ok(r.history.some((h) => h.genreExposure && Object.keys(h.genreExposure).length),
+  'genre exposure is stored with played history');
+ok('played songs retain per-listener genre exposure');
+const restored = new Room('FGHIJ', 'k2', t + 1);
+assert.ok(restored.restoreSnapshot(r.snapshot(), t + 1));
+assert.deepStrictEqual(restored.history.map((h) => h.genreExposure || {}), r.history.map((h) => h.genreExposure || {}));
+ok('rolling genre exposure survives room snapshot and restore');
+
 {
   const { cleanArtists } = require('../lib/room.js');
   assert.deepStrictEqual(cleanArtists(['https://www.youtube.com/@djcrocsnsocks', 'Someone Else']), ['@djcrocsnsocks', 'Someone Else']);

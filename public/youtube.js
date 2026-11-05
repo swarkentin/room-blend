@@ -13,7 +13,7 @@
   var DB_NAME = 'room-blend-youtube', DB_VERSION = 2, DB_STORE = 'entries';
   var cacheDbPromise = null, cacheMemory = Object.create(null), cacheWarning = '';
   var SEARCH_DAILY_LIMIT = 90, DISCOVERY_DAILY_LIMIT = 65, SEARCH_BUDGET_KEY = 'rb-yt-search-budget';
-  var on = false, paused = true, busy = false, note = '', player = null, dock = null, cur = null, waiter = null, rctx = null;
+  var on = false, paused = true, busy = false, note = '', player = null, dock = null, cur = null, waiter = null, rctx = null, catalogueRequestId = 0;
   var apiQueue = Promise.resolve(), apiRetryMs = 1000, playbackAttempt = 0;
   var quotaPausedDay = '', API_INTERVAL_MS = Number.isFinite(Number(C.ytApiIntervalMs)) && Number(C.ytApiIntervalMs) >= 0 ? Number(C.ytApiIntervalMs) : 2000, MAX_RETRY_WAIT_MS = 5000, MIN_GENRE_TRACKS = 12;
 
@@ -341,7 +341,87 @@
     var hit = await cacheGet('pool:' + k);
     return hit === undefined ? undefined : qualityOrder(hit);
   }
-  async function poolPut(k, tracks) { var saved = await cachePut('pool:' + k, tracks, 'pool', tracks.length ? 30 : 0.5); if (rctx && rctx.rerender) rctx.rerender(); return saved; }
+  async function poolPut(k, tracks) {
+    var saved = await cachePut('pool:' + k, tracks, 'pool', tracks.length ? 30 : 0.5);
+    // Re-render after the committed write. Each render invalidates older asynchronous
+    // catalogue reads, so an initial read cannot overwrite this up-to-date summary.
+    if (rctx && rctx.rerender) rctx.rerender();
+    return saved;
+  }
+  // One-time, local-only migration: blend genre-labelled cached playlists and clearly classifiable
+  // search results into canonical genre pools. No YouTube API requests are made here.
+  var enrichmentPromise = null, ENRICHMENT_KEY = 'rb-yt-genre-enrichment-v1';
+  async function enrichCatalogue(onProgress) {
+    if (lsGet(ENRICHMENT_KEY) === 'done') return { skipped: true, added: 0, scanned: 0 };
+    if (enrichmentPromise) return enrichmentPromise;
+    enrichmentPromise = (async function () {
+      var db = await openCacheDb();
+      if (!db) throw new Error('The local YouTube catalogue is unavailable in IndexedDB.');
+      var rows = await new Promise(function (resolve, reject) {
+        var tx = db.transaction(DB_STORE, 'readonly'), req = tx.objectStore(DB_STORE).getAll();
+        req.onsuccess = function () { resolve((req.result || []).filter(function (r) { return r.expiresAt > Date.now(); })); };
+        req.onerror = function () { reject(req.error || new Error('Could not read the local catalogue.')); };
+      });
+      var GM = window.GenreMap, allowed = window.CONFIG.genres, candidates = [], candidateById = Object.create(null), scanned = 0, added = 0;
+      function addCandidate(song, genres) {
+        if (!song || !song.id || !song.title || !song.artist) return;
+        genres = (genres || []).filter(function (g, i, a) { return allowed.indexOf(g) >= 0 && a.indexOf(g) === i; }).slice(0, 3);
+        if (!genres.length) return;
+        var id = String(song.id), existing = candidateById[id];
+        if (existing) {
+          genres.forEach(function (genre) { if (existing.genres.indexOf(genre) < 0 && existing.genres.length < 3) existing.genres.push(genre); });
+          return;
+        }
+        var candidate = { title: String(song.title), artist: String(song.artist), id: id, genres: genres, quality: Number(song.quality) || 0 };
+        candidateById[id] = candidate; candidates.push(candidate);
+      }
+      rows.forEach(function (row) {
+        if (row.kind !== 'pool' && row.kind !== 'search') return;
+        scanned++;
+        if (row.kind === 'pool') {
+          var poolName = String(row.id || '').replace(/^pool:/, ''), poolGenres = GM ? GM.classifyAll(poolName, 3) : [];
+          (Array.isArray(row.value) ? row.value : []).forEach(function (song) {
+            var tags = (song.genres || []).filter(function (g) { return allowed.indexOf(g) >= 0; });
+            addCandidate(song, tags.length ? tags : poolGenres);
+          });
+        } else {
+          var key = String(row.id || '').replace(/^search:/, ''), split = key.lastIndexOf('|');
+          if (split < 1 || !Array.isArray(row.value)) return;
+          var title = key.slice(0, split).trim(), artist = key.slice(split + 1).trim();
+          var genres = GM ? GM.classifyAll(title, 1) : [];
+          if (!genres.length) return; // Search-cache entries without a clear title signal stay untouched.
+          row.value.forEach(function (videoId) {
+            if (typeof videoId === 'string') addCandidate({ title: title, artist: artist, id: videoId }, genres);
+          });
+        }
+      });
+      var byGenre = Object.create(null);
+      candidates.forEach(function (song) {
+        song.genres.forEach(function (genre) { if (!byGenre[genre]) byGenre[genre] = []; byGenre[genre].push(song); });
+      });
+      var genresToWrite = Object.keys(byGenre), done = 0;
+      for (var i = 0; i < genresToWrite.length; i++) {
+        var genre = genresToWrite[i], existing = await poolGet(genre) || [], merged = existing.slice();
+        var ids = Object.create(null), names = Object.create(null);
+        existing.forEach(function (song) {
+          if (song.id) ids[song.id] = true;
+          names[String(song.title || '').toLowerCase() + '|' + String(song.artist || '').toLowerCase()] = true;
+        });
+        byGenre[genre].forEach(function (song) {
+          var name = song.title.toLowerCase() + '|' + song.artist.toLowerCase();
+          if (ids[song.id] || names[name]) return;
+          ids[song.id] = true; names[name] = true; merged.push(song); added++;
+        });
+        if (merged.length > existing.length) await poolPut(genre, merged.slice(0, 600));
+        done++;
+        if (onProgress) onProgress(done, genresToWrite.length, added);
+      }
+      lsSet(ENRICHMENT_KEY, 'done');
+      return { skipped: false, added: added, scanned: scanned };
+    })();
+    try { return await enrichmentPromise; } finally { enrichmentPromise = null; }
+  }
+
   function seconds(iso) { var m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso || ''); return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : 0; }
   // "Artist - Song (Official Video)" on a channel, or "Song" on the artist's "Artist - Topic" channel.
   function parseVideo(v) {
@@ -560,9 +640,11 @@
         box.appendChild(state('dot-ok', 'Playing through YouTube.', note || quotaNote || cacheWarning || 'Keep this tab open and the player visible. Free YouTube may play an ad between songs.'));
         box.appendChild(el('div', { class: 'row' }, [el('button', { class: 'btn small', type: 'button', id: 'yt-forget', text: 'Remove key', onclick: function () { yt.stop(); on = false; clearQuotaFuse(); lsDel(KEY); ctx.rerender(); } })]));
         var catalogue = el('p', { class: 'hint', id: 'yt-catalogue-status', text: 'Loading catalogue quality and coverage…' });
+        var requestId = ++catalogueRequestId;
         box.appendChild(catalogue);
+        // Catalogue enrichment runs automatically once per local database; no host action required.
         yt.cacheInfo().then(function (info) {
-          if (!catalogue.isConnected) return;
+          if (requestId !== catalogueRequestId || !catalogue.isConnected) return;
           if (info.mode !== 'indexeddb') catalogue.textContent = 'Catalogue feedback is temporary in this browser session. ' + (info.warning || '');
           else catalogue.textContent = 'Catalogue: ' + info.pools + ' cached pools · ' + info.poolTracks + ' tracks · ' + info.searches + ' song lookups · playback feedback for ' + info.ratedVideos + ' videos (' + info.playbackSuccesses + ' starts, ' + info.playbackFailures + ' failures).' + (info.warning ? ' ' + info.warning : '');
         });
@@ -586,6 +668,7 @@
     },
     pool: true, // the room's songs come from YouTube playlists for each genre; the built-in list is only a fallback
     canExtras: function () { return on; },
+    enrichCatalogue: enrichCatalogue, // internal migration hook; normal users never need to invoke this
     cacheInfo: async function () { var db = await openCacheDb(); if (!db) return { mode: 'memory', warning: cacheWarning }; return new Promise(function (resolve) { var tx = db.transaction(DB_STORE, 'readonly'), req = tx.objectStore(DB_STORE).getAll(); req.onsuccess = function () { var rows = req.result.filter(function (x) { return x.expiresAt > Date.now(); }), pools = rows.filter(function (x) { return x.kind === 'pool'; }), feedback = rows.filter(function (x) { return x.kind === 'quality'; }); resolve({ mode: 'indexeddb', pools: pools.length, poolTracks: pools.reduce(function (n, x) { return n + (Array.isArray(x.value) ? x.value.length : 0); }, 0), searches: rows.filter(function (x) { return x.kind === 'search'; }).length, ratedVideos: feedback.length, playbackSuccesses: feedback.reduce(function (n, x) { return n + (x.value.successes || 0); }, 0), playbackFailures: feedback.reduce(function (n, x) { return n + (x.value.failures || 0); }, 0), warning: cacheWarning }); }; req.onerror = function () { resolve({ mode: 'indexeddb', warning: cacheWarning }); }; }); },
     extras: async function (genre, partners) {
       var out = [], seen = {};
@@ -629,7 +712,7 @@
       var tries = ids.slice(0, 4);
       for (var i = 0; i < tries.length; i++) {
         var r = await tryVideo(tries[i]);
-        if (r === true) { await recordPlayback(tries[i], true); if (track.request) await rememberPlayed(track, tries[i]); return true; }
+        if (r === true) { await recordPlayback(tries[i], true); if (track.request || (track.genres && track.genres.length)) await rememberPlayed(track, tries[i]); return true; }
         if (r === false) return false;
         await recordPlayback(tries[i], false);
         await demote(track, tries[i]); // null: this video is unavailable or not embeddable, try the next one
@@ -648,4 +731,15 @@
     },
   };
   P.register(yt);
+  // Automatically enrich this browser's existing cache once. This is entirely local and quota-free.
+  Promise.resolve().then(function () {
+    return enrichCatalogue(function (done, total, added) {
+      if (rctx && rctx.status) rctx.status('Enriching your cached music catalogue: ' + done + ' of ' + total + ' genres (' + added + ' tracks added)');
+    });
+  }).then(function (result) {
+    if (!result.skipped && rctx && rctx.status) rctx.status('Music catalogue enrichment complete: ' + result.added + ' tracks added locally');
+    if (rctx && rctx.rerender) rctx.rerender();
+  }).catch(function (error) {
+    if (rctx && rctx.status) rctx.status('Local catalogue enrichment will retry next time: ' + error.message);
+  });
 })();
