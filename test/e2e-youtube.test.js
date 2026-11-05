@@ -231,7 +231,43 @@ const yt = http.createServer((req, res) => {
     const stored = await until(() => cacheRecord(host, 'pool:jazz'), 8000, 'pool cached');
     const titles = stored.value.map((t) => t.artist + ' - ' + t.title);
     assert.strictEqual(stored.value.length, 17); assert.ok(stored.expiresAt - stored.at >= 29 * 86400000); ok('17 usable songs were kept and successful pools are cached for 30 days');
-    await host.waitForFunction(() => /17 tracks/.test(document.querySelector('#yt-catalogue-status') && document.querySelector('#yt-catalogue-status').textContent || ''), null, { timeout: 8000 });
+    try {
+      await host.waitForFunction(() => /17 tracks/.test(document.querySelector('#yt-catalogue-status') && document.querySelector('#yt-catalogue-status').textContent || ''), null, { timeout: 8000 });
+    } catch (error) {
+      const diagnostics = await host.evaluate(async () => {
+        const node = document.querySelector('#yt-catalogue-status');
+        const provider = window.Providers && window.Providers.get('youtube');
+        let cacheInfo;
+        try { cacheInfo = provider && await provider.cacheInfo(); } catch (e) { cacheInfo = { error: e.message }; }
+        let indexedDb = null;
+        try {
+          const request = indexedDB.open('room-blend-youtube');
+          const db = await new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+          indexedDb = await new Promise((resolve, reject) => {
+            const tx = db.transaction('entries', 'readonly'), req = tx.objectStore('entries').getAll();
+            req.onsuccess = () => resolve(req.result.filter((x) => x.expiresAt > Date.now()).map((x) => ({
+              id: x.id, kind: x.kind, count: Array.isArray(x.value) ? x.value.length : null,
+              at: x.at, usedAt: x.usedAt, expiresAt: x.expiresAt,
+            })));
+            req.onerror = () => reject(req.error);
+            tx.oncomplete = () => db.close();
+          });
+        } catch (e) { indexedDb = { error: e.message }; }
+        return {
+          statusExists: !!node,
+          statusConnected: !!(node && node.isConnected),
+          statusText: node && node.textContent,
+          providerPresent: !!provider,
+          providerCacheInfo: cacheInfo,
+          indexedDb,
+          roomStatus: document.querySelector('#sp-status') && document.querySelector('#sp-status').textContent,
+          sourceText: document.querySelector('#sp') && document.querySelector('#sp').textContent,
+        };
+      });
+      console.error('CATALOGUE STATUS DEBUG:', JSON.stringify(diagnostics, null, 2));
+      error.message += '\\nCatalogue status diagnostics: ' + JSON.stringify(diagnostics);
+      throw error;
+    }
     ok('the host catalogue coverage count refreshes when discovery adds a pool');
     assert.ok(titles.includes('Dave Brubeck - Take Five') && titles.includes('Nina Simone - Feeling Good') && titles.includes('Miles Davis - So What')); ok('artist and title are read from "Artist - Song (Official Audio)" and from a "- Topic" channel');
     assert.ok(!titles.some((t) => /Full Album|Cheek to Cheek|Blocked|Private|Cover|Remix|Lyrics/.test(t))); ok('hour-long uploads, live versions, covers, remixes, lyric videos, videos that cannot be embedded and private videos were filtered out');
