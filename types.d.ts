@@ -53,6 +53,8 @@ interface BuildOptions {
   n?: number;
   recentIds?: string[];
   recentArtists?: string[];
+  /** Recent per-listener genre exposure counts used to carry balance across queue rebuilds. */
+  genreHistory?: Record<string, Record<string, number>>;
   /** Airtime each person has had so far. */
   served?: Record<string, number>;
   keep?: Array<Pick<QueueItem, 'track' | 'mode' | 'owner'>>;
