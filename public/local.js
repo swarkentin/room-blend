@@ -199,7 +199,18 @@
     activate: function (ctx) { if (S.phase === 'ready') publish(ctx); },
     ready: function () { return S.phase === 'ready' && files.size > 0; },
     play: async function (track) {
-      var ref = files.get(track.nativeId);
+      // Blend tracks carry the library ID (with the server's "l" prefix removed by
+      // app.js). Jukebox requests are title/artist-only, so their synthetic request ID
+      // cannot identify a local file. Resolve those against the catalogue we scanned.
+      var nativeId = track.nativeId;
+      if (track.request) {
+        var norm = function (s) { return String(s || '').normalize('NFKD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); };
+        var title = norm(track.title), artist = norm(track.artist);
+        var match = entries.find(function (entry) { return norm(entry.title) === title && norm(entry.artist) === artist; });
+        if (!match) return null;
+        nativeId = match.id;
+      }
+      var ref = files.get(nativeId);
       if (!ref) return null;
       var f;
       try { f = typeof ref.getFile === 'function' ? await ref.getFile() : ref; } // a handle reads the file now
