@@ -324,6 +324,15 @@ const yt = http.createServer((req, res) => {
     const beforeCrossTabCache = log.searches.length;
     const crossTabPlayback = await host.evaluate(async () => window.Providers.get('youtube').play({ title: 'Cross tab cached', artist: 'Artist' }));
     assert.strictEqual(crossTabPlayback, true); assert.strictEqual(log.searches.length, beforeCrossTabCache); ok('a song cached by another tab plays without a new video search');
+    await host.route('**/api/musicbrainz/artist-genres*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ genres: [{ genre: 'alternative' }, { genre: 'metal' }] }) }));
+    const quotaBeforeGenreLearning = log.apiRequests;
+    const learnedPlayback = await host.evaluate(async () => window.Providers.get('youtube').play({ title: 'Ordinary World', artist: 'RED', nid: 'plA1' }));
+    assert.strictEqual(learnedPlayback, true);
+    const learnedAlternative = await until(() => cacheRecord(host, 'pool:alternative'), 8000, 'artist genre learned');
+    const learnedMetal = await until(() => cacheRecord(host, 'pool:metal'), 8000, 'second artist genre learned');
+    assert.ok(learnedAlternative.value.some((song) => song.id === 'plA1') && learnedMetal.value.some((song) => song.id === 'plA1'));
+    assert.strictEqual(log.apiRequests, quotaBeforeGenreLearning); ok('an untagged jukebox song learns curated artist genres after a successful play, without spending YouTube quota');
+    await host.unroute('**/api/musicbrainz/artist-genres*');
     const cacheProbeStart = log.plSearches.length;
     await host.evaluate(async () => window.Providers.get('youtube').extras('trip hop', []));
     const poolSnapshot = await cacheRecords(host);
