@@ -327,7 +327,7 @@
   async function artistGenres(artist) {
     var name = String(artist || '').trim();
     if (!name) return [];
-    var key = 'artist-genres:' + name.toLowerCase(), cached = await cacheGet(key);
+    var key = 'artist-genres:v2:' + name.toLowerCase(), cached = await cacheGet(key);
     if (cached !== undefined) return Array.isArray(cached) ? cached : [];
     try {
       var response = await fetch('/api/musicbrainz/artist-genres?artist=' + encodeURIComponent(name));
@@ -370,7 +370,7 @@
   // search results into canonical genre pools. No YouTube API requests are made here.
   // v2 also backfills tracks with a recorded successful play, using their cached search metadata.
   // Keep a separate version so browsers that already completed v1 still receive this additive pass.
-  var enrichmentPromise = null, ENRICHMENT_KEY = 'rb-yt-genre-enrichment-v2';
+  var enrichmentPromise = null, ENRICHMENT_KEY = 'rb-yt-genre-enrichment-v3';
   async function enrichCatalogue(onProgress) {
     if (lsGet(ENRICHMENT_KEY) === 'done') return { skipped: true, added: 0, scanned: 0 };
     if (enrichmentPromise) return enrichmentPromise;
