@@ -347,16 +347,23 @@ const yt = http.createServer((req, res) => {
         const tx = db.transaction('entries', 'readwrite'), store = tx.objectStore('entries'), now = Date.now();
         store.put({ id: 'pool:blues rock', kind: 'pool', value: [{ title: 'Old Blues Track', artist: 'Cached Artist', id: 'oldBlues1' }], at: now, usedAt: now, expiresAt: now + 30 * 86400000 });
         store.put({ id: 'search:techno anthem|sample artist', kind: 'search', value: ['searchTechno1'], at: now, usedAt: now, expiresAt: now + 30 * 86400000 });
+        // Existing playback feedback records only the video ID; the cached search key supplies its metadata.
+        store.put({ id: 'search:ordinary world|red', kind: 'search', value: ['Zv-0sL6uPBg'], at: now, usedAt: now, expiresAt: now + 30 * 86400000 });
+        store.put({ id: 'quality:Zv-0sL6uPBg', kind: 'quality', value: { successes: 1, failures: 0, lastSuccessAt: now }, at: now, usedAt: now, expiresAt: now + 90 * 86400000 });
         tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
       });
       db.close();
     });
-    await host.evaluate(() => localStorage.removeItem('rb-yt-genre-enrichment-v1'));
+    await host.route('**/api/musicbrainz/artist-genres?artist=red', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ genres: ['alternative', 'metal'] }) }));
+    await host.evaluate(() => localStorage.removeItem('rb-yt-genre-enrichment-v2'));
     const apiBeforeEnrichment = log.apiRequests;
     const enrichment = await host.evaluate(async () => window.Providers.get('youtube').enrichCatalogue());
     assert.strictEqual(log.apiRequests, apiBeforeEnrichment); ok('catalogue enrichment makes zero YouTube API requests');
     assert.ok(enrichment.added >= 3 && enrichment.scanned > 0); ok('cached playlist and search entries are scanned and contribute new genre candidates');
     const enrichedBlues = await cacheRecord(host, 'pool:blues'), enrichedRock = await cacheRecord(host, 'pool:rock'), enrichedTechno = await cacheRecord(host, 'pool:techno');
+    const enrichedAlternative = await cacheRecord(host, 'pool:alternative'), enrichedMetal = await cacheRecord(host, 'pool:metal');
+    assert.ok(enrichedAlternative.value.some((song) => song.id === 'Zv-0sL6uPBg') && enrichedMetal.value.some((song) => song.id === 'Zv-0sL6uPBg')); ok('a previously successful unclassifiable play is backfilled from cached search metadata and MusicBrainz artist genres');
+    await host.unroute('**/api/musicbrainz/artist-genres?artist=red');
     assert.ok(enrichedBlues.value.some((t) => t.id === 'oldBlues1') && enrichedRock.value.some((t) => t.id === 'oldBlues1')); ok('a cached compound blues-rock pool is blended into both canonical genre pools');
     assert.ok(enrichedTechno.value.some((t) => t.id === 'searchTechno1')); ok('a clearly classifiable cached search is blended into its genre pool');
     const secondEnrichment = await host.evaluate(async () => window.Providers.get('youtube').enrichCatalogue());
