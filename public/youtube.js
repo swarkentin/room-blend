@@ -321,16 +321,34 @@
     return ranked;
   }
 
-  // A successfully played request becomes a local candidate for future genre blends.
+  // Learn from every successful play. Prefer source tags, then local title/artist clues,
+  // then MusicBrainz's curated artist genres. Artist results are cached locally so repeat
+  // plays never make another metadata request (and this never spends YouTube quota).
+  async function artistGenres(artist) {
+    var name = String(artist || '').trim();
+    if (!name) return [];
+    var key = 'artist-genres:' + name.toLowerCase(), cached = await cacheGet(key);
+    if (cached !== undefined) return Array.isArray(cached) ? cached : [];
+    try {
+      var response = await fetch('/api/musicbrainz/artist-genres?artist=' + encodeURIComponent(name));
+      if (!response.ok) return [];
+      var data = await response.json(), genres = Array.isArray(data.genres) ? data.genres.map(function (x) { return typeof x === 'string' ? x : x.genre; }).filter(function (g) { return window.CONFIG.genres.indexOf(g) >= 0; }) : [];
+      await cachePut(key, genres, 'artist-genres', 90);
+      return genres;
+    } catch (e) { return []; }
+  }
   async function rememberPlayed(track, id) {
-    var GM = window.GenreMap, genres = (track.genres || []).filter(function (g) { return window.CONFIG.genres.indexOf(g) >= 0; });
-    if (!genres.length && GM) genres = GM.classifyAll(track.title || '', 2);
-    genres = genres.slice(0, 3);
-    if (!genres.length || !id) return;
+    if (!id) return;
+    var GM = window.GenreMap, allowed = window.CONFIG.genres;
+    var genres = (track.genres || []).filter(function (g) { return allowed.indexOf(g) >= 0; });
+    if (!genres.length && GM) genres = GM.classifyAll([track.title, track.artist].filter(Boolean).join(' '), 3);
+    if (!genres.length) genres = await artistGenres(track.artist);
+    genres = genres.filter(function (g, i) { return allowed.indexOf(g) >= 0 && genres.indexOf(g) === i; }).slice(0, 3);
+    if (!genres.length) return;
     var song = { title: track.title, artist: track.artist, id: id, genres: genres, quality: 1 };
     for (var i = 0; i < genres.length; i++) {
       var have = await poolGet(genres[i]) || [];
-      if (!have.some(function (x) { return x.id === id || (x.title.toLowerCase() === song.title.toLowerCase() && x.artist.toLowerCase() === song.artist.toLowerCase()); })) {
+      if (!have.some(function (x) { return x.id === id || (String(x.title || '').toLowerCase() === String(song.title || '').toLowerCase() && String(x.artist || '').toLowerCase() === String(song.artist || '').toLowerCase()); })) {
         await poolPut(genres[i], [song].concat(have).slice(0, 600));
       }
     }
@@ -350,7 +368,9 @@
   }
   // One-time, local-only migration: blend genre-labelled cached playlists and clearly classifiable
   // search results into canonical genre pools. No YouTube API requests are made here.
-  var enrichmentPromise = null, ENRICHMENT_KEY = 'rb-yt-genre-enrichment-v1';
+  // v2 also backfills tracks with a recorded successful play, using their cached search metadata.
+  // Keep a separate version so browsers that already completed v1 still receive this additive pass.
+  var enrichmentPromise = null, ENRICHMENT_KEY = 'rb-yt-genre-enrichment-v2';
   async function enrichCatalogue(onProgress) {
     if (lsGet(ENRICHMENT_KEY) === 'done') return { skipped: true, added: 0, scanned: 0 };
     if (enrichmentPromise) return enrichmentPromise;
@@ -362,7 +382,12 @@
         req.onsuccess = function () { resolve((req.result || []).filter(function (r) { return r.expiresAt > Date.now(); })); };
         req.onerror = function () { reject(req.error || new Error('Could not read the local catalogue.')); };
       });
-      var GM = window.GenreMap, allowed = window.CONFIG.genres, candidates = [], candidateById = Object.create(null), scanned = 0, added = 0;
+      var GM = window.GenreMap, allowed = window.CONFIG.genres, candidates = [], candidateById = Object.create(null), successfulIds = Object.create(null), scanned = 0, added = 0;
+      rows.forEach(function (row) {
+        if (row.kind === 'quality' && row.value && Number(row.value.successes) > 0) {
+          successfulIds[String(row.id || '').replace(/^quality:/, '')] = true;
+        }
+      });
       function addCandidate(song, genres) {
         if (!song || !song.id || !song.title || !song.artist) return;
         genres = (genres || []).filter(function (g, i, a) { return allowed.indexOf(g) >= 0 && a.indexOf(g) === i; }).slice(0, 3);
@@ -375,8 +400,10 @@
         var candidate = { title: String(song.title), artist: String(song.artist), id: id, genres: genres, quality: Number(song.quality) || 0 };
         candidateById[id] = candidate; candidates.push(candidate);
       }
-      rows.forEach(function (row) {
-        if (row.kind !== 'pool' && row.kind !== 'search') return;
+      // Use an async-capable loop: artist genre fallback is awaited for historical plays.
+      for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+        var row = rows[rowIndex];
+        if (row.kind !== 'pool' && row.kind !== 'search') continue;
         scanned++;
         if (row.kind === 'pool') {
           var poolName = String(row.id || '').replace(/^pool:/, ''), poolGenres = GM ? GM.classifyAll(poolName, 3) : [];
@@ -386,15 +413,29 @@
           });
         } else {
           var key = String(row.id || '').replace(/^search:/, ''), split = key.lastIndexOf('|');
-          if (split < 1 || !Array.isArray(row.value)) return;
+          if (split < 1 || !Array.isArray(row.value)) continue;
           var title = key.slice(0, split).trim(), artist = key.slice(split + 1).trim();
-          var genres = GM ? GM.classifyAll(title, 1) : [];
-          if (!genres.length) return; // Search-cache entries without a clear title signal stay untouched.
-          row.value.forEach(function (videoId) {
-            if (typeof videoId === 'string') addCandidate({ title: title, artist: artist, id: videoId }, genres);
+          var genres = GM ? GM.classifyAll(title + ' ' + artist, 3) : [];
+          var successfulMatches = row.value.filter(function (videoId) { return typeof videoId === 'string' && successfulIds[videoId]; });
+          // Older playback feedback stores only the video ID. Join it to the cached search key
+          // to recover title/artist, then use MusicBrainz only for confirmed successful plays
+          // whose title/artist text is not enough to classify locally.
+          var artistMetadataGenres = successfulMatches.length ? await artistGenres(artist) : [];
+          // For confirmed historical plays, prefer curated artist metadata over fuzzy local
+          // title guesses. Otherwise three weak local matches can crowd out the artist's genres.
+          var genreSources = successfulMatches.length
+            ? artistMetadataGenres.concat(genres)
+            : genres;
+          var blendedGenres = genreSources.filter(function (g, i, a) {
+            return allowed.indexOf(g) >= 0 && a.indexOf(g) === i;
+          }).slice(0, 3);
+          if (!blendedGenres.length) continue; // Unplayed, unclassifiable search entries stay untouched.
+          var idsToBlend = successfulMatches.length ? successfulMatches : row.value;
+          idsToBlend.forEach(function (videoId) {
+            if (typeof videoId === 'string') addCandidate({ title: title, artist: artist, id: videoId }, blendedGenres);
           });
         }
-      });
+      }
       var byGenre = Object.create(null);
       candidates.forEach(function (song) {
         song.genres.forEach(function (genre) { if (!byGenre[genre]) byGenre[genre] = []; byGenre[genre].push(song); });
@@ -712,7 +753,7 @@
       var tries = ids.slice(0, 4);
       for (var i = 0; i < tries.length; i++) {
         var r = await tryVideo(tries[i]);
-        if (r === true) { await recordPlayback(tries[i], true); if (track.request || (track.genres && track.genres.length)) await rememberPlayed(track, tries[i]); return true; }
+        if (r === true) { await recordPlayback(tries[i], true); await rememberPlayed(track, tries[i]); return true; }
         if (r === false) return false;
         await recordPlayback(tries[i], false);
         await demote(track, tries[i]); // null: this video is unavailable or not embeddable, try the next one

@@ -276,6 +276,21 @@ async function api(req, res, url) {
     }
     return sendJson(res, 200, { rooms: out.slice(0, 5) });
   }
+  // Curated artist genre lookup used by the host's local playback catalogue.
+  // MusicBrainz is rate-limited and cached by the shared client; this does not use YouTube quota.
+  if (parts[0] === 'musicbrainz' && parts[1] === 'artist-genres' && parts.length === 2 && m === 'GET') {
+    if (process.env.MUSICBRAINZ_SEARCH_DISABLED === '1') return sendJson(res, 503, { error: 'MusicBrainz lookups are disabled' });
+    const artist = String(url.searchParams.get('artist') || '').trim().slice(0, 100);
+    if (!artist) return sendJson(res, 400, { error: 'artist is required' });
+    try {
+      const genres = await musicBrainz.lookupArtist(artist);
+      return sendJson(res, 200, { genres });
+    } catch (e) {
+      L.warn('musicbrainz.artist_genres_failed', { message: String(e && e.message || e).slice(0, 100) });
+      return sendJson(res, 503, { error: 'MusicBrainz artist genres are unavailable right now' });
+    }
+  }
+
   const code = (parts[1] || '').toUpperCase();
 
   // POST /api/rooms/:code/restore  -> a host's browser brings back a room the server forgot (restart, redeploy, sleep).
