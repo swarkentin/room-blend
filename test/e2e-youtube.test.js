@@ -357,7 +357,7 @@ const yt = http.createServer((req, res) => {
       db.close();
     });
     await host.route('**/api/musicbrainz/artist-genres*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ genres: ['alternative', 'metal'] }) }));
-    await host.evaluate(() => localStorage.removeItem('rb-yt-genre-enrichment-v2'));
+    await host.evaluate(() => localStorage.removeItem('rb-yt-genre-enrichment-v3'));
     const apiBeforeEnrichment = log.apiRequests;
     const enrichment = await host.evaluate(async () => window.Providers.get('youtube').enrichCatalogue());
     assert.strictEqual(log.apiRequests, apiBeforeEnrichment); ok('catalogue enrichment makes zero YouTube API requests');
