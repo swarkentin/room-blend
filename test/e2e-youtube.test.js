@@ -137,6 +137,8 @@ const yt = http.createServer((req, res) => {
     assert.strictEqual(await host.isVisible('#yt-dock'), true); ok('the player dock is visible while it plays (YouTube requires that)');
 
     rateLimitVideoSearches = 1;
+    const addDetails = host.locator('details:has(#add-form)');
+    if (!(await addDetails.evaluate((el) => el.open))) await addDetails.locator('summary').click();
     await host.fill('#g-name', 'Maya'); await host.click('#picker [data-g="rock"]');
     const limitedResponse = host.waitForResponse((r) => r.url().includes('/youtube/v3/search') && r.status() === 429);
     await host.click('#add-form button[type=submit]'); await limitedResponse;
@@ -218,6 +220,8 @@ const yt = http.createServer((req, res) => {
     // ---- songs by genre: playlists are read, filtered and played by their own id ----
     poolOn = true;
     const searchesBefore = log.searches.length, poolsBefore = log.plSearches.length;
+    // Reuse the addDetails locator from the first guest setup.
+    if (!(await addDetails.evaluate((el) => el.open))) await addDetails.locator('summary').click();
     await host.fill('#g-name', 'Ben'); await host.click('#picker [data-g="jazz"]'); await host.click('#add-form button[type=submit]');
     await until(() => log.plItems >= 1 && log.videoCalls >= 1, 12000, 'playlist read');
     assert.ok(log.plSearches.includes('jazz songs')); ok('a jazz guest makes the host look for a jazz playlist: ' + log.plSearches.slice(-2).join(' | '));

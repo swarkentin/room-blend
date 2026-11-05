@@ -60,6 +60,7 @@ const until = async (fn, ms = 10000, what = 'condition') => { const t0 = Date.no
     const panel = await host.textContent('#sp');
     assert.ok(/3 songs in the room/.test(panel) && /1 left out/.test(panel)); ok('saved songs are read: 3 with genres, 1 without a genre left out, the local file ignored');
     assert.ok(/songs you save in spotify appear here automatically/i.test(panel)); ok('the host is told new saves appear automatically');
+    await host.locator('details:has(#add-form) > summary').click();
     await host.fill('#g-name', 'Maya'); await host.click('#picker [data-g="rock"]'); await host.click('#add-form button[type=submit]');
     await until(() => log.plays.length >= 1, 12000, 'first song plays through Spotify');
     assert.ok(/^spotify:track:sp[123]$/.test(log.plays[0])); ok('a saved song plays through the host\'s Spotify by id: ' + log.plays[0]);

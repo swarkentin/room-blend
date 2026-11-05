@@ -407,24 +407,24 @@
           '<div class="host-media" id="host-media" hidden><label class="sr" for="host-seek">Seek through the current song</label><input id="host-seek" type="range" min="0" max="0" step="0.1" value="0" aria-label="Seek through the current song"><div class="media-times"><span id="host-time">0:00</span><span id="host-duration">--:--</span></div></div></div>' +
           '<div class="panel" style="margin-top:28px"><div class="sec-h"><h2>Up next</h2><span class="meta"><span id="q-meta"></span> <button class="btn small" type="button" id="copy-queue">Copy list</button></span></div>' +
           '<p class="overlap" id="overlap"></p><ol class="queue" id="queue"></ol></div>' +
-          '<div class="panel" style="margin-top:18px"><div class="sec-h"><h2>Jukebox requests</h2><span class="meta" id="request-count"></span></div><ol class="queue" id="host-requests"></ol><form class="add" id="host-request-form"><h3>Queue a song</h3><div><label for="host-request-title">Song title</label><input id="host-request-title" maxlength="100" required autocomplete="off"></div><div><label for="host-request-artist">Artist</label><input id="host-request-artist" maxlength="100" required autocomplete="off"></div><div><button class="btn small" type="submit">Add request</button><p class="hint" id="host-request-search-status" role="status"></p><p class="hint" id="host-request-hint" role="status"></p></div></form></div>' +
+          '<div class="panel" style="margin-top:18px"><div class="sec-h"><h2>Jukebox requests</h2><span class="meta" id="request-count"></span></div><ol class="queue" id="host-requests"></ol><details class="secondary"><summary>Queue a song manually</summary><form class="add" id="host-request-form"><h3>Queue a song</h3><div><label for="host-request-title">Song title</label><input id="host-request-title" maxlength="100" required autocomplete="off"></div><div><label for="host-request-artist">Artist</label><input id="host-request-artist" maxlength="100" required autocomplete="off"></div><div><button class="btn small" type="submit">Add request</button><p class="hint" id="host-request-search-status" role="status"></p><p class="hint" id="host-request-hint" role="status"></p></div></form></details></div>' +
         '</section>' +
         '<section class="room" aria-label="In the room"><div class="sec-h"><h2>In the room</h2><span class="meta" id="room-count"></span></div>' +
           '<ul class="guests" id="guests"></ul>' +
-          '<form class="add" id="add-form" autocomplete="off"><h3>Add someone by hand</h3><div><label for="g-name">Name</label><input type="text" id="g-name" maxlength="20" placeholder="Guest name"></div>' +
+          '<details class="secondary"><summary>Add someone by hand</summary><form class="add" id="add-form" autocomplete="off"><h3>Add someone by hand</h3><div><label for="g-name">Name</label><input type="text" id="g-name" maxlength="20" placeholder="Guest name"></div>' +
           '<fieldset><legend>Favourite genres, up to 4</legend><div class="chips" id="picker"></div></fieldset>' +
-          '<div class="row"><button class="btn primary" type="submit">Add to the room</button></div><p class="hint" id="add-hint"></p></form>' +
+          '<div class="row"><button class="btn primary" type="submit">Add to the room</button></div><p class="hint" id="add-hint"></p></form></details>' +
         '</section>' +
         '<aside class="side" aria-label="Tuning and results">' +
-          '<div class="panel"><div class="sec-h"><h2>Tuning</h2></div>' +
+          '<details class="panel secondary"><summary>Tuning and request limits</summary>' +
           '<div class="slider"><label for="s-lambda"><span>Protect the least-happy guest</span><output id="o-lambda"></output></label><input type="range" id="s-lambda" min="0" max="100" step="5"><p class="hint">0% chases the room average. 100% only counts whoever likes the song least.</p></div>' +
           '<div class="slider"><label for="s-tau"><span>Blend only above overlap</span><output id="o-tau"></output></label><input type="range" id="s-tau" min="0.2" max="0.9" step="0.05"><p class="hint">Below this, songs rotate between guests instead.</p></div>' +
-          '<div class="slider"><label for="s-settle"><span>New guest counts after</span><output id="o-settle"></output></label><input type="range" id="s-settle" min="0" max="30" step="1"><p class="hint">Stops a passer-by from reshuffling the room.</p></div><div class="slider"><label for="s-doze"><span>Keep a guest counted after their phone locks</span><output id="o-doze"></output></label><input type="range" id="s-doze" min="5" max="120" step="5"><p class="hint">A locked phone cannot say it is still here, so it is trusted for this long, then they are dropped until they open the page again.</p></div><label class="disc"><input type="checkbox" id="request-limit" checked> Limit each guest to 2 outstanding song requests</label><p class="hint">Turn this off to let guests request as many songs as they like.</p></div></div>' +
-          '<div class="panel"><div class="sec-h"><h2>Fairness so far</h2><span class="meta" id="f-meta"></span></div><div id="fairness"></div></div>' +
-          '<div class="panel"><div class="sec-h"><h2>Room log</h2></div><ol class="log" id="log"></ol></div>' +
-          '<div class="panel"><div class="sec-h"><h2>Session notes</h2></div><p class="hint">Copy the notes to share what worked.</p>' +
+          '<div class="slider"><label for="s-settle"><span>New guest counts after</span><output id="o-settle"></output></label><input type="range" id="s-settle" min="0" max="30" step="1"><p class="hint">Stops a passer-by from reshuffling the room.</p></div><div class="slider"><label for="s-doze"><span>Keep a guest counted after their phone locks</span><output id="o-doze"></output></label><input type="range" id="s-doze" min="5" max="120" step="5"><p class="hint">A locked phone cannot say it is still here, so it is trusted for this long, then they are dropped until they open the page again.</p></div><label class="disc"><input type="checkbox" id="request-limit" checked> Limit each guest to 2 outstanding song requests</label><p class="hint">Turn this off to let guests request as many songs as they like.</p></details>' +
+          '<details class="panel secondary"><summary>Fairness so far</summary><div class="sec-h"><span class="meta" id="f-meta"></span></div><div id="fairness"></div></details>' +
+          '<details class="panel secondary"><summary>Room log</summary><ol class="log" id="log"></ol></details>' +
+          '<details class="panel secondary"><summary>Session notes</summary><p class="hint">Copy the notes to share what worked.</p>' +
           '<div class="row" style="margin-top:10px"><button class="btn" type="button" id="copy-notes">Copy session notes</button><span class="hint" id="copy-state" role="status"></span></div>' +
-          '<textarea class="notes" id="notes" readonly hidden aria-label="Session notes"></textarea></div>' +
+          '<textarea class="notes" id="notes" readonly hidden aria-label="Session notes"></textarea></details>' +
         '</aside>' +
       '</main>';
 
@@ -1033,10 +1033,10 @@
         ]),
         h('div', null, [h('div', { class: 'sec-h' }, [h('h2', { text: 'Up next' })]), h('ol', { class: 'gnext', id: 'gv-next' })]),
         h('section', { class: 'panel' }, [h('div', { class: 'sec-h' }, [h('h2', { text: 'Request a song' })]), h('p', { class: 'hint', text: 'Ask the host to play any song. It does not need to be in the room’s music library.' }), h('form', { id: 'guest-request-form', class: 'add' }, [h('div', null, [h('label', { htmlFor: 'guest-request-title', text: 'Song title' }), h('input', { id: 'guest-request-title', maxlength: '100', required: 'required', autocomplete: 'off' })]), h('div', null, [h('label', { htmlFor: 'guest-request-artist', text: 'Artist' }), h('input', { id: 'guest-request-artist', maxlength: '100', required: 'required', autocomplete: 'off' })]), h('button', { class: 'btn primary', type: 'submit', text: 'Request song' }), h('p', { class: 'hint', id: 'guest-request-search-status', role: 'status' }), h('p', { class: 'hint', id: 'guest-request-hint', role: 'status' })])]),
-        h('div', null, [h('div', { class: 'sec-h' }, [h('h2', { text: 'Requested songs' })]), h('ol', { class: 'gnext', id: 'gv-requests' })]),
-        picksSection(),
-        h('div', { id: 'gv-played-sec' }, [
-          h('div', { class: 'sec-h' }, [h('h2', { text: 'Played while you were here' }), h('span', { class: 'meta', id: 'gv-played-n' })]),
+        h('details', { class: 'secondary' }, [h('summary', { text: 'Requested songs' }), h('ol', { class: 'gnext', id: 'gv-requests' })]),
+        h('details', { class: 'secondary' }, [h('summary', { text: 'Your music preferences' }), picksSection()]),
+        h('details', { class: 'secondary', id: 'gv-played-sec' }, [h('summary', { text: 'Played while you were here' }),
+          h('div', { class: 'sec-h' }, [h('span', { class: 'meta', id: 'gv-played-n' })]),
           h('p', { class: 'hint', id: 'gv-played-msg', role: 'status' }),
           h('ol', { class: 'played', id: 'gv-played' }),
         ]),
@@ -1046,11 +1046,11 @@
           h('button', { class: 'btn primary', type: 'button', id: 'gv-here', text: 'I\'m still here', onclick: function () { touch(true); } }),
         ]),
         h('p', { class: 'hint', id: 'gv-me' }),
-        h('div', { class: 'gbtns' }, [
+        h('details', { class: 'secondary guest-actions' }, [h('summary', { text: 'Room and account options' }), h('div', { class: 'gbtns' }, [
           h('button', { class: 'btn', type: 'button', id: 'gv-sit', 'aria-pressed': 'false', text: 'Sit out for now', onclick: function () { patch({ sit: !(st && st.me && st.me.sit) }); } }),
           h('button', { class: 'btn', type: 'button', id: 'gv-edit', text: 'Change my genres', onclick: function () { showForm(true); } }),
           h('button', { class: 'btn', type: 'button', id: 'gv-leave', text: 'Leave the room', onclick: leave }),
-        ])
+        ])])
       );
       songAutocomplete(code, $('guest-request-title'), $('guest-request-artist'), $('guest-request-search-status'), auth(), function () { $('guest-request-form').requestSubmit(); });
       $('guest-request-form').addEventListener('submit', async function (e) { e.preventDefault(); var hint = $('guest-request-hint'); var result = await http('POST', '/api/rooms/' + code + '/request', { title: $('guest-request-title').value, artist: $('guest-request-artist').value }, auth()); hint.textContent = result.ok ? 'Request added to the queue.' : (result.data && result.data.error) || 'Could not add that request.'; if (result.ok) { $('guest-request-title').value = ''; $('guest-request-artist').value = ''; $('guest-request-search-status').textContent = ''; $('guest-request-form').querySelector('.song-suggestions').hidden = true; } });

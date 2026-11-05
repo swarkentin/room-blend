@@ -80,6 +80,7 @@ const SEED = SONGS.map(([f]) => ({ path: 'Album/' + f, b64: b64(f) }))
     assert.ok(await host.locator('#loc-forget').count() === 1); ok('a remembered folder can be forgotten');
 
     const addGuest = async (name, genres) => {
+      await host.locator('details:has(#add-form) > summary').click();
       await host.fill('#g-name', name);
       for (const g of genres) await host.click(`#picker [data-g="${g}"]`);
       await host.click('#add-form button[type=submit]');
@@ -101,6 +102,7 @@ const SEED = SONGS.map(([f]) => ({ path: 'Album/' + f, b64: b64(f) }))
 
     // A jukebox request has a synthetic server ID, not the local catalogue ID.
     // It must still resolve to the matching file in the host's scanned library.
+    await host.locator('details:has(#host-request-form) > summary').click();
     await host.fill('#host-request-title', 'Rock One');
     await host.fill('#host-request-artist', 'Band A');
     await host.click('#host-request-form button[type=submit]');
