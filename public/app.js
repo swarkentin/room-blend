@@ -493,7 +493,18 @@
     }
     setCastScene(0);
     if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      setInterval(function () { setCastScene(++castScene); }, 14000);
+      var castWalkIndex = 0;
+      setInterval(function () {
+        setCastScene(++castScene);
+        var walkers = $('tv-cast-floor').querySelectorAll('.tv-listener-avatar');
+        if (walkers.length) {
+          var walker = walkers[castWalkIndex++ % walkers.length];
+          walker.classList.remove('is-walking');
+          void walker.offsetWidth;
+          walker.classList.add('is-walking');
+          walker.addEventListener('animationend', function () { walker.classList.remove('is-walking'); }, { once: true });
+        }
+      }, 14000);
     }
     if (navigator.share) {
       $('js').hidden = false;
@@ -1411,6 +1422,18 @@
       });
       var ol = $('tv-next'); ol.replaceChildren();
       st.next.forEach(function (n) { ol.appendChild(h('li', null, [document.createTextNode(n.title + ' '), h('span', { text: n.artist })])); });
+    }
+    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      var screenWalkIndex = 0;
+      setInterval(function () {
+        var walkers = $('tv-listeners').querySelectorAll('.tv-listener-avatar');
+        if (!walkers.length) return;
+        var walker = walkers[screenWalkIndex++ % walkers.length];
+        walker.classList.remove('is-walking');
+        void walker.offsetWidth;
+        walker.classList.add('is-walking');
+        walker.addEventListener('animationend', function () { walker.classList.remove('is-walking'); }, { once: true });
+      }, 13000);
     }
     var es = new EventSource('/api/rooms/' + code + '/events?screen=1');
     es.onmessage = function (m) { try { draw(JSON.parse(m.data)); } catch (e) { console.error(e); } };
