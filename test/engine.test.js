@@ -7,17 +7,43 @@ let n = 0; const ok = (s) => { n++; console.log('  ok  ' + s); };
 const person = (id, genres) => ({ id, taste: Object.fromEntries(genres.map((g, i) => [g, [4, 3, 2, 1][i]])) });
 const prim = (q) => q.map((x) => x.track.genres[0]);
 
-// A named artist must not be suppressed by the normal recent-artist diversity rule.
+// A named artist gets a preference boost without bypassing artist diversity.
 const artistTracks = [
-  ...Array.from({ length: 5 }, (_, i) => ({ id: 'tool-' + i, title: 'Tool Song ' + i, artist: 'Tool', genres: ['metal', 'rock'] })),
-  ...Array.from({ length: 12 }, (_, i) => ({ id: 'other-' + i, title: 'Other Song ' + i, artist: 'Other Artist ' + i, genres: [i % 2 ? 'rock' : 'alternative'] })),
+  ...Array.from({ length: 30 }, (_, i) => ({ id: 'tool-' + i, title: 'Tool Song ' + i, artist: 'Tool', genres: ['metal', 'rock'] })),
+  ...Array.from({ length: 40 }, (_, i) => ({ id: 'other-' + i, title: 'Other Song ' + i, artist: 'Other Artist ' + i, genres: [i % 2 ? 'rock' : 'alternative'] })),
 ];
-const namedSolo = E.buildQueue([{ id: 'listener', taste: { metal: 4, rock: 3, alternative: 2 }, artists: ['Tool'] }], {
-  catalog: E.makeCatalog(artistTracks), n: 5, seed: 7, recentArtists: ['Tool'],
+const namedPeople = [{ id: 'listener', taste: { metal: 4, rock: 3, alternative: 2 }, artists: ['Tool'] }];
+const namedCatalog = E.makeCatalog(artistTracks);
+const namedSolo = E.buildQueue(namedPeople, {
+  catalog: namedCatalog, n: 5, seed: 7, recentArtists: ['Tool'],
 });
-assert.ok(namedSolo.queue.filter((x) => x.track.artist === 'Tool').length >= 3,
-  'a named artist should recur even when that artist was recently played');
-ok('a solo guest who names an artist hears that artist frequently, despite the recent-artist cooldown');
+const namedCount = namedSolo.queue.filter((x) => x.track.artist === 'Tool').length;
+assert.ok(namedCount >= 1 && namedCount <= 2,
+  'a preferred artist remains in the lineup but cannot dominate a five-song queue: ' + namedCount);
+ok('a preferred artist is represented without bypassing the recent-artist cooldown');
+
+const rollingArtists = [], rollingIds = [], longRun = [];
+for (let batch = 0; batch < 6; batch++) {
+  const next = E.buildQueue(namedPeople, {
+    catalog: namedCatalog, n: 5, seed: 7 + batch,
+    recentIds: rollingIds, recentArtists: rollingArtists.slice(-10),
+  });
+  assert.strictEqual(next.queue.length, 5);
+  for (const item of next.queue) {
+    longRun.push(item.track.artist);
+    rollingIds.push(item.track.id);
+    rollingArtists.push(item.track.artist);
+  }
+}
+for (let i = 0; i <= longRun.length - 10; i++) {
+  assert.ok(longRun.slice(i, i + 10).filter((artist) => artist === 'Tool').length <= 3,
+    'preferred artist exceeds three appearances in rolling ten-song window at ' + i);
+}
+for (let i = 0; i < longRun.length - 2; i++) {
+  if (longRun[i] === 'Tool') assert.ok(longRun[i + 1] !== 'Tool' && longRun[i + 2] !== 'Tool',
+    'two other tracks should separate preferred-artist appearances');
+}
+ok('a long-running solo room caps a preferred artist at three per rolling ten songs with two-song spacing');
 
 assert.ok(tracks.length >= 4500); assert.strictEqual(E.GENRES.length, 62); ok('catalogue has ' + tracks.length + ' tracks, 62 genres');
 assert.strictEqual(new Set(E.GENRES).size, 62);
