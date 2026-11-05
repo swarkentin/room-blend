@@ -457,6 +457,7 @@
         ]),
         h('div', { class: 'tv-cast-next-wrap' }, [h('h2', { text: 'Coming up' }), h('ol', { id: 'tv-cast-next', class: 'tv-cast-next' })]),
       ]),
+      h('div', { class: 'tv-cast-floor', id: 'tv-cast-floor', 'aria-label': 'People listening' }),
       h('div', { class: 'tv-cast-controls' }, [
         h('button', { class: 'btn tv-cast-next-btn', id: 'tv-cast-next-btn', type: 'button', text: 'Next song' }),
         h('button', { class: 'btn tv-cast-exit', id: 'tv-cast-exit', type: 'button', text: 'Exit TV view' }),
@@ -771,6 +772,29 @@
       $('tv-cast-view').style.setProperty('--cast-a', palette[0]);
       $('tv-cast-view').style.setProperty('--cast-b', palette[1]);
       $('tv-cast-meta').textContent = st.guests.filter(function (g) { return g.status === 'active'; }).length + ' listening · ' + (st.now ? (st.now.mode === 'rotate' ? 'taking turns' : 'blending everyone’s taste') : 'waiting for guests');
+      // A tiny dance floor adds personality without competing with the join QR or song details.
+      var floor = $('tv-cast-floor');
+      var activeListeners = st.guests.filter(function (g) { return g.status === 'active'; });
+      var fairById = Object.create(null);
+      (st.fairness || []).forEach(function (f) { fairById[f.id] = f; });
+      floor.replaceChildren();
+      activeListeners.forEach(function (guest, index) {
+        var fair = fairById[guest.id] || { avg: 0, songs: 0, own: 0 };
+        var mood = fair.songs < 1 ? 'curious' : fair.avg >= .72 ? 'happy' : fair.avg >= .48 ? 'chill' : 'bummed';
+        var avatar = h('div', {
+          class: 'tv-listener-avatar mood-' + mood,
+          title: guest.name + ' · ' + (fair.songs ? Math.round(fair.avg * 100) + '% average fit across ' + fair.songs + ' songs' : 'No songs scored yet') + ' · ' + fair.own + ' personal turns',
+          role: 'img',
+          tabindex: '0',
+          'aria-label': guest.name + ', ' + (fair.songs ? Math.round(fair.avg * 100) + ' percent average fit, ' + fair.songs + ' songs, ' + fair.own + ' personal turns' : 'no songs scored yet')
+        }, [
+          h('span', { class: 'tv-listener-face', 'aria-hidden': 'true', text: mood === 'happy' ? '😄' : mood === 'bummed' ? '😕' : mood === 'chill' ? '😎' : '🙂' }),
+          h('span', { class: 'tv-listener-name', text: guest.name })
+        ]);
+        avatar.style.setProperty('--listener-x', ((index + 1) / (activeListeners.length + 1) * 100) + '%');
+        avatar.style.setProperty('--listener-hue', String((guest.color || index) * 57 + 165));
+        floor.appendChild(avatar);
+      });
       $('tv-cast-genres').replaceChildren.apply($('tv-cast-genres'), st.now ? tagList(st.now.track.genres || []) : []);
       var tvNext = $('tv-cast-next'); tvNext.replaceChildren();
       st.queue.slice(0, 3).forEach(function (item) {
@@ -1364,6 +1388,7 @@
         h('h1', { id: 'tv-title', text: 'Waiting for the first guest' }),
         h('p', { class: 'tv-artist', id: 'tv-artist' }),
         h('p', { class: 'tv-meta', id: 'tv-meta' }),
+        h('div', { class: 'tv-listener-floor tv-screen-listeners', id: 'tv-listeners', 'aria-label': 'People listening' }),
         h('h2', { text: 'Up next' }), h('ol', { id: 'tv-next', class: 'tv-next' }),
       ]),
     ]));
@@ -1373,6 +1398,17 @@
       $('tv-title').textContent = st.now ? st.now.title : 'Waiting for the first guest';
       $('tv-artist').textContent = st.now ? st.now.artist : '';
       $('tv-meta').textContent = st.people + (st.people === 1 ? ' person' : ' people') + ' in the room' + (st.now ? (st.now.mode === 'rotate' ? ' · taking turns' : ' · blending everyone\'s taste') : '');
+      var listenerFloor = $('tv-listeners'); listenerFloor.replaceChildren();
+      (st.listeners || []).forEach(function (guest, index) {
+        var mood = guest.songs < 1 ? 'curious' : guest.avg >= .72 ? 'happy' : guest.avg >= .48 ? 'chill' : 'bummed';
+        var avatar = h('div', { class: 'tv-listener-avatar mood-' + mood, title: guest.name + ' · ' + (guest.songs ? Math.round(guest.avg * 100) + '% average fit across ' + guest.songs + ' songs' : 'No songs scored yet') + ' · ' + guest.own + ' personal turns', role: 'img', tabindex: '0', 'aria-label': guest.name + ', ' + (guest.songs ? Math.round(guest.avg * 100) + ' percent average fit, ' + guest.songs + ' songs, ' + guest.own + ' personal turns' : 'no songs scored yet') }, [
+          h('span', { class: 'tv-listener-face', 'aria-hidden': 'true', text: mood === 'happy' ? '😄' : mood === 'bummed' ? '😕' : mood === 'chill' ? '😎' : '🙂' }),
+          h('span', { class: 'tv-listener-name', text: guest.name })
+        ]);
+        avatar.style.setProperty('--listener-x', ((index + 1) / ((st.listeners || []).length + 1) * 100) + '%');
+        avatar.style.setProperty('--listener-hue', String((guest.color || index) * 57 + 165));
+        listenerFloor.appendChild(avatar);
+      });
       var ol = $('tv-next'); ol.replaceChildren();
       st.next.forEach(function (n) { ol.appendChild(h('li', null, [document.createTextNode(n.title + ' '), h('span', { text: n.artist })])); });
     }
