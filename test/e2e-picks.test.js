@@ -32,7 +32,7 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
     const rows = await g.locator('#gv-picks #gv-results .rrow').allTextContents(); assert.ok(rows.some((t) => /Queen/.test(t) && /songs? here/.test(t))); ok('typing part of a name lists matching artists with how many songs the room has');
     await g.locator('#gv-picks #gv-results .rrow', { hasText: 'Queen' }).first().getByRole('button', { name: /Add artist/ }).click();
     await g.waitForSelector('#gv-picks #gv-chosen .chip');
-    assert.ok(/Queen/.test(await g.textContent('#gv-picks #gv-chosen'))); assert.ok(/1 added/.test(await g.textContent('#gv-picks #gv-picks-n'))); ok('adding an artist shows it as a chip and counts it beside the heading');
+    assert.ok(/Queen/.test(await g.textContent('#gv-picks #gv-chosen'))); assert.ok(/1 named/.test(await g.textContent('#gv-picks #gv-picks-n'))); ok('adding an artist shows it as a chip and counts it beside the heading');
     assert.ok(await g.locator('#gv-picks #gv-results .rrow', { hasText: 'Queen' }).first().getByRole('button', { name: 'Added' }).isDisabled()); ok('an artist already added cannot be added twice');
 
     await g.fill('#gv-picks #gv-q', 'so what miles');
