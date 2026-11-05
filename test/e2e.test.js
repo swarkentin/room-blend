@@ -155,7 +155,7 @@ const until = async (fn, ms = 8000, what = 'condition') => { const t0 = Date.now
     assert.strictEqual(pairedSearch.get('artist'), 'Vangelis');
     ok('guest autocomplete sends title and artist together when both are entered');
     await g1.unroute(searchPath);
-    await host.route(searchPath, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(suggestion) }));
+    await host.route(searchPath, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ songs: [{ title: 'Blade Runner Blues', artist: 'Vangelis', source: 'musicbrainz' }] }) }));
     await host.fill('#host-request-artist', 'Vange');
     await host.waitForSelector('#host-request-form .song-suggestion');
     await host.click('#host-request-form .song-suggestion');
