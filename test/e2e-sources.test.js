@@ -103,6 +103,8 @@ const sub = http.createServer((req, res) => {
       await host.waitForFunction(() => /Playing from your files/.test(document.querySelector('#sp').textContent), null, { timeout: 20000 });
       const panel = await host.textContent('#sp');
       assert.ok(/5 songs in the room/.test(panel) && /1 have no genre tag/.test(panel)); ok('folder scanned: 5 tagged songs found, the untagged one left out, notes.txt ignored');
+      const sourceSettings = host.locator('#sp details.source-settings');
+      if (!(await sourceSettings.evaluate((el) => el.open))) await sourceSettings.locator('summary').click();
       await host.selectOption('#loc-default', 'jazz');
       await host.waitForFunction(() => /6 songs in the room/.test(document.querySelector('#sp').textContent)); ok('untagged songs can be counted as a chosen genre');
       await host.selectOption('#loc-default', '');
