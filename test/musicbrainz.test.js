@@ -100,6 +100,38 @@ const { Room } = require('../lib/room');
       throw new Error('unexpected MusicBrainz path: ' + path);
     },
   });
+  const red = createClient({
+    intervalMs: 0,
+    fetchImpl: async (url) => {
+      const parsed = new URL(url);
+      if (parsed.pathname.endsWith('/artist/')) {
+        assert.strictEqual(parsed.searchParams.get('limit'), '25', 'artist lookup searches beyond the default top five');
+        return { ok: true, json: async () => ({ artists: [
+          { id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', name: 'Red Hot Chili Peppers', score: 100 },
+          { id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', name: 'Simply Red', score: 97 },
+          { id: '0ff93a82-dc2f-4a6f-93c3-e260868b6566', name: 'Red', score: 84, type: 'Group', disambiguation: 'US Christian rock band' },
+        ] }) };
+      }
+      if (parsed.pathname.endsWith('/artist/0ff93a82-dc2f-4a6f-93c3-e260868b6566')) {
+        assert.strictEqual(parsed.searchParams.get('inc'), 'genres');
+        return { ok: true, json: async () => ({ genres: [
+          { name: 'alternative metal', count: 1 },
+          { name: 'christian rock', count: 3 },
+          { name: 'metal', count: 1 },
+          { name: 'nu metal', count: 1 },
+          { name: 'post-grunge', count: 2 },
+          { name: 'symphonic rock', count: 2 },
+        ] }) };
+      }
+      throw new Error('unexpected RED MusicBrainz path: ' + parsed.pathname);
+    },
+  });
+  const redGenres = await red.lookupArtist('RED');
+  assert.ok(redGenres.some((x) => x.genre === 'metal'), redGenres.map((x) => x.genre).join(', '));
+  assert.ok(redGenres.some((x) => x.genre === 'gospel'), 'Christian rock is mapped to the canonical gospel pool');
+  assert.ok(redGenres.some((x) => x.genre === 'rock'), 'post-grunge/symphonic rock contribute canonical rock styles');
+  console.log('  ok  exact artist matches below 90 and beyond the top five resolve curated genres');
+
   const tags = await client.lookupArtist('Tool');
   assert.ok(new URL(requestedUrl).searchParams.get('inc') === 'genres', 'the second request fetches curated genres by MBID');
   assert.ok(tags.some((x) => x.genre === 'metal'));
