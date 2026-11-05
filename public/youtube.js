@@ -321,16 +321,34 @@
     return ranked;
   }
 
-  // A successfully played request becomes a local candidate for future genre blends.
+  // Learn from every successful play. Prefer source tags, then local title/artist clues,
+  // then MusicBrainz's curated artist genres. Artist results are cached locally so repeat
+  // plays never make another metadata request (and this never spends YouTube quota).
+  async function artistGenres(artist) {
+    var name = String(artist || '').trim();
+    if (!name) return [];
+    var key = 'artist-genres:' + name.toLowerCase(), cached = await cacheGet(key);
+    if (cached !== undefined) return Array.isArray(cached) ? cached : [];
+    try {
+      var response = await fetch('/api/musicbrainz/artist-genres?artist=' + encodeURIComponent(name));
+      if (!response.ok) return [];
+      var data = await response.json(), genres = Array.isArray(data.genres) ? data.genres.map(function (x) { return typeof x === 'string' ? x : x.genre; }).filter(function (g) { return window.CONFIG.genres.indexOf(g) >= 0; }) : [];
+      await cachePut(key, genres, 'artist-genres', 90);
+      return genres;
+    } catch (e) { return []; }
+  }
   async function rememberPlayed(track, id) {
-    var GM = window.GenreMap, genres = (track.genres || []).filter(function (g) { return window.CONFIG.genres.indexOf(g) >= 0; });
-    if (!genres.length && GM) genres = GM.classifyAll(track.title || '', 2);
-    genres = genres.slice(0, 3);
-    if (!genres.length || !id) return;
+    if (!id) return;
+    var GM = window.GenreMap, allowed = window.CONFIG.genres;
+    var genres = (track.genres || []).filter(function (g) { return allowed.indexOf(g) >= 0; });
+    if (!genres.length && GM) genres = GM.classifyAll([track.title, track.artist].filter(Boolean).join(' '), 3);
+    if (!genres.length) genres = await artistGenres(track.artist);
+    genres = genres.filter(function (g, i) { return allowed.indexOf(g) >= 0 && genres.indexOf(g) === i; }).slice(0, 3);
+    if (!genres.length) return;
     var song = { title: track.title, artist: track.artist, id: id, genres: genres, quality: 1 };
     for (var i = 0; i < genres.length; i++) {
       var have = await poolGet(genres[i]) || [];
-      if (!have.some(function (x) { return x.id === id || (x.title.toLowerCase() === song.title.toLowerCase() && x.artist.toLowerCase() === song.artist.toLowerCase()); })) {
+      if (!have.some(function (x) { return x.id === id || (String(x.title || '').toLowerCase() === String(song.title || '').toLowerCase() && String(x.artist || '').toLowerCase() === String(song.artist || '').toLowerCase()); })) {
         await poolPut(genres[i], [song].concat(have).slice(0, 600));
       }
     }
@@ -712,7 +730,7 @@
       var tries = ids.slice(0, 4);
       for (var i = 0; i < tries.length; i++) {
         var r = await tryVideo(tries[i]);
-        if (r === true) { await recordPlayback(tries[i], true); if (track.request || (track.genres && track.genres.length)) await rememberPlayed(track, tries[i]); return true; }
+        if (r === true) { await recordPlayback(tries[i], true); await rememberPlayed(track, tries[i]); return true; }
         if (r === false) return false;
         await recordPlayback(tries[i], false);
         await demote(track, tries[i]); // null: this video is unavailable or not embeddable, try the next one
