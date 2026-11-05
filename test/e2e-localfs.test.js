@@ -98,6 +98,18 @@ const SEED = SONGS.map(([f]) => ({ path: 'Album/' + f, b64: b64(f) }))
     });
     await until(() => host.evaluate(() => { const a = window.__audios[window.__audios.length - 1]; return a && a.currentTime > 0.7 && a.currentTime < 1.2; }), 3000, 'local seek applied');
     ok('the host seek control moves the local audio position');
+
+    // A jukebox request has a synthetic server ID, not the local catalogue ID.
+    // It must still resolve to the matching file in the host's scanned library.
+    await host.fill('#host-request-title', 'Rock One');
+    await host.fill('#host-request-artist', 'Band A');
+    await host.click('#host-request-form button[type=submit]');
+    await host.waitForFunction(() => document.querySelector('#host-request-hint').textContent === 'Added to the jukebox.');
+    await host.click('#btn-next');
+    await until(async () => (await nowTitle()) === 'Rock One', 5000, 'requested local song selected');
+    assert.ok((await until(playingSrc, 5000, 'requested local audio playing')).startsWith('blob:'));
+    ok('a jukebox request for a song in the local library plays the matching local file');
+
     await host.click('#tv-mode');
     assert.strictEqual(await host.isVisible('#tv-cast-progress'), true); ok('the cast view shows local song progress and duration');
     await host.click('#tv-cast-exit');

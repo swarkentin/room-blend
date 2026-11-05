@@ -20,7 +20,7 @@
   function $(id) { return document.getElementById(id); }
 
   // Song autocomplete is deliberately advisory: a guest can always submit the text they typed.
-  function songAutocomplete(code, titleInput, artistInput, status, headers) {
+  function songAutocomplete(code, titleInput, artistInput, status, headers, onSelect) {
     var results = h('div', { class: 'song-suggestions', role: 'list', 'aria-label': 'Matching songs' });
     artistInput.insertAdjacentElement('afterend', results);
     var timer = null, sequence = 0;
@@ -53,8 +53,8 @@
           titleInput.value = song.title;
           artistInput.value = song.artist;
           clear();
-          status.textContent = 'Selected ' + song.title + ' — ' + song.artist + '. You can edit either field before submitting.';
-          titleInput.focus();
+          if (onSelect) onSelect(song);
+          else { status.textContent = 'Selected ' + song.title + ' — ' + song.artist + '.'; titleInput.focus(); }
         });
         results.appendChild(button);
       });
@@ -512,7 +512,7 @@
       addPicked.length = 0; $('g-name').value = ''; $('add-hint').textContent = '';
       Array.prototype.forEach.call($('picker').querySelectorAll('button'), function (c) { c.setAttribute('aria-pressed', 'false'); c.disabled = false; });
     });
-    songAutocomplete(code, $('host-request-title'), $('host-request-artist'), $('host-request-search-status'), H);
+    songAutocomplete(code, $('host-request-title'), $('host-request-artist'), $('host-request-search-status'), H, function () { $('host-request-form').requestSubmit(); });
     $('host-request-form').addEventListener('submit', async function (e) { e.preventDefault(); var result = await post('requests', { title: $('host-request-title').value, artist: $('host-request-artist').value }); $('host-request-hint').textContent = result.ok ? 'Added to the jukebox.' : (result.data && result.data.error) || 'Could not add that request.'; if (result.ok) { $('host-request-title').value = ''; $('host-request-artist').value = ''; $('host-request-search-status').textContent = ''; $('host-request-form').querySelector('.song-suggestions').hidden = true; } });
     $('btn-next').addEventListener('click', function () { post('advance'); });
     $('btn-pause').addEventListener('click', function () {
@@ -1052,7 +1052,7 @@
           h('button', { class: 'btn', type: 'button', id: 'gv-leave', text: 'Leave the room', onclick: leave }),
         ])
       );
-      songAutocomplete(code, $('guest-request-title'), $('guest-request-artist'), $('guest-request-search-status'), auth());
+      songAutocomplete(code, $('guest-request-title'), $('guest-request-artist'), $('guest-request-search-status'), auth(), function () { $('guest-request-form').requestSubmit(); });
       $('guest-request-form').addEventListener('submit', async function (e) { e.preventDefault(); var hint = $('guest-request-hint'); var result = await http('POST', '/api/rooms/' + code + '/request', { title: $('guest-request-title').value, artist: $('guest-request-artist').value }, auth()); hint.textContent = result.ok ? 'Request added to the queue.' : (result.data && result.data.error) || 'Could not add that request.'; if (result.ok) { $('guest-request-title').value = ''; $('guest-request-artist').value = ''; $('guest-request-search-status').textContent = ''; $('guest-request-form').querySelector('.song-suggestions').hidden = true; } });
       if (st) renderLive(st);
       connect(); startBeats();
