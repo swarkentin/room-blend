@@ -17,7 +17,7 @@ const req = (method, p, body, headers = {}) => new Promise((resolve, reject) => 
   r.on('error', reject); if (data) r.write(data); r.end();
 });
 const start = (env) => {
-  const child = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: { ...process.env, PORT, DATA_DIR: DIR, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn('node', ['server.js'], { cwd: __dirname + '/..', env: { ...process.env, PORT, DATA_DIR: DIR, ...env }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
   const out = { lines: [], err: [] }; let ob = '', eb = '';
   child.stdout.on('data', (c) => { ob += c; const p = ob.split('\n'); ob = p.pop(); out.lines.push(...p.filter(Boolean)); });
   child.stderr.on('data', (c) => { eb += c; const p = eb.split('\n'); eb = p.pop(); out.err.push(...p.filter(Boolean)); });
@@ -62,10 +62,10 @@ const events = (o) => o.lines.map((l) => JSON.parse(l));
   assert.ok(rl.level === 'warn' && rl.visitor.length === 8 && rl.kind === 'requests'); ok('a rate-limited visitor is logged as a warning on stderr, by a short hash');
 
   // ---- shutting down saves the rooms
-  child.kill('SIGTERM');
+  child.send({ type: 'shutdown' });
   await new Promise((r) => child.on('exit', r));
   assert.ok(events(out).some((e) => e.event === 'server.stop'));
-  assert.ok(JSON.parse(fs.readFileSync(path.join(DIR, 'rooms.json'), 'utf8')).rooms.some((r) => r.code === code)); ok('stopping the server (SIGTERM) logs it and saves the rooms first');
+  assert.ok(JSON.parse(fs.readFileSync(path.join(DIR, 'rooms.json'), 'utf8')).rooms.some((r) => r.code === code)); ok('stopping the server gracefully logs it and saves the rooms first');
 
   // ---- STATUS_KEY, and silence
   ({ child, out } = start({ LOG_LEVEL: 'silent', STATUS_KEY: 'sekret-1' }));

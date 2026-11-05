@@ -622,5 +622,7 @@ if (require.main === module) {
   const stop = (sig) => { L.info('server.stop', { signal: sig, rooms: rooms.size }); clearTimeout(saveTimer); writeRooms(); server.close(); setTimeout(() => process.exit(0), 300).unref(); };
   process.on('SIGTERM', () => stop('SIGTERM'));
   process.on('SIGINT', () => stop('SIGINT'));
+  // IPC gives process supervisors and cross-platform tests a reliable graceful-stop path.
+  process.on('message', (message) => { if (message && message.type === 'shutdown') stop('IPC'); });
 }
 module.exports = { server, rooms, CLIENT_CONFIG, musicBrainz };
