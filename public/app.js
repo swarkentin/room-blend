@@ -440,6 +440,7 @@
         h('div', { class: 'tv-cast-glow' }),
         h('div', { class: 'tv-cast-spectrum' }, tvCastBars),
       ]),
+      h('div', { class: 'tv-cast-avatars', id: 'tv-cast-avatars', role: 'group', 'aria-label': 'Guests in the room', hidden: 'hidden' }),
       h('div', { class: 'tv-cast-join' }, [
         h('div', { id: 'tv-cast-qr', role: 'img', 'aria-label': 'QR code to join this room' }),
         h('p', { class: 'tv-cast-label', text: 'Scan to join' }),
@@ -463,6 +464,29 @@
       ]),
     ]);
     wrap.appendChild(tvCastView);
+    // Little avatars for the guests, who mostly stand still and only wander now and then. They keep clear of the QR code and the video.
+    var castAvatars = window.Avatars ? window.Avatars.create($('tv-cast-avatars'), {
+      avoid: function () { return [tvCastView.querySelector('.tv-cast-join'), $('yt-dock')]; },
+      reduced: function () { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; },
+    }) : { update: function () {}, layout: function () {} };
+    function castEntries(st) {
+      var fits = {}, fair = {};
+      if (st.now) st.now.fits.forEach(function (f) { fits[f.id] = f.fit; });
+      st.fairness.forEach(function (f) { fair[f.id] = f; });
+      return st.guests.filter(function (g) { return g.status !== 'arriving'; }).map(function (g) {
+        var f = fair[g.id] || { avg: 0, songs: 0, own: 0 }, now = fits[g.id], resting = g.status === 'sitting' || !!g.away;
+        var stats = [];
+        if (st.now) stats.push(['This song', now == null ? 'n/a' : pct(now) + '% fit']);
+        stats.push(['So far', f.songs ? pct(f.avg) + '% over ' + f.songs + (f.songs === 1 ? ' song' : ' songs') : 'Not heard yet']);
+        stats.push(['Own turns', String(f.own)]);
+        if (g.picks) stats.push(['Named', g.artistCount + (g.artistCount === 1 ? ' artist, ' : ' artists, ') + g.songCount + (g.songCount === 1 ? ' song' : ' songs')]);
+        return {
+          id: g.id, name: g.name, color: COLORS[g.color % COLORS.length],
+          genres: (g.genres.length ? g.genres : g.inferred || []).map(gl), stats: stats,
+          mood: { fit: now == null ? null : now, avg: f.avg, songs: f.songs, resting: resting, restLabel: g.hostSit ? 'Sat out by the host' : g.away ? 'Stepped away' : 'Sitting this one out' },
+        };
+      });
+    }
 
     var base = C.publicUrl || location.origin;
     $('rc').textContent = code; $('jl').textContent = joinUrl.replace(/^https?:\/\//, '');
@@ -473,6 +497,7 @@
       document.body.classList.toggle('tv-cast-mode', on);
       if (!on) document.body.classList.remove('tv-cast-playing');
       tvCastView.hidden = !on;
+      if (on) castAvatars.layout();
       $('tv-mode').setAttribute('aria-pressed', on ? 'true' : 'false');
       $('tv-mode').textContent = on ? 'Exit TV view' : 'TV / cast view';
     }
@@ -761,6 +786,7 @@
       $('tv-cast-view').style.setProperty('--cast-b', palette[1]);
       $('tv-cast-meta').textContent = st.guests.filter(function (g) { return g.status === 'active'; }).length + ' listening · ' + (st.now ? (st.now.mode === 'rotate' ? 'taking turns' : 'blending everyone’s taste') : 'waiting for guests');
       $('tv-cast-genres').replaceChildren.apply($('tv-cast-genres'), st.now ? tagList(st.now.track.genres || []) : []);
+      castAvatars.update(castEntries(st));
       var tvNext = $('tv-cast-next'); tvNext.replaceChildren();
       st.queue.slice(0, 3).forEach(function (item) {
         tvNext.appendChild(h('li', null, [document.createTextNode(item.track.title + ' '), h('span', { text: item.track.artist })]));
