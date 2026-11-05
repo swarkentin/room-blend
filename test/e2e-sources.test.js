@@ -79,8 +79,14 @@ const sub = http.createServer((req, res) => {
     const host = await ctx.newPage();
     host.on('pageerror', (e) => errors.push(e.message)); host.on('console', (m) => { if (m.type() === 'error' && !/fonts|ERR_|Failed to load resource|qrcode/.test(m.text())) errors.push(m.text()); });
     await host.route(/^https:\/\//, (r) => r.abort());
+    const chooseSource = async (id) => {
+      const settings = host.locator('#sp details.source-settings');
+      if (!(await settings.evaluate((el) => el.open))) await settings.locator('summary').click();
+      await host.click('[data-src="' + id + '"]');
+    };
     const addGuest = async (name, genres) => {
-      await host.locator('details:has(#add-form) > summary').click();
+      const guestDetails = host.locator('details:has(#add-form)');
+      if (!(await guestDetails.evaluate((el) => el.open))) await guestDetails.locator('summary').click();
       await host.fill('#g-name', name);
       for (const g of genres) await host.click(`#picker [data-g="${g}"]`);
       await host.click('#add-form button[type=submit]');
@@ -91,7 +97,7 @@ const sub = http.createServer((req, res) => {
     // ===== local files =====
     await host.goto(APP); await host.click('#start-room'); await host.waitForURL(/\/host\/[A-Z0-9]{5}$/);
     if (ffmpegAvailable) {
-      await host.click('[data-src="local"]');
+      await chooseSource('local');
       await host.waitForSelector('#loc-dir', { state: 'attached' });
       await host.setInputFiles('#loc-dir', path.join(dir, 'Music'));
       await host.waitForFunction(() => /Playing from your files/.test(document.querySelector('#sp').textContent), null, { timeout: 20000 });
@@ -116,7 +122,7 @@ const sub = http.createServer((req, res) => {
 
 
     // ===== switch to Navidrome / Subsonic =====
-    await host.click('[data-src="subsonic"]');
+    await chooseSource('subsonic');
     await host.fill('#sub-url', 'http://127.0.0.1:' + SUB_PORT); await host.fill('#sub-user', 'dj'); await host.fill('#sub-pass', 'wrong');
     await host.click('#sub-go');
     await host.waitForFunction(() => /Wrong username or password/.test(document.querySelector('#sp').textContent));
@@ -143,7 +149,7 @@ const sub = http.createServer((req, res) => {
     assert.ok(/Synced/.test(await host.textContent('#sp'))); ok('the panel says when it last synced');
 
     // ===== switching to a curated source clears the library =====
-    await host.click('[data-src="spotify"]');
+    await chooseSource('spotify');
     await until(async () => (await host.textContent('#queue')).trim() && !/Server /.test(await host.textContent('#queue')), 8000, 'curated queue');
     ok('choosing Spotify (not connected) returns to the built-in list');
     assert.deepStrictEqual(errors, [], 'page errors: ' + errors.join(' | ')); ok('no page errors');
