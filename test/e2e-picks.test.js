@@ -22,7 +22,7 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
     const g = await page(); await g.goto(`${APP}/r/${code}`);
     await g.click('#gv-picker [data-g="classical"]'); await g.click('#gv-submit'); await g.waitForSelector('#gv-title');
     await g.locator('details:has(#gv-picks) > summary').click();
-    assert.ok(await g.locator('#gv-picks h2').isVisible()); assert.strictEqual(await g.textContent('#gv-picks h2'), 'Artists and songs you want to hear'); assert.ok(await g.locator('#gv-picks #gv-q').isVisible()); ok('after joining, the guest can expand "Artists and songs you want to hear" and search');
+    assert.ok(await g.locator('#gv-picks h2').isVisible()); assert.strictEqual(await g.textContent('#gv-picks h2'), 'Your profile and music preferences'); assert.ok(await g.locator('#gv-picks #gv-q').isVisible()); assert.strictEqual(await g.locator('#gv-picks input[type=checkbox]').count(), 0); ok('after joining, the guest can expand "Your profile and music preferences" and search');
 
     await g.fill('#gv-picks #gv-q', 'quee');
     assert.match(await g.textContent('#gv-picks #gv-picks-msg'), /Searching the room and MusicBrainz/);
@@ -32,7 +32,7 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
     const rows = await g.locator('#gv-picks #gv-results .rrow').allTextContents(); assert.ok(rows.some((t) => /Queen/.test(t) && /songs? here/.test(t))); ok('typing part of a name lists matching artists with how many songs the room has');
     await g.locator('#gv-picks #gv-results .rrow', { hasText: 'Queen' }).first().getByRole('button', { name: /Add artist/ }).click();
     await g.waitForSelector('#gv-picks #gv-chosen .chip');
-    assert.ok(/Queen/.test(await g.textContent('#gv-picks #gv-chosen'))); assert.ok(/1 added/.test(await g.textContent('#gv-picks #gv-picks-n'))); ok('adding an artist shows it as a chip and counts it beside the heading');
+    assert.ok(/Queen/.test(await g.textContent('#gv-picks #gv-chosen'))); assert.ok(/1 named/.test(await g.textContent('#gv-picks #gv-picks-n'))); ok('adding an artist shows it as a chip and counts it beside the heading');
     assert.ok(await g.locator('#gv-picks #gv-results .rrow', { hasText: 'Queen' }).first().getByRole('button', { name: 'Added' }).isDisabled()); ok('an artist already added cannot be added twice');
 
     await g.fill('#gv-picks #gv-q', 'so what miles');
@@ -42,7 +42,7 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
 
     // it reached the server, and it is the only place the picks are visible
     const mine = await g.evaluate(async (c) => { const reg = JSON.parse(localStorage.getItem('rb-guest-' + c)); const r = await fetch('/api/rooms/' + c + '/events?gid=' + reg.id + '&gkey=' + reg.key); const rd = r.body.getReader(); const { value } = await rd.read(); rd.cancel(); return JSON.parse(new TextDecoder().decode(value).match(/data: (.*)\n/)[1]).me; }, code);
-    assert.deepStrictEqual(mine.artists, ['Queen']); assert.strictEqual(mine.songs.length, 1); ok('the server holds the picks for this guest');
+    assert.deepStrictEqual(mine.artists, ['Queen']); assert.strictEqual(mine.songs.length, 1); assert.strictEqual(mine.lookupGenres, true); ok('the server holds the picks and automatically enables artist genre lookup for this guest');
 
     await g.reload(); await g.waitForSelector('#gv-title');
     await g.locator('details:has(#gv-picks) > summary').click();
@@ -74,12 +74,13 @@ const until = async (fn, ms = 8000, what = 'x') => { const t0 = Date.now(); for 
 
     // joining with only an artist: no genre picked
     const g3 = await page(); await g3.goto(`${APP}/r/${code}`);
-    assert.ok(await g3.locator('#gv-q').isVisible()); ok('the join page shows the artist and song search without opening anything');
+    assert.ok(await g3.locator('#gv-q').isVisible()); assert.strictEqual(await g3.locator('#gv-form input[type=checkbox]').count(), 0); ok('the join page shows the artist and song search without a MusicBrainz opt-in');
     await g3.click('#gv-submit');
     assert.ok(/Pick a genre, or name an artist or song/.test(await g3.textContent('#gv-hint'))); ok('joining with nothing picked says what to do');
     await g3.fill('#gv-q', 'fleetwood'); await g3.waitForSelector('#gv-results .rrow');
     await g3.locator('#gv-results .rrow', { hasText: 'Fleetwood' }).first().getByRole('button', { name: /Add artist/ }).click();
     await g3.click('#gv-submit'); await g3.waitForSelector('#gv-title');
+    assert.strictEqual(await g3.locator('#gv-mb-lookup-join, #gv-mb-lookup-live').count(), 0);
     await until(async () => /Starting you on/.test(await g3.textContent('#gv-me')), 6000, 'guessed genres shown to the guest'); ok('a guest who joined with only an artist is told which genres the room guessed for them');
     await until(async () => /Named 1 artist/.test(await host.evaluate(() => document.querySelector('#guests').innerText)), 6000, 'host sees a count');
     assert.ok(!/Fleetwood/.test(await host.evaluate(() => document.querySelector('#guests').innerText))); ok('the host sees "Named 1 artist" and never the name');

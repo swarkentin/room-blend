@@ -488,3 +488,28 @@ a.btn.primary { color: var(--on-primary, #fff); }
 @media (max-width: 700px) {
   .guest-add-song { grid-template-columns: 58px minmax(0, 1fr); }
 }
+
+
+/* Guest playback tracker and consolidated profile preferences. */
+.guest-wrap .now { margin-bottom: 0; }
+.guest-wrap .up-next-strip { margin: 10px 0 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.up-next-strip .sec-h { margin-bottom: 6px; }
+.up-next-strip .sec-h h2 { font-size: 14px; }
+.up-next-strip .gnext { margin: 0; }
+.up-next-strip .nextrow { display: flex; align-items: baseline; gap: 10px; padding: 5px 0; }
+.next-position { flex: 0 0 18px; color: var(--muted); font: 12px var(--font-mono); }
+.next-track { min-width: 0; }
+.next-track > span { color: var(--muted); }
+#gv-profile-name { display: block; width: 100%; margin: 4px 0 14px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: transparent; color: inherit; font: inherit; }
+.pref-subhead { font-size: 14px; margin: 14px 0 8px; }
+#gv-profile-genres { margin: 0 0 12px; }
+.profile-save-row { align-items: center; gap: 10px; margin: 12px 0 4px; }
+#gv-profile-status { margin: 0; }
+.guest-wrap #gv-preferences-details[open], .guest-wrap #gv-request-details[open] { padding-bottom: 12px; }
+.guest-wrap #gv-requests { margin-top: 0; }
+@media (max-width: 420px) { .profile-save-row { align-items: flex-start; flex-direction: column; } }
+
+.guest-wrap .playback-tracker { display: grid; gap: 0; border-radius: 14px; overflow: hidden; }
+.guest-wrap .playback-tracker .now { border-radius: 14px 14px 0 0; }
+.guest-wrap .playback-tracker .up-next-strip { margin: 0; border-radius: 0 0 14px 14px; border-top: 0; }
+.guest-wrap .now-head .meta { color: var(--now-muted); font-size: 12px; }
