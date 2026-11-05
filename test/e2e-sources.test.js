@@ -146,6 +146,8 @@ const sub = http.createServer((req, res) => {
     // ===== sync: a song added on the server appears without reconnecting, and the playing song is not interrupted =====
     const before = await nowTitle();
     SUB.push({ id: 's6', title: 'Server Soul', artist: 'Net F', genre: 'Soul' });
+    const sourceSettings = host.locator('#sp details.source-settings');
+    if (!(await sourceSettings.evaluate((el) => el.open))) await sourceSettings.locator('summary').click();
     await host.click('#sub-sync');
     await host.waitForFunction(() => /5 songs in the room/.test(document.querySelector('#sp').textContent), null, { timeout: 10000 });
     assert.strictEqual(await nowTitle(), before); ok('Sync now picks up a song added on the server (5 songs) and keeps the current song playing');
