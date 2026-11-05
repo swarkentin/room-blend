@@ -47,6 +47,7 @@ const SEED = SONGS.map(([f]) => ({ path: 'Album/' + f, b64: b64(f) }))
     const host = await ctx.newPage();
     host.on('pageerror', (e) => errors.push(e.message)); host.on('console', (m) => { if (m.type() === 'error' && !/fonts|ERR_|Failed to load resource|qrcode/.test(m.text())) errors.push(m.text()); });
     const panel = () => host.textContent('#sp');
+    const openSourceSettings = async () => { const d = host.locator('#sp details.source-settings'); if (!(await d.evaluate((el) => el.open))) await d.locator('summary').click(); };
     const nowTitle = () => host.textContent('#now-title');
     const playingSrc = () => host.evaluate(() => { const a = window.__audios[window.__audios.length - 1]; return a && !a.paused && a.currentTime > 0 ? a.src : ''; });
     const panelHas = (re, ms) => host.waitForFunction((s) => new RegExp(s).test(document.querySelector('#sp').textContent), re.source, { timeout: ms || 20000 });
@@ -76,6 +77,7 @@ const SEED = SONGS.map(([f]) => ({ path: 'Album/' + f, b64: b64(f) }))
     await host.click('#loc-fsa');
     await panelHas(/Playing from your files/);
     const p1 = await panel();
+    await openSourceSettings();
     assert.ok(/5 songs in the room/.test(p1) && /1 have no genre tag/.test(p1)); ok('the folder is walked: 5 tagged songs found in a subfolder; notes.txt and the ._ file are ignored; 1 untagged');
     assert.ok(await host.locator('#loc-forget').count() === 1); ok('a remembered folder can be forgotten');
 
@@ -102,7 +104,8 @@ const SEED = SONGS.map(([f]) => ({ path: 'Album/' + f, b64: b64(f) }))
 
     // A jukebox request has a synthetic server ID, not the local catalogue ID.
     // It must still resolve to the matching file in the host's scanned library.
-    await host.locator('details:has(#host-request-form) > summary').click();
+    const requestDetails = host.locator('details:has(#host-request-form)');
+    if (!(await requestDetails.evaluate((el) => el.open))) await requestDetails.locator('summary').click();
     await host.fill('#host-request-title', 'Rock One');
     await host.fill('#host-request-artist', 'Band A');
     await host.click('#host-request-form button[type=submit]');
