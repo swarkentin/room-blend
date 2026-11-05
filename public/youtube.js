@@ -362,17 +362,18 @@
         req.onsuccess = function () { resolve((req.result || []).filter(function (r) { return r.expiresAt > Date.now(); }); };
         req.onerror = function () { reject(req.error || new Error('Could not read the local catalogue.')); };
       });
-      var GM = window.GenreMap, allowed = window.CONFIG.genres, candidates = [], scanned = 0, added = 0;
-      var seen = Object.create(null);
+      var GM = window.GenreMap, allowed = window.CONFIG.genres, candidates = [], candidateById = Object.create(null), scanned = 0, added = 0;
       function addCandidate(song, genres) {
         if (!song || !song.id || !song.title || !song.artist) return;
         genres = (genres || []).filter(function (g, i, a) { return allowed.indexOf(g) >= 0 && a.indexOf(g) === i; }).slice(0, 3);
         if (!genres.length) return;
-        var normalized = String(song.title).toLowerCase() + '|' + String(song.artist).toLowerCase();
-        if (!seen[song.id]) seen[song.id] = Object.create(null);
-        if (seen[song.id][normalized]) return;
-        seen[song.id][normalized] = true;
-        candidates.push({ title: String(song.title), artist: String(song.artist), id: String(song.id), genres: genres, quality: Number(song.quality) || 0 });
+        var id = String(song.id), existing = candidateById[id];
+        if (existing) {
+          genres.forEach(function (genre) { if (existing.genres.indexOf(genre) < 0 && existing.genres.length < 3) existing.genres.push(genre); });
+          return;
+        }
+        var candidate = { title: String(song.title), artist: String(song.artist), id: id, genres: genres, quality: Number(song.quality) || 0 };
+        candidateById[id] = candidate; candidates.push(candidate);
       }
       rows.forEach(function (row) {
         if (row.kind !== 'pool' && row.kind !== 'search') return;
