@@ -508,3 +508,8 @@ a.btn.primary { color: var(--on-primary, #fff); }
 .guest-wrap #gv-preferences-details[open], .guest-wrap #gv-request-details[open] { padding-bottom: 12px; }
 .guest-wrap #gv-requests { margin-top: 0; }
 @media (max-width: 420px) { .profile-save-row { align-items: flex-start; flex-direction: column; } }
+
+.guest-wrap .playback-tracker { display: grid; gap: 0; border-radius: 14px; overflow: hidden; }
+.guest-wrap .playback-tracker .now { border-radius: 14px 14px 0 0; }
+.guest-wrap .playback-tracker .up-next-strip { margin: 0; border-radius: 0 0 14px 14px; border-top: 0; }
+.guest-wrap .now-head .meta { color: var(--now-muted); font-size: 12px; }
