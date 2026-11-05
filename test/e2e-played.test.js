@@ -27,13 +27,33 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     assert.ok(before !== alsoBefore && alsoBefore !== atJoin);
 
     const [gc, g] = await mk();
+    await g.addInitScript(() => {
+      const NativeEventSource = window.EventSource;
+      window.__roomBlendEvents = [];
+      window.EventSource = class extends NativeEventSource {
+        constructor(...args) {
+          super(...args);
+          this.addEventListener('message', (event) => {
+            try { window.__roomBlendEvents.push(JSON.parse(event.data)); } catch (_) {}
+          });
+        }
+      };
+    });
     await g.goto(APP + '/' + code); await g.waitForSelector('#gv-picker .chip'); await g.fill('#gv-name', 'Ana');
     await g.click('#gv-picker [data-g="blues"]'); await g.click('#gv-submit'); await g.waitForSelector('#gv-title');
     // The live view mounts before its first SSE snapshot. Wait for the snapshot
     // to reflect the song playing at join before checking the played history.
     await until(async () => (await g.textContent('#gv-title')).trim() === atJoin, 8000, 'guest initial live snapshot');
     await g.locator('#gv-played-sec > summary').click();
-    await until(async () => (await g.$('#gv-played .prow .qtitle')).length >= 1, 8000, 'played list');
+    await until(async () => (await g.$('#gv-played .prow .qtitle')).length >= 1, 8000, 'played list').catch(async (e) => {
+      const diagnostics = await g.evaluate(() => ({
+        title: document.querySelector('#gv-title')?.textContent,
+        playedMarkup: document.querySelector('#gv-played')?.innerText,
+        events: (window.__roomBlendEvents || []).map((s) => ({ now: s.now?.track?.title, played: (s.played || []).map((p) => ({ title: p.title, at: p.at })), me: s.me?.name })),
+      }));
+      console.log('PLAYED DIAGNOSTICS', JSON.stringify(diagnostics));
+      throw e;
+    });
     let rows = await g.$$eval('#gv-played .prow .qtitle', (els) => els.map((e) => e.textContent));
     assert.ok(rows.some((r) => r.startsWith(atJoin)) && !rows.some((r) => r.startsWith(before)) && !rows.some((r) => r.startsWith(alsoBefore)));
     ok('a guest sees the song playing when they arrived, not the songs from before');
