@@ -368,7 +368,9 @@
   }
   // One-time, local-only migration: blend genre-labelled cached playlists and clearly classifiable
   // search results into canonical genre pools. No YouTube API requests are made here.
-  var enrichmentPromise = null, ENRICHMENT_KEY = 'rb-yt-genre-enrichment-v1';
+  // v2 also backfills tracks with a recorded successful play, using their cached search metadata.
+  // Keep a separate version so browsers that already completed v1 still receive this additive pass.
+  var enrichmentPromise = null, ENRICHMENT_KEY = 'rb-yt-genre-enrichment-v2';
   async function enrichCatalogue(onProgress) {
     if (lsGet(ENRICHMENT_KEY) === 'done') return { skipped: true, added: 0, scanned: 0 };
     if (enrichmentPromise) return enrichmentPromise;
@@ -380,7 +382,12 @@
         req.onsuccess = function () { resolve((req.result || []).filter(function (r) { return r.expiresAt > Date.now(); })); };
         req.onerror = function () { reject(req.error || new Error('Could not read the local catalogue.')); };
       });
-      var GM = window.GenreMap, allowed = window.CONFIG.genres, candidates = [], candidateById = Object.create(null), scanned = 0, added = 0;
+      var GM = window.GenreMap, allowed = window.CONFIG.genres, candidates = [], candidateById = Object.create(null), successfulIds = Object.create(null), scanned = 0, added = 0;
+      rows.forEach(function (row) {
+        if (row.kind === 'quality' && row.value && Number(row.value.successes) > 0) {
+          successfulIds[String(row.id || '').replace(/^quality:/, '')] = true;
+        }
+      });
       function addCandidate(song, genres) {
         if (!song || !song.id || !song.title || !song.artist) return;
         genres = (genres || []).filter(function (g, i, a) { return allowed.indexOf(g) >= 0 && a.indexOf(g) === i; }).slice(0, 3);
@@ -406,9 +413,19 @@
           var key = String(row.id || '').replace(/^search:/, ''), split = key.lastIndexOf('|');
           if (split < 1 || !Array.isArray(row.value)) return;
           var title = key.slice(0, split).trim(), artist = key.slice(split + 1).trim();
-          var genres = GM ? GM.classifyAll(title, 1) : [];
-          if (!genres.length) return; // Search-cache entries without a clear title signal stay untouched.
-          row.value.forEach(function (videoId) {
+          var genres = GM ? GM.classifyAll(title + ' ' + artist, 3) : [];
+          var successfulMatches = row.value.filter(function (videoId) { return typeof videoId === 'string' && successfulIds[videoId]; });
+          // Older playback feedback stores only the video ID. Join it to the cached search key
+          // to recover title/artist, then use MusicBrainz only for confirmed successful plays
+          // whose title/artist text is not enough to classify locally.
+          var usedArtistMetadata = false;
+          if (!genres.length && successfulMatches.length) {
+            genres = await artistGenres(artist);
+            usedArtistMetadata = genres.length > 0;
+          }
+          if (!genres.length) return; // Unplayed, unclassifiable search entries stay untouched.
+          var idsToBlend = usedArtistMetadata ? successfulMatches : row.value;
+          idsToBlend.forEach(function (videoId) {
             if (typeof videoId === 'string') addCandidate({ title: title, artist: artist, id: videoId }, genres);
           });
         }
