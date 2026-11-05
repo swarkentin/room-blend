@@ -361,7 +361,7 @@ const yt = http.createServer((req, res) => {
 
     // switching away hides the player; removing the key forgets it
     await openSourceSettings(host);
-    await host.click('[data-src="spotify"]');
+    await chooseSource(host, 'spotify');
     assert.strictEqual(await host.isVisible('#yt-dock'), false); ok('choosing another source hides the player');
     await chooseSource(host, 'youtube');
     await host.click('#yt-forget');
