@@ -359,8 +359,11 @@ const yt = http.createServer((req, res) => {
     poolOn = false;
 
     // switching away hides the player; removing the key forgets it
+    const sourceSettings = host.locator('#sp details.source-settings');
+    if (!(await sourceSettings.evaluate((el) => el.open))) await sourceSettings.locator('summary').click();
     await host.click('[data-src="spotify"]');
     assert.strictEqual(await host.isVisible('#yt-dock'), false); ok('choosing another source hides the player');
+    if (!(await sourceSettings.evaluate((el) => el.open))) await sourceSettings.locator('summary').click();
     await host.click('[data-src="youtube"]');
     await host.click('#yt-forget');
     await host.waitForSelector('#yt-key');
