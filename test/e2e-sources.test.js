@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const assert = require('assert');
 const { spawn, execFileSync } = require('child_process');
 const { chromium } = require('playwright');
+const { openSourceSettings, chooseSource } = require('./helpers/source-settings');
 
 const APP_PORT = 4890, SUB_PORT = 4891, APP = 'http://127.0.0.1:' + APP_PORT;
 let passed = 0; const ok = (s) => { passed++; console.log('  ok  ' + s); };
@@ -79,11 +80,6 @@ const sub = http.createServer((req, res) => {
     const host = await ctx.newPage();
     host.on('pageerror', (e) => errors.push(e.message)); host.on('console', (m) => { if (m.type() === 'error' && !/fonts|ERR_|Failed to load resource|qrcode/.test(m.text())) errors.push(m.text()); });
     await host.route(/^https:\/\//, (r) => r.abort());
-    const chooseSource = async (id) => {
-      const settings = host.locator('#sp details.source-settings');
-      if (!(await settings.evaluate((el) => el.open))) await settings.locator('summary').click();
-      await host.click('[data-src="' + id + '"]');
-    };
     const addGuest = async (name, genres) => {
       const guestDetails = host.locator('details:has(#add-form)');
       if (!(await guestDetails.evaluate((el) => el.open))) await guestDetails.locator('summary').click();
@@ -103,11 +99,10 @@ const sub = http.createServer((req, res) => {
       await host.waitForFunction(() => /Playing from your files/.test(document.querySelector('#sp').textContent), null, { timeout: 20000 });
       const panel = await host.textContent('#sp');
       assert.ok(/5 songs in the room/.test(panel) && /1 have no genre tag/.test(panel)); ok('folder scanned: 5 tagged songs found, the untagged one left out, notes.txt ignored');
-      const sourceSettings = host.locator('#sp details.source-settings');
-      if (!(await sourceSettings.evaluate((el) => el.open))) await sourceSettings.locator('summary').click();
+      await openSourceSettings(host);
       await host.selectOption('#loc-default', 'jazz');
       await host.waitForFunction(() => /6 songs in the room/.test(document.querySelector('#sp').textContent)); ok('untagged songs can be counted as a chosen genre');
-      if (!(await sourceSettings.evaluate((el) => el.open))) await sourceSettings.locator('summary').click();
+      await openSourceSettings(host);
       await host.selectOption('#loc-default', '');
       await host.waitForFunction(() => /5 songs in the room/.test(document.querySelector('#sp').textContent));
   
