@@ -161,7 +161,7 @@
     if (!r) return;
     var genres = (r.genres || []).slice(0, 4), artists = (r.artists || []).slice(0, 5), songs = (r.songs || []).slice(0, 5);
     if (!genres.length && !artists.length && !songs.length) return; // never replace a good profile with an empty one
-    lsSet('rb-prefs', JSON.stringify({ genres: genres, artists: artists, songs: songs, lookupGenres: !!r.lookupGenres }));
+    lsSet('rb-prefs', JSON.stringify({ genres: genres, artists: artists, songs: songs, lookupGenres: true }));
   }
   async function http(method, url, body, headers, keepalive) {
     var r = await fetch(url, { keepalive: !!keepalive, method: method, headers: Object.assign(body ? { 'Content-Type': 'application/json' } : {}, headers || {}), body: body ? JSON.stringify(body) : undefined });
@@ -971,8 +971,7 @@
       var reused = !editing && !reg && !!(picked.length || named.artists.length || named.songs.length);
       var hint = h('p', { class: 'hint', id: 'gv-hint', role: 'status', text: note || (reused ? 'Filled in from your last room. Change anything you like, then join.' : '') });
       var np = editing ? null : namedPicker(named, function () { hint.textContent = ''; });
-      var lookupInput = editing ? null : h('input', { type: 'checkbox', id: 'gv-mb-lookup-join', checked: (reg && reg.lookupGenres) || (!reg && prefs && prefs.lookupGenres) ? 'checked' : null });
-      var lookupChoice = lookupInput ? h('label', { class: 'hint' }, [lookupInput, ' Look up MusicBrainz genres for up to five artists you named, including artists on your song picks. Only artist names are sent for this extra lookup.']) : null;
+      var lookupChoice = editing ? null : h('p', { class: 'hint', text: 'We automatically check MusicBrainz for genre tags from up to five artists you name, including artists on your song picks. Only artist names are sent.' });
       var importBox = null;
       if (C.clientId && !editing) {
         importBox = h('div', { class: 'import' }, [
@@ -1003,7 +1002,7 @@
           if (!r.ok) { hint.textContent = 'Could not save. Try again.'; return; }
           reg.name = name; reg.genres = picked.slice(); saveReg(); showLive();
         } else {
-          var j = await http('POST', '/api/rooms/' + code + '/guests', { name: name, genres: picked, artists: named.artists, songs: named.songs, lookupGenres: !!(lookupInput && lookupInput.checked), since: (reg && reg.since) || undefined });
+          var j = await http('POST', '/api/rooms/' + code + '/guests', { name: name, genres: picked, artists: named.artists, songs: named.songs, lookupGenres: true, since: (reg && reg.since) || undefined });
           if (j.status === 404) { return roomGone(); }
           if (!j.ok) { hint.textContent = 'Could not join. Try again.'; return; }
           reg = { id: j.data.guestId, key: j.data.guestKey, name: name, genres: picked.slice(), artists: named.artists.slice(), songs: named.songs.slice(), lookupGenres: !!(lookupInput && lookupInput.checked), since: (reg && reg.since) || j.data.since || Date.now() }; saveReg();
@@ -1202,10 +1201,9 @@
       } });
       function count() { var n = holder.artists.length + holder.songs.length; meta.textContent = n ? n + ' named' : ''; }
       chipPicker(genreBox, pickedGenres);
-      var lookupInput = h('input', { type: 'checkbox', id: 'gv-mb-lookup-live', checked: reg.lookupGenres ? 'checked' : null, onchange: function () { reg.lookupGenres = lookupInput.checked; saveReg(); patch({ lookupGenres: reg.lookupGenres }); } });
       var pk = namedPicker(holder, function () { saveReg(); patch({ artists: reg.artists, songs: reg.songs }); count(); }, function () { return !(reg.genres && reg.genres.length); });
       picksSection.refresh = function () {
-        lookupInput.checked = !!reg.lookupGenres; nameInput.value = reg.name || '';
+        nameInput.value = reg.name || '';
         pickedGenres.splice(0, pickedGenres.length); (reg.genres || []).forEach(function (g) { pickedGenres.push(g); });
         Array.prototype.forEach.call(genreBox.querySelectorAll('button'), function (c) {
           var on = pickedGenres.indexOf(c.getAttribute('data-g')) >= 0;
@@ -1219,7 +1217,7 @@
         h('label', { class: 'hint profile-name-label', for: 'gv-profile-name', text: 'Your name' }), nameInput,
         h('h3', { class: 'pref-subhead', text: 'Favourite genres (up to 4; first pick counts most)' }), genreBox,
         h('p', { class: 'hint', text: 'Artists and songs you name count as perfect matches for you, but only play when they fit the room or it is your turn. Only you can see them.' }),
-        h('label', { class: 'hint' }, [lookupInput, ' Use MusicBrainz to improve artist genre guesses.']),
+        h('p', { class: 'hint', text: 'MusicBrainz genre tags are checked automatically for up to five named artists. Only artist names are sent.' }),
         pk.el, h('div', { class: 'row profile-save-row' }, [saveProfile, genreStatus]),
       ]);
     }
@@ -1368,7 +1366,7 @@
         if (check.ok) { connect(); return; }
         if (check.status >= 500 || check.status === 429) return setTimeout(connect, 4000);
         var j;
-        try { j = await http('POST', '/api/rooms/' + code + '/guests', { name: reg.name, genres: reg.genres, since: reg.since, artists: reg.artists, songs: reg.songs, lookupGenres: !!reg.lookupGenres }); } catch (e) { return setTimeout(connect, 4000); }
+        try { j = await http('POST', '/api/rooms/' + code + '/guests', { name: reg.name, genres: reg.genres, since: reg.since, artists: reg.artists, songs: reg.songs, lookupGenres: true }); } catch (e) { return setTimeout(connect, 4000); }
         if (j.ok) { reg.id = j.data.guestId; reg.key = j.data.guestKey; saveReg(); connect(); }
         else setTimeout(connect, 3000);
       };
