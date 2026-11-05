@@ -13,7 +13,30 @@ Room Blend only decides what plays next. The host's own music service plays the 
 3. Room Blend picks songs from the overlap, protecting whoever likes the current song least. When there's no overlap, it takes turns.
 4. People come and go and the queue adjusts, without reshuffling for a passer-by.
 
-Guests can also join from a short link, from the "Playing near you" list on the same Wi-Fi, or by typing the 5-letter room code.
+![Guests send their genres to Room Blend, which sends a queue to the host's browser, which plays the songs from the host's own music](docs/images/architecture.svg)
+
+Guests can also join from a short link, from the "Playing near you" list on the same Wi-Fi, or by typing the 5-letter room code. Once in, they can name artists and songs they like, or request a song for the host to play.
+
+## What it looks like
+
+<table>
+  <tr>
+    <td rowspan="2" align="center" valign="middle">
+      <img src="docs/images/guest-phone.png" alt="A guest's phone showing the current song, how well it fits them, and what is up next" width="280"><br>
+      <sub>A guest's phone</sub>
+    </td>
+    <td align="center">
+      <img src="docs/images/host-console.png" alt="The host console showing who is in the room, the current song, how well it fits each guest, and fairness so far" width="540"><br>
+      <sub>The host console: who is here, what is playing, and how fairly everyone is served</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="docs/images/big-screen.png" alt="The big-screen view showing a QR code, the room code, the current song and the next songs" width="540"><br>
+      <sub>TV / cast view: scan to join, with the queue on show</sub>
+    </td>
+  </tr>
+</table>
 
 ## Quick start
 

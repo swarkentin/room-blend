@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 310" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">
+  <title id="t">How Room Blend fits together</title>
+  <desc id="d">Guests send their genres from their phones to the Room Blend server. The server sends a queue to the host's browser, which plays each song from the host's own music source. Audio never passes through the server.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#57606a"/>
+    </marker>
+  </defs>
+
+  <rect x="0.75" y="0.75" width="758.5" height="308.5" rx="10" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+
+  <text x="24" y="36" font-size="15" font-weight="600" fill="#1f2328">Room Blend matches tastes; the host plays the music</text>
+
+  <!-- guests -->
+  <rect x="24" y="68" width="188" height="112" rx="8" fill="#ffffff" stroke="#8c959f" stroke-width="1.25"/>
+  <text x="118" y="94" text-anchor="middle" font-weight="600" fill="#1f2328">Guests' phones</text>
+  <text x="118" y="118" text-anchor="middle" font-size="11.5" fill="#57606a">Scan a QR code</text>
+  <text x="118" y="136" text-anchor="middle" font-size="11.5" fill="#57606a">Tap up to four genres</text>
+  <text x="118" y="154" text-anchor="middle" font-size="11.5" fill="#57606a">No app, no account</text>
+
+  <!-- server -->
+  <rect x="288" y="68" width="188" height="112" rx="8" fill="#ddf4ff" stroke="#0969da" stroke-width="2"/>
+  <text x="382" y="94" text-anchor="middle" font-weight="600" fill="#1f2328">Room Blend</text>
+  <text x="382" y="118" text-anchor="middle" font-size="11.5" fill="#1f2328">Finds the genre overlap</text>
+  <text x="382" y="136" text-anchor="middle" font-size="11.5" fill="#1f2328">Takes fair turns when</text>
+  <text x="382" y="154" text-anchor="middle" font-size="11.5" fill="#1f2328">there is none</text>
+
+  <!-- host browser -->
+  <rect x="552" y="68" width="184" height="112" rx="8" fill="#ffffff" stroke="#8c959f" stroke-width="1.25"/>
+  <text x="644" y="94" text-anchor="middle" font-weight="600" fill="#1f2328">Host's browser</text>
+  <text x="644" y="118" text-anchor="middle" font-size="11.5" fill="#57606a">Shows the queue</text>
+  <text x="644" y="136" text-anchor="middle" font-size="11.5" fill="#57606a">Plays each song</text>
+  <text x="644" y="154" text-anchor="middle" font-size="11.5" fill="#57606a">TV / cast view</text>
+
+  <!-- host music -->
+  <rect x="552" y="224" width="184" height="64" rx="8" fill="#ffffff" stroke="#8c959f" stroke-width="1.25"/>
+  <text x="644" y="246" text-anchor="middle" font-weight="600" fill="#1f2328">Host's music</text>
+  <text x="644" y="265" text-anchor="middle" font-size="11.5" fill="#57606a">Spotify, YouTube, own files,</text>
+  <text x="644" y="280" text-anchor="middle" font-size="11.5" fill="#57606a">Navidrome, or by hand</text>
+
+  <!-- arrows -->
+  <g fill="none" stroke="#57606a" stroke-width="1.25">
+    <path d="M212 124H288" marker-end="url(#arrow)"/>
+    <path d="M476 124H552" marker-end="url(#arrow)"/>
+    <path d="M644 224V180" marker-end="url(#arrow)"/>
+  </g>
+  <text x="250" y="114" text-anchor="middle" font-size="11.5" fill="#57606a">genres</text>
+  <text x="514" y="114" text-anchor="middle" font-size="11.5" fill="#57606a">queue</text>
+  <text x="656" y="207" font-size="11.5" fill="#57606a">audio</text>
+
+  <text x="24" y="246" font-size="11.5" fill="#57606a">The server sees song titles, artists and genres only.</text>
+  <text x="24" y="264" font-size="11.5" fill="#57606a">Logins, files and audio never reach it.</text>
+</svg>
