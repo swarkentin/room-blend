@@ -343,15 +343,17 @@
   }
   async function poolPut(k, tracks) {
     var saved = await cachePut('pool:' + k, tracks, 'pool', tracks.length ? 30 : 0.5);
-    if (rctx && rctx.rerender) rctx.rerender();
-    // Refresh the visible coverage summary after a discovery is committed. The initial
-    // render's cacheInfo() may have completed before this pool was written.
-    if (yt && yt.cacheInfo) yt.cacheInfo().then(function (info) {
+    // Refresh the existing status node only after the IndexedDB write has committed.
+    // Rerendering the provider here can replace that node while an earlier cacheInfo()
+    // callback is still pending, allowing the stale callback to win the race.
+    if (yt && yt.cacheInfo) {
+      var info = await yt.cacheInfo();
       var catalogue = document.querySelector('#yt-catalogue-status');
-      if (!catalogue) return;
-      if (info.mode !== 'indexeddb') catalogue.textContent = 'Catalogue feedback is temporary in this browser session. ' + (info.warning || '');
-      else catalogue.textContent = 'Catalogue: ' + info.pools + ' cached pools · ' + info.poolTracks + ' tracks · ' + info.searches + ' song lookups · playback feedback for ' + info.ratedVideos + ' videos (' + info.playbackSuccesses + ' starts, ' + info.playbackFailures + ' failures).' + (info.warning ? ' ' + info.warning : '');
-    });
+      if (catalogue) {
+        if (info.mode !== 'indexeddb') catalogue.textContent = 'Catalogue feedback is temporary in this browser session. ' + (info.warning || '');
+        else catalogue.textContent = 'Catalogue: ' + info.pools + ' cached pools · ' + info.poolTracks + ' tracks · ' + info.searches + ' song lookups · playback feedback for ' + info.ratedVideos + ' videos (' + info.playbackSuccesses + ' starts, ' + info.playbackFailures + ' failures).' + (info.warning ? ' ' + info.warning : '');
+      }
+    }
     return saved;
   }
   function seconds(iso) { var m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso || ''); return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : 0; }
