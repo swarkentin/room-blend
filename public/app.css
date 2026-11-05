@@ -495,15 +495,23 @@ a.btn.primary { color: var(--on-primary, #fff); }
   display: flex; align-items: flex-end; justify-content: space-around; gap: 8px;
   pointer-events: none;
 }
-.tv-cast-floor { position: absolute; z-index: 2; left: 30%; right: 39%; bottom: 2.5vh; height: 94px; }
+.tv-cast-floor { position: absolute; z-index: 2; left: 28%; right: 4%; bottom: 1vh; height: 132px; }
 .tv-listener-avatar {
-  position: absolute; left: var(--listener-x); bottom: 0;
+  position: absolute; left: var(--listener-x); bottom: var(--listener-y, 0px);
   display: grid; justify-items: center; gap: 2px; min-width: 38px;
   color: hsl(var(--listener-hue) 78% 78%); text-shadow: 0 2px 10px rgba(0,0,0,.7);
   transform: translateX(-50%); pointer-events: auto; cursor: help;
   transition: filter .2s ease, transform .2s ease;
 }
-.tv-listener-face { display: block; font-size: clamp(24px, 2.6vw, 38px); line-height: 1.1; filter: drop-shadow(0 3px 5px rgba(0,0,0,.35)); }
+.tv-listener-face { display: block; font-size: clamp(28px, 3vw, 44px); line-height: 1.1; transform-origin: 50% 90%; filter: drop-shadow(0 3px 5px rgba(0,0,0,.35)); }
+.tv-listener-avatar.is-idling.mood-happy .tv-listener-face { animation: listener-happy 1.7s ease-in-out both; }
+.tv-listener-avatar.is-idling.mood-chill .tv-listener-face { animation: listener-chill 2.2s ease-in-out both; }
+.tv-listener-avatar.is-idling.mood-bummed .tv-listener-face { animation: listener-bummed 2s ease-in-out both; }
+.tv-listener-avatar.is-idling.mood-curious .tv-listener-face { animation: listener-curious 1.8s ease-in-out both; }
+@keyframes listener-happy { 0%,100% { transform: translateY(0) rotate(0); } 18% { transform: translateY(-9px) rotate(-7deg); } 36% { transform: translateY(0) rotate(6deg); } 54% { transform: translateY(-5px) rotate(-4deg); } 72% { transform: translateY(0) rotate(0); } }
+@keyframes listener-chill { 0%,100% { transform: rotate(0) translateY(0); } 25% { transform: rotate(-9deg) translateY(-2px); } 75% { transform: rotate(9deg) translateY(-2px); } }
+@keyframes listener-bummed { 0%,100% { transform: rotate(0) translateY(0); opacity: 1; } 35%,65% { transform: rotate(9deg) translateY(3px); opacity: .72; } }
+@keyframes listener-curious { 0%,100% { transform: rotate(0); } 30%,65% { transform: rotate(-13deg) translateY(-3px); } }
 .tv-listener-name { max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(10px, .9vw, 13px); font-weight: 600; }
 .tv-listener-avatar:hover, .tv-listener-avatar:focus-visible { z-index: 3; filter: brightness(1.3); transform: translateX(-50%) translateY(-5px) scale(1.12); outline: none; }
 .tv-listener-avatar.mood-happy .tv-listener-face { filter: drop-shadow(0 0 9px rgba(255,220,100,.55)); }
@@ -512,13 +520,13 @@ a.btn.primary { color: var(--on-primary, #fff); }
 @keyframes listener-stroll { 0% { translate: 0 0; } 25% { translate: 7px -3px; } 55% { translate: 18px 0; } 80% { translate: 25px -2px; } 100% { translate: 30px 0; } }
 body.tv-cast-mode .tv-cast-floor { pointer-events: none; }
 body.tv-cast-mode .tv-cast-floor .tv-listener-avatar { pointer-events: auto; }
-.tv-listener-floor { position: relative; min-height: 76px; margin: 12px 0 18px; }
+.tv-listener-floor { position: relative; min-height: 112px; margin: 18px 0 24px; }
 .tv-screen-listeners .tv-listener-avatar { position: absolute; }
 @media (max-width: 700px) {
-  .tv-cast-floor { position: relative; left: auto; right: auto; bottom: auto; grid-column: 1; width: 100%; height: 76px; }
-  .tv-listener-face { font-size: 25px; }
+  .tv-cast-floor { position: relative; left: auto; right: auto; bottom: auto; grid-column: 1; width: 100%; height: 104px; }
+  .tv-listener-face { font-size: 27px; }
   .tv-listener-name { font-size: 10px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .tv-listener-avatar, .tv-listener-avatar.is-walking { animation: none !important; transition: none !important; }
+  .tv-listener-avatar, .tv-listener-avatar.is-walking, .tv-listener-avatar.is-idling .tv-listener-face { animation: none !important; transition: none !important; }
 }
