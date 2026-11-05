@@ -170,10 +170,13 @@ const until = async (fn, ms = 8000, what = 'condition') => { const t0 = Date.now
     assert.strictEqual(await host.inputValue('#host-request-artist'), '');
     ok('selecting a host song suggestion immediately adds the request');
     await host.unroute(searchPath);
+    assert.strictEqual(await g1.locator('#guest-request-form button[type=submit]').count(), 0);
+    assert.strictEqual(await g1.locator('#guest-request-form.add').count(), 0);
     await g1.fill('#guest-request-title', 'A completely unknown song');
     await g1.fill('#guest-request-artist', 'An unknown artist');
     assert.strictEqual(await g1.inputValue('#guest-request-title'), 'A completely unknown song');
     assert.strictEqual(await g1.inputValue('#guest-request-artist'), 'An unknown artist');
+    ok('guest request form uses compact aligned fields without a redundant submit button');
     ok('guests can still enter a free-form request without selecting a suggestion');
 
     // ---- vote ----
