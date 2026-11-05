@@ -220,7 +220,7 @@ const yt = http.createServer((req, res) => {
     // ---- songs by genre: playlists are read, filtered and played by their own id ----
     poolOn = true;
     const searchesBefore = log.searches.length, poolsBefore = log.plSearches.length;
-    const addDetails = host.locator('details:has(#add-form)');
+    // Reuse the addDetails locator from the first guest setup.
     if (!(await addDetails.evaluate((el) => el.open))) await addDetails.locator('summary').click();
     await host.fill('#g-name', 'Ben'); await host.click('#picker [data-g="jazz"]'); await host.click('#add-form button[type=submit]');
     await until(() => log.plItems >= 1 && log.videoCalls >= 1, 12000, 'playlist read');
