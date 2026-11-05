@@ -330,6 +330,29 @@ const yt = http.createServer((req, res) => {
     assert.ok(poolSnapshot.filter((entry) => entry.kind === 'pool').length > 100 && poolSnapshot.some((entry) => entry.id === 'pool:other-tab-pool-0')); ok('the IndexedDB cache retains more than 80 genre pools and preserves pools written by another tab');
     assert.ok(log.plSearches.slice(cacheProbeStart).includes('trip hop songs')); ok('a new genre pool is added without discarding the existing cache');
 
+    // One-time catalogue enrichment is local-only, additive and idempotent.
+    await host.evaluate(async () => {
+      const request = indexedDB.open('room-blend-youtube', 2);
+      const db = await new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('entries', 'readwrite'), store = tx.objectStore('entries'), now = Date.now();
+        store.put({ id: 'pool:blues rock', kind: 'pool', value: [{ title: 'Old Blues Track', artist: 'Cached Artist', id: 'oldBlues1' }], at: now, usedAt: now, expiresAt: now + 30 * 86400000 });
+        store.put({ id: 'search:techno anthem|sample artist', kind: 'search', value: ['searchTechno1'], at: now, usedAt: now, expiresAt: now + 30 * 86400000 });
+        tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+      });
+      db.close();
+    });
+    const apiBeforeEnrichment = log.apiRequests;
+    const enrichment = await host.evaluate(async () => window.Providers.get('youtube').enrichCatalogue());
+    assert.strictEqual(log.apiRequests, apiBeforeEnrichment); ok('catalogue enrichment makes zero YouTube API requests');
+    assert.ok(enrichment.added >= 3 && enrichment.scanned > 0); ok('cached playlist and search entries are scanned and contribute new genre candidates');
+    const enrichedBlues = await cacheRecord(host, 'pool:blues'), enrichedRock = await cacheRecord(host, 'pool:rock'), enrichedTechno = await cacheRecord(host, 'pool:techno');
+    assert.ok(enrichedBlues.value.some((t) => t.id === 'oldBlues1') && enrichedRock.value.some((t) => t.id === 'oldBlues1')); ok('a cached compound blues-rock pool is blended into both canonical genre pools');
+    assert.ok(enrichedTechno.value.some((t) => t.id === 'searchTechno1')); ok('a clearly classifiable cached search is blended into its genre pool');
+    const secondEnrichment = await host.evaluate(async () => window.Providers.get('youtube').enrichCatalogue());
+    assert.strictEqual(secondEnrichment.skipped, true); ok('the migration marker prevents repeat enrichment');
+    assert.strictEqual(log.apiRequests, apiBeforeEnrichment); ok('re-running the one-time migration does not consume API quota');
+
     // Exhausted quota is persisted for the Pacific day, but cached pools remain usable.
     const beforeQuota = log.apiRequests;
     const quotaStart = Date.now();
