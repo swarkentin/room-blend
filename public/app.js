@@ -811,6 +811,7 @@
           h('span', { class: 'tv-listener-name', text: guest.name })
         ]);
         avatar.style.setProperty('--listener-x', ((index + 1) / (activeListeners.length + 1) * 100) + '%');
+        avatar.style.setProperty('--listener-y', (index % 3 === 1 ? 16 : index % 3 === 2 ? 6 : 0) + 'px');
         avatar.style.setProperty('--listener-hue', String((guest.color || index) * 57 + 165));
         floor.appendChild(avatar);
       });
@@ -1425,6 +1426,7 @@
           h('span', { class: 'tv-listener-name', text: guest.name })
         ]);
         avatar.style.setProperty('--listener-x', ((index + 1) / ((st.listeners || []).length + 1) * 100) + '%');
+        avatar.style.setProperty('--listener-y', (index % 3 === 1 ? 16 : index % 3 === 2 ? 6 : 0) + 'px');
         avatar.style.setProperty('--listener-hue', String((guest.color || index) * 57 + 165));
         listenerFloor.appendChild(avatar);
       });
