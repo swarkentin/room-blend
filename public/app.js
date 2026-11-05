@@ -405,8 +405,8 @@
           '<div class="controls" style="margin-top:16px"><button class="btn primary" type="button" id="btn-next">Next song</button>' +
           '<button class="btn" type="button" id="btn-pause" hidden>Pause</button></div>' +
           '<div class="host-media" id="host-media" hidden><label class="sr" for="host-seek">Seek through the current song</label><input id="host-seek" type="range" min="0" max="0" step="0.1" value="0" aria-label="Seek through the current song"><div class="media-times"><span id="host-time">0:00</span><span id="host-duration">--:--</span></div></div></div>' +
-          '<div class="panel" style="margin-top:18px"><div class="sec-h"><h2>Jukebox requests</h2><span class="meta" id="request-count"></span></div><ol class="queue" id="host-requests"></ol><details class="secondary"><summary>Queue a song manually</summary><form class="add" id="host-request-form"><h3>Queue a song</h3><div><label for="host-request-title">Song title</label><input id="host-request-title" maxlength="100" required autocomplete="off"></div><div><label for="host-request-artist">Artist</label><input id="host-request-artist" maxlength="100" required autocomplete="off"></div><div><button class="btn small" type="submit">Add request</button><p class="hint" id="host-request-search-status" role="status"></p><p class="hint" id="host-request-hint" role="status"></p></div></form></details></div>' +
-          '<div class="panel" style="margin-top:28px"><div class="sec-h"><h2>Up next</h2><span class="meta"><span id="q-meta"></span> <button class="btn small" type="button" id="copy-queue">Copy list</button></span></div>' +
+          '<div class="panel request-panel" style="margin-top:18px"><div class="sec-h"><h2>Jukebox requests</h2><span class="meta" id="request-count"></span></div><ol class="queue" id="host-requests"></ol><form class="host-add-song" id="host-request-form" autocomplete="off" aria-label="Add a song"><div class="host-add-heading">Add a song</div><label for="host-request-title">Song</label><input id="host-request-title" maxlength="100" required autocomplete="off" placeholder="Song title"><label for="host-request-artist">Artist</label><input id="host-request-artist" maxlength="100" required autocomplete="off" placeholder="Artist name"><p class="hint host-request-status" id="host-request-search-status" role="status"></p><p class="hint host-request-status" id="host-request-hint" role="status"></p></form></div>' +
+          '<div class="panel up-next-panel" style="margin-top:28px"><div class="sec-h"><h2>Up next</h2><span class="meta"><span id="q-meta"></span> <button class="btn small" type="button" id="copy-queue">Copy list</button></span></div>' +
           '<p class="overlap" id="overlap"></p><ol class="queue" id="queue"></ol></div>' +
         '</section>' +
         '<section class="room" aria-label="In the room"><div class="sec-h"><h2>In the room</h2><span class="meta" id="room-count"></span></div>' +
@@ -513,6 +513,9 @@
       Array.prototype.forEach.call($('picker').querySelectorAll('button'), function (c) { c.setAttribute('aria-pressed', 'false'); c.disabled = false; });
     });
     songAutocomplete(code, $('host-request-title'), $('host-request-artist'), $('host-request-search-status'), H, function () { $('host-request-form').requestSubmit(); });
+    $('host-request-artist').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); $('host-request-form').requestSubmit(); }
+    });
     $('host-request-form').addEventListener('submit', async function (e) { e.preventDefault(); var result = await post('requests', { title: $('host-request-title').value, artist: $('host-request-artist').value }); $('host-request-hint').textContent = result.ok ? 'Added to the jukebox.' : (result.data && result.data.error) || 'Could not add that request.'; if (result.ok) { $('host-request-title').value = ''; $('host-request-artist').value = ''; $('host-request-search-status').textContent = ''; $('host-request-form').querySelector('.song-suggestions').hidden = true; } });
     $('btn-next').addEventListener('click', function () { post('advance'); });
     $('btn-pause').addEventListener('click', function () {
@@ -593,7 +596,15 @@
         ]);
       }));
       var body = h('div', { class: 'srcbody', id: 'sp-body' }, [P.render(ctx)]);
-      box.replaceChildren.apply(box, [h('h3', { text: 'Where is your music?' }), picker, body].concat(S.status ? [h('p', { class: 'hint', role: 'status', id: 'sp-status', text: S.status })] : []));
+      var sourceReady = P.ready() || (P.kind === 'manual' && !!lsGet('rb-source'));
+      var settings = h('details', { class: 'source-settings' });
+      settings.open = !sourceReady;
+      settings.appendChild(h('summary', { class: 'source-summary' }, [
+        h('span', { text: 'Music source' }), h('strong', { text: P.name }),
+        h('span', { class: 'source-state', text: sourceReady ? 'Ready' : 'Setup needed' }),
+      ]));
+      settings.appendChild(picker); settings.appendChild(body);
+      box.replaceChildren.apply(box, [settings].concat(S.status ? [h('p', { class: 'hint', role: 'status', id: 'sp-status', text: S.status })] : []));
       $('btn-pause').hidden = !P.ready();
     }
 
@@ -1030,7 +1041,7 @@
           h('div', { class: 'controls' }, [h('span', { class: 'label', text: 'Your call' }), h('button', { class: 'btn small', type: 'button', id: 'gv-good', 'aria-pressed': 'false', text: 'Good pick', onclick: function () { vote('up'); } }), h('button', { class: 'btn small', type: 'button', id: 'gv-bad', 'aria-pressed': 'false', text: 'Bad pick', onclick: function () { vote('down'); } })]),
         ]),
         h('div', null, [h('div', { class: 'sec-h' }, [h('h2', { text: 'Up next' })]), h('ol', { class: 'gnext', id: 'gv-next' })]),
-        h('section', { class: 'panel' }, [h('div', { class: 'sec-h' }, [h('h2', { text: 'Request a song' })]), h('p', { class: 'hint', text: 'Ask the host to play any song. It does not need to be in the room’s music library.' }), h('form', { id: 'guest-request-form', class: 'add' }, [h('div', null, [h('label', { htmlFor: 'guest-request-title', text: 'Song title' }), h('input', { id: 'guest-request-title', maxlength: '100', required: 'required', autocomplete: 'off' })]), h('div', null, [h('label', { htmlFor: 'guest-request-artist', text: 'Artist' }), h('input', { id: 'guest-request-artist', maxlength: '100', required: 'required', autocomplete: 'off' })]), h('button', { class: 'btn primary', type: 'submit', text: 'Request song' }), h('p', { class: 'hint', id: 'guest-request-search-status', role: 'status' }), h('p', { class: 'hint', id: 'guest-request-hint', role: 'status' })])]),
+        h('section', { class: 'panel' }, [h('div', { class: 'sec-h' }, [h('h2', { text: 'Request a song' })]), h('p', { class: 'hint', text: 'Ask the host to play any song. It does not need to be in the room’s music library.' }), h('form', { id: 'guest-request-form', class: 'guest-add-song', autocomplete: 'off', 'aria-label': 'Request a song' }, [h('label', { htmlFor: 'guest-request-title', text: 'Song' }), h('input', { id: 'guest-request-title', type: 'text', maxlength: '100', required: 'required', autocomplete: 'off', placeholder: 'Song title' }), h('label', { htmlFor: 'guest-request-artist', text: 'Artist' }), h('input', { id: 'guest-request-artist', type: 'text', maxlength: '100', required: 'required', autocomplete: 'off', placeholder: 'Artist name' }), h('p', { class: 'hint guest-request-status', id: 'guest-request-search-status', role: 'status' }), h('p', { class: 'hint guest-request-status', id: 'guest-request-hint', role: 'status' })])]),
         h('details', { class: 'secondary' }, [h('summary', { text: 'Requested songs' }), h('ol', { class: 'gnext', id: 'gv-requests' })]),
         h('details', { class: 'secondary' }, [h('summary', { text: 'Your music preferences' }), picksSection()]),
         h('details', { class: 'secondary', id: 'gv-played-sec' }, [h('summary', { text: 'Played while you were here' }),
@@ -1051,6 +1062,7 @@
         ])])
       );
       songAutocomplete(code, $('guest-request-title'), $('guest-request-artist'), $('guest-request-search-status'), auth(), function () { $('guest-request-form').requestSubmit(); });
+      $('guest-request-artist').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); $('guest-request-form').requestSubmit(); } });
       $('guest-request-form').addEventListener('submit', async function (e) { e.preventDefault(); var hint = $('guest-request-hint'); var result = await http('POST', '/api/rooms/' + code + '/request', { title: $('guest-request-title').value, artist: $('guest-request-artist').value }, auth()); hint.textContent = result.ok ? 'Request added to the queue.' : (result.data && result.data.error) || 'Could not add that request.'; if (result.ok) { $('guest-request-title').value = ''; $('guest-request-artist').value = ''; $('guest-request-search-status').textContent = ''; $('guest-request-form').querySelector('.song-suggestions').hidden = true; } });
       if (st) renderLive(st);
       connect(); startBeats();

@@ -10,6 +10,7 @@ const path = require('path');
 const assert = require('assert');
 const { spawn, execFileSync } = require('child_process');
 const { chromium } = require('playwright');
+const { openSourceSettings, chooseSource } = require('./helpers/source-settings');
 
 const PORT = 4902, APP = 'http://127.0.0.1:' + PORT;
 let passed = 0; const ok = (s) => { passed++; console.log('  ok  ' + s); };
@@ -66,7 +67,7 @@ const SEED = SONGS.map(([f]) => ({ path: 'Album/' + f, b64: b64(f) }))
     }, SEED);
 
     await host.click('#start-room'); await host.waitForURL(/\/host\/[A-Z0-9]{5}$/);
-    await host.click('[data-src="local"]');
+    await chooseSource(host, 'local');
     await host.waitForSelector('#loc-fsa', { state: 'attached' });
     assert.ok(/view the folder/.test(await panel())); ok('before the click, the panel says the browser will ask to "view" the folder, and that it only reads song tags');
     await host.waitForSelector('#loc-dir', { state: 'attached' }); ok('the older folder picker is still offered');
@@ -76,6 +77,7 @@ const SEED = SONGS.map(([f]) => ({ path: 'Album/' + f, b64: b64(f) }))
     await host.click('#loc-fsa');
     await panelHas(/Playing from your files/);
     const p1 = await panel();
+    await openSourceSettings(host);
     assert.ok(/5 songs in the room/.test(p1) && /1 have no genre tag/.test(p1)); ok('the folder is walked: 5 tagged songs found in a subfolder; notes.txt and the ._ file are ignored; 1 untagged');
     assert.ok(await host.locator('#loc-forget').count() === 1); ok('a remembered folder can be forgotten');
 
@@ -102,10 +104,11 @@ const SEED = SONGS.map(([f]) => ({ path: 'Album/' + f, b64: b64(f) }))
 
     // A jukebox request has a synthetic server ID, not the local catalogue ID.
     // It must still resolve to the matching file in the host's scanned library.
-    await host.locator('details:has(#host-request-form) > summary').click();
+    assert.strictEqual(await host.locator('details:has(#host-request-form)').count(), 0);
+    assert.strictEqual(await host.locator('#host-request-form button[type=submit]').count(), 0);
     await host.fill('#host-request-title', 'Rock One');
     await host.fill('#host-request-artist', 'Band A');
-    await host.click('#host-request-form button[type=submit]');
+    await host.press('#host-request-artist', 'Enter');
     await host.waitForFunction(() => document.querySelector('#host-request-hint').textContent === 'Added to the jukebox.');
     await host.click('#btn-next');
     await until(async () => (await nowTitle()) === 'Rock One', 5000, 'requested local song selected');
