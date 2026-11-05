@@ -400,8 +400,10 @@
         var candidate = { title: String(song.title), artist: String(song.artist), id: id, genres: genres, quality: Number(song.quality) || 0 };
         candidateById[id] = candidate; candidates.push(candidate);
       }
-      rows.forEach(function (row) {
-        if (row.kind !== 'pool' && row.kind !== 'search') return;
+      // Use an async-capable loop: artist genre fallback is awaited for historical plays.
+      for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+        var row = rows[rowIndex];
+        if (row.kind !== 'pool' && row.kind !== 'search') continue;
         scanned++;
         if (row.kind === 'pool') {
           var poolName = String(row.id || '').replace(/^pool:/, ''), poolGenres = GM ? GM.classifyAll(poolName, 3) : [];
@@ -411,7 +413,7 @@
           });
         } else {
           var key = String(row.id || '').replace(/^search:/, ''), split = key.lastIndexOf('|');
-          if (split < 1 || !Array.isArray(row.value)) return;
+          if (split < 1 || !Array.isArray(row.value)) continue;
           var title = key.slice(0, split).trim(), artist = key.slice(split + 1).trim();
           var genres = GM ? GM.classifyAll(title + ' ' + artist, 3) : [];
           var successfulMatches = row.value.filter(function (videoId) { return typeof videoId === 'string' && successfulIds[videoId]; });
@@ -423,13 +425,13 @@
             genres = await artistGenres(artist);
             usedArtistMetadata = genres.length > 0;
           }
-          if (!genres.length) return; // Unplayed, unclassifiable search entries stay untouched.
+          if (!genres.length) continue; // Unplayed, unclassifiable search entries stay untouched.
           var idsToBlend = usedArtistMetadata ? successfulMatches : row.value;
           idsToBlend.forEach(function (videoId) {
             if (typeof videoId === 'string') addCandidate({ title: title, artist: artist, id: videoId }, genres);
           });
         }
-      });
+      }
       var byGenre = Object.create(null);
       candidates.forEach(function (song) {
         song.genres.forEach(function (genre) { if (!byGenre[genre]) byGenre[genre] = []; byGenre[genre].push(song); });
