@@ -342,6 +342,7 @@ const yt = http.createServer((req, res) => {
       });
       db.close();
     });
+    await host.evaluate(() => localStorage.removeItem('rb-yt-genre-enrichment-v1'));
     const apiBeforeEnrichment = log.apiRequests;
     const enrichment = await host.evaluate(async () => window.Providers.get('youtube').enrichCatalogue());
     assert.strictEqual(log.apiRequests, apiBeforeEnrichment); ok('catalogue enrichment makes zero YouTube API requests');
