@@ -204,7 +204,7 @@
       // cannot identify a local file. Resolve those against the catalogue we scanned.
       var nativeId = track.nativeId;
       if (track.request) {
-        var norm = function (s) { return String(s || '').normalize('NFKD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); };
+        var norm = function (s) { return String(s || '').normalize('NFKD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim(); };
         var title = norm(track.title), artist = norm(track.artist);
         var match = entries.find(function (entry) { return norm(entry.title) === title && norm(entry.artist) === artist; });
         if (!match) return null;
