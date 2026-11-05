@@ -282,6 +282,100 @@ body.tv-cast-mode #yt-dock .hint { display: none; }
   body.tv-cast-mode #yt-dock { top: auto !important; right: 12px !important; bottom: 12px !important; width: min(48vw, 340px) !important; transform: none; opacity: .9; }
   .tv-cast-spectrum { display: none; }
 }
+/* ---- TV / cast view: little animated guests ---- */
+.tv-cast-avatars { --av-w: clamp(46px, 4.4vw, 88px); position: fixed; z-index: 2; left: 5vw; right: 5vw; bottom: 78px; height: calc(var(--av-w) * 1.4); pointer-events: none; }
+.av { position: absolute; left: 0; bottom: 0; width: var(--av-w); aspect-ratio: 60 / 84; pointer-events: auto; outline: none; will-change: transform; }
+.av:hover, .av:focus-visible { z-index: 5; }
+.av-flip { width: 100%; height: 100%; }
+.av.face-left .av-flip { transform: scaleX(-1); }
+.av svg { display: block; width: 100%; height: 100%; overflow: visible; transition: transform .2s ease, filter .2s ease; transform-origin: 50% 100%; }
+.av:hover svg, .av:focus-visible svg { transform: scale(1.1); filter: drop-shadow(0 0 10px var(--av)); }
+.av svg * { transform-box: fill-box; }
+.av-shadow { fill: rgba(0,0,0,.3); }
+.av-face, .av-torso { fill: var(--av); }
+.av-limb { fill: color-mix(in srgb, var(--av) 68%, #0b1019); transform-origin: 50% 0%; }
+.av-eyes ellipse { fill: #10151f; }
+.av-eyes-closed path, .av-brows path, .av-m { fill: none; stroke: #10151f; stroke-width: 2; stroke-linecap: round; }
+.av-m-grin { fill: #10151f; stroke-linejoin: round; }
+.av-cheeks circle { fill: #ff8fa3; opacity: .55; }
+.av-phones-band { fill: none; stroke: #1b2330; stroke-width: 3; stroke-linecap: round; }
+.av-phones-pad { fill: #1b2330; stroke: rgba(220,231,255,.35); stroke-width: .8; }
+.av-head { transform-origin: 50% 100%; }
+.av-figure { transform-origin: 50% 100%; }
+.av-eyes-closed, .av-brows, .av-cheeks, .av-m { display: none; }
+.av[data-mood="thrilled"] .av-m-grin, .av[data-mood="thrilled"] .av-cheeks { display: inline; }
+.av[data-mood="happy"] .av-m-smile, .av[data-mood="happy"] .av-cheeks, .av[data-mood="waiting"] .av-m-smile { display: inline; }
+.av[data-mood="meh"] .av-m-flat { display: inline; }
+.av[data-mood="grumpy"] .av-m-frown, .av[data-mood="grumpy"] .av-brows { display: inline; }
+.av[data-mood="resting"] .av-m-flat, .av[data-mood="resting"] .av-eyes-closed { display: inline; }
+.av[data-mood="resting"] .av-eyes { display: none; }
+/* poses that hold still, so the view stays calm even with animation off */
+.av[data-mood="thrilled"] .av-arm-l { transform: rotate(140deg); }
+.av[data-mood="thrilled"] .av-arm-r { transform: rotate(-140deg); }
+.av[data-mood="grumpy"] .av-arm-l { transform: rotate(-62deg); }
+.av[data-mood="grumpy"] .av-arm-r { transform: rotate(62deg); }
+.av[data-mood="grumpy"] .av-head { transform: translateY(2px) rotate(-5deg); }
+.av[data-mood="resting"] .av-head { transform: translateY(2px) rotate(13deg); }
+/* little extras above the head */
+.av-fx { position: absolute; left: 50%; bottom: 100%; width: 0; height: 0; pointer-events: none; }
+.av-fx > * { display: none; position: absolute; color: var(--av); font: 700 calc(var(--av-w) * .3)/1 var(--font-display, system-ui); }
+.av[data-mood="thrilled"] .fx-note { display: block; }
+.fx-note.n1 { left: -80%; bottom: -10%; }
+.fx-note.n2 { left: 40%; bottom: 0; }
+.av[data-mood="grumpy"] .fx-cloud { display: block; left: calc(var(--av-w) * -.3); bottom: calc(var(--av-w) * .02); width: calc(var(--av-w) * .6); height: calc(var(--av-w) * .22); border-radius: 999px; background: #6f7b90; }
+.fx-cloud::before { content: ''; position: absolute; left: 18%; bottom: 40%; width: 38%; aspect-ratio: 1; border-radius: 50%; background: inherit; }
+.fx-cloud i { position: absolute; top: 100%; width: 2px; height: 6px; border-radius: 2px; background: #7fb2ff; }
+.fx-cloud i:first-child { left: 30%; } .fx-cloud i:last-child { left: 62%; }
+.av[data-mood="resting"] .fx-z { display: block; color: #b6c0d0; }
+.fx-z.z1 { left: 25%; bottom: 0; } .fx-z.z2 { left: 55%; bottom: calc(var(--av-w) * .2); font-size: calc(var(--av-w) * .38); }
+/* hover card */
+.av-tip { position: absolute; z-index: 6; width: max-content; max-width: min(260px, 40vw); padding: 10px 12px; border: 1px solid rgba(220,231,255,.2); border-radius: 12px; background: rgba(14,20,31,.95); color: #f3f6fb; font: 500 clamp(12px, 1vw, 15px)/1.35 var(--font-body, system-ui); box-shadow: 0 12px 34px rgba(0,0,0,.45); opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .15s ease, visibility .15s; }
+.av:hover .av-tip, .av:focus-visible .av-tip { opacity: 1; visibility: visible; }
+.av-tip[data-place="top"] { bottom: calc(100% + 14px); left: 50%; transform: translateX(-50%); }
+.av-tip[data-place="right"] { bottom: 0; left: calc(100% + 12px); }
+.av-tip[data-place="left"] { bottom: 0; right: calc(100% + 12px); }
+.av-tip-name { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 1.12em; overflow-wrap: anywhere; }
+.av-tip-dot { flex: none; width: .7em; height: .7em; border-radius: 50%; }
+.av-tip-mood { margin-top: 2px; color: #b6c0d0; }
+.av-tip-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.av-tip-tags span { padding: 2px 8px; border-radius: 999px; background: rgba(220,231,255,.12); font-size: .9em; }
+.av-tip-stats { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 8px 0 0; padding-top: 8px; border-top: 1px solid rgba(220,231,255,.14); }
+.av-tip-stats dt { color: #9eabc0; font-family: var(--font-mono); font-size: .85em; }
+.av-tip-stats dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: no-preference) {
+  .av.is-walking .av-leg-l { animation: av-step .56s ease-in-out infinite; }
+  .av.is-walking .av-leg-r { animation: av-step .56s ease-in-out infinite -.28s; }
+  .av.is-walking .av-arm-l { animation: av-swing .56s ease-in-out infinite -.28s; }
+  .av.is-walking .av-arm-r { animation: av-swing .56s ease-in-out infinite; }
+  .av.is-walking .av-figure { animation: av-bob .28s ease-in-out infinite alternate; }
+  .av[data-mood="thrilled"]:not(.is-walking) .av-figure { animation: av-dance .6s ease-in-out infinite alternate var(--d); }
+  .av[data-mood="thrilled"]:not(.is-walking) .av-arm-l { animation: av-cheer-l .6s ease-in-out infinite alternate var(--d); }
+  .av[data-mood="thrilled"]:not(.is-walking) .av-arm-r { animation: av-cheer-r .6s ease-in-out infinite alternate var(--d); }
+  .av[data-mood="happy"]:not(.is-walking) .av-figure, .av[data-mood="waiting"]:not(.is-walking) .av-figure { animation: av-sway 2.8s ease-in-out infinite alternate var(--d); }
+  .av[data-mood="meh"]:not(.is-walking) .av-figure, .av[data-mood="resting"]:not(.is-walking) .av-figure { animation: av-breathe 3.8s ease-in-out infinite alternate var(--d); }
+  .av[data-mood="meh"]:not(.is-walking) .av-leg-r { animation: av-tap 3.4s ease-in-out infinite var(--d); }
+  .av[data-mood="grumpy"]:not(.is-walking) .av-figure { animation: av-sigh 4.4s ease-in-out infinite var(--d); }
+  .av[data-mood="thrilled"] .fx-note { animation: av-float 2.6s ease-out infinite var(--d); }
+  .av[data-mood="thrilled"] .fx-note.n2 { animation-delay: calc(var(--d) - 1.3s); }
+  .av[data-mood="resting"] .fx-z { animation: av-float 3.2s ease-out infinite var(--d); }
+  .av[data-mood="resting"] .fx-z.z2 { animation-delay: calc(var(--d) - 1.6s); }
+  .fx-cloud i { animation: av-drip .9s linear infinite; }
+  .fx-cloud i:last-child { animation-delay: -.45s; }
+  @keyframes av-step { 0%, 100% { transform: rotate(26deg); } 50% { transform: rotate(-26deg); } }
+  @keyframes av-swing { 0%, 100% { transform: rotate(16deg); } 50% { transform: rotate(-16deg); } }
+  @keyframes av-bob { to { transform: translateY(-2px); } }
+  @keyframes av-dance { from { transform: translateY(0) rotate(-5deg); } to { transform: translateY(-5px) rotate(5deg); } }
+  @keyframes av-cheer-l { from { transform: rotate(125deg); } to { transform: rotate(158deg); } }
+  @keyframes av-cheer-r { from { transform: rotate(-158deg); } to { transform: rotate(-125deg); } }
+  @keyframes av-sway { from { transform: rotate(-2.5deg); } to { transform: rotate(2.5deg); } }
+  @keyframes av-breathe { from { transform: scaleY(1); } to { transform: scaleY(1.03); } }
+  @keyframes av-tap { 0%, 78%, 100% { transform: rotate(0); } 84% { transform: rotate(-12deg); } 90% { transform: rotate(0); } 95% { transform: rotate(-12deg); } }
+  @keyframes av-sigh { 0%, 70%, 100% { transform: scaleY(1); } 82% { transform: scaleY(.965) translateY(1px); } }
+  @keyframes av-float { 0% { opacity: 0; transform: translateY(0); } 15% { opacity: .9; } 100% { opacity: 0; transform: translateY(calc(var(--av-w) * -.55)); } }
+  @keyframes av-drip { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(calc(var(--av-w) * .22)); } }
+}
+@media (max-width: 700px) { .tv-cast-avatars { display: none; } }
+
 .sp { border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 14px; display: grid; gap: 10px; margin-bottom: 20px; }
 .sp h3 { font-size: 15px; font-weight: 600; }
 .sp .state { font-size: 14px; color: var(--muted); }

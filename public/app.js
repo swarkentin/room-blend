@@ -440,6 +440,7 @@
         h('div', { class: 'tv-cast-glow' }),
         h('div', { class: 'tv-cast-spectrum' }, tvCastBars),
       ]),
+      h('div', { class: 'tv-cast-avatars', id: 'tv-cast-avatars', role: 'group', 'aria-label': 'Guests in the room', hidden: 'hidden' }),
       h('div', { class: 'tv-cast-join' }, [
         h('div', { id: 'tv-cast-qr', role: 'img', 'aria-label': 'QR code to join this room' }),
         h('p', { class: 'tv-cast-label', text: 'Scan to join' }),
@@ -458,11 +459,37 @@
         h('div', { class: 'tv-cast-next-wrap' }, [h('h2', { text: 'Coming up' }), h('ol', { id: 'tv-cast-next', class: 'tv-cast-next' })]),
       ]),
       h('div', { class: 'tv-cast-controls' }, [
+        h('button', { class: 'btn tv-cast-next-btn', id: 'tv-cast-guests-btn', type: 'button', 'aria-pressed': 'true', text: 'Guests: on' }),
         h('button', { class: 'btn tv-cast-next-btn', id: 'tv-cast-next-btn', type: 'button', text: 'Next song' }),
         h('button', { class: 'btn tv-cast-exit', id: 'tv-cast-exit', type: 'button', text: 'Exit TV view' }),
       ]),
     ]);
     wrap.appendChild(tvCastView);
+    // Little avatars for the guests, who mostly stand still and only wander now and then. They keep clear of the QR code and the video.
+    var avatarsOn = lsGet('rb-tv-avatars') !== 'off';   // remembered per browser; on by default
+    var castAvatars = window.Avatars ? window.Avatars.create($('tv-cast-avatars'), {
+      enabled: avatarsOn,
+      avoid: function () { return [tvCastView.querySelector('.tv-cast-join'), $('yt-dock')]; },
+      reduced: function () { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; },
+    }) : { update: function () {}, layout: function () {}, setEnabled: function () {} };
+    function castEntries(st) {
+      var fits = {}, fair = {};
+      if (st.now) st.now.fits.forEach(function (f) { fits[f.id] = f.fit; });
+      st.fairness.forEach(function (f) { fair[f.id] = f; });
+      return st.guests.filter(function (g) { return g.status !== 'arriving'; }).map(function (g) {
+        var f = fair[g.id] || { avg: 0, songs: 0, own: 0 }, now = fits[g.id], resting = g.status === 'sitting' || !!g.away;
+        var stats = [];
+        if (st.now) stats.push(['This song', now == null ? 'n/a' : pct(now) + '% fit']);
+        stats.push(['So far', f.songs ? pct(f.avg) + '% over ' + f.songs + (f.songs === 1 ? ' song' : ' songs') : 'Not heard yet']);
+        stats.push(['Own turns', String(f.own)]);
+        if (g.picks) stats.push(['Named', g.artistCount + (g.artistCount === 1 ? ' artist, ' : ' artists, ') + g.songCount + (g.songCount === 1 ? ' song' : ' songs')]);
+        return {
+          id: g.id, name: g.name, color: COLORS[g.color % COLORS.length],
+          genres: (g.genres.length ? g.genres : g.inferred || []).map(gl), stats: stats,
+          mood: { fit: now == null ? null : now, avg: f.avg, songs: f.songs, resting: resting, restLabel: g.hostSit ? 'Sat out by the host' : g.away ? 'Stepped away' : 'Sitting this one out' },
+        };
+      });
+    }
 
     var base = C.publicUrl || location.origin;
     $('rc').textContent = code; $('jl').textContent = joinUrl.replace(/^https?:\/\//, '');
@@ -473,11 +500,20 @@
       document.body.classList.toggle('tv-cast-mode', on);
       if (!on) document.body.classList.remove('tv-cast-playing');
       tvCastView.hidden = !on;
+      if (on) castAvatars.layout();
       $('tv-mode').setAttribute('aria-pressed', on ? 'true' : 'false');
       $('tv-mode').textContent = on ? 'Exit TV view' : 'TV / cast view';
     }
     $('tv-mode').addEventListener('click', function () { setTvMode(!document.body.classList.contains('tv-cast-mode')); });
     $('tv-cast-exit').addEventListener('click', function () { setTvMode(false); });
+    function setAvatars(on) {
+      avatarsOn = on; lsSet('rb-tv-avatars', on ? 'on' : 'off');
+      castAvatars.setEnabled(on);
+      $('tv-cast-guests-btn').setAttribute('aria-pressed', on ? 'true' : 'false');
+      $('tv-cast-guests-btn').textContent = on ? 'Guests: on' : 'Guests: off';
+    }
+    $('tv-cast-guests-btn').addEventListener('click', function () { setAvatars(!avatarsOn); });
+    setAvatars(avatarsOn);
     $('tv-cast-next-btn').addEventListener('click', function () { post('advance'); });
     window.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && document.body.classList.contains('tv-cast-mode')) {
@@ -772,6 +808,7 @@
       $('tv-cast-view').style.setProperty('--cast-b', palette[1]);
       $('tv-cast-meta').textContent = st.guests.filter(function (g) { return g.status === 'active'; }).length + ' listening · ' + (st.now ? (st.now.mode === 'rotate' ? 'taking turns' : 'blending everyone’s taste') : 'waiting for guests');
       $('tv-cast-genres').replaceChildren.apply($('tv-cast-genres'), st.now ? tagList(st.now.track.genres || []) : []);
+      castAvatars.update(castEntries(st));
       var tvNext = $('tv-cast-next'); tvNext.replaceChildren();
       st.queue.slice(0, 3).forEach(function (item) {
         tvNext.appendChild(h('li', null, [document.createTextNode(item.track.title + ' '), h('span', { text: item.track.artist })]));
