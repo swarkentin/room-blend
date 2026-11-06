@@ -268,6 +268,7 @@
     var nearby = h('div', { class: 'card', id: 'nearby', hidden: 'hidden' });
     var mine = h('div', { class: 'card', id: 'mine', hidden: 'hidden' });
     app.replaceChildren(h('div', { class: 'wrap' }, [h('div', { class: 'hero' }, [
+      h('a', { class: 'brand', href: '/', 'aria-label': 'Room Blend home' }, [h('img', { src: '/brand-mark.svg', alt: '' }), h('span', null, ['room ', h('b', { text: 'blend' })])]),
       h('h1', { text: 'Music that fits the whole room.' }),
       h('p', { class: 'lead', text: 'Everyone picks the genres they like. Room Blend finds the songs in the overlap, and takes turns when there is none. No accounts for guests.' }),
       nearby, mine,
@@ -388,6 +389,7 @@
     var wrap = app.firstChild;
     wrap.innerHTML =
       '<header class="roomhead">' +
+        '<div class="rh-brand"><a class="brand" href="/" aria-label="Room Blend home"><img src="/brand-mark.svg" alt=""><span>room <b>blend</b></span></a></div>' +
         '<div class="rh-left"><small>Room code</small><div class="roomcode" id="rc"></div>' +
           '<input type="text" id="room-name" class="roomname" maxlength="30" placeholder="Name your room (optional)" aria-label="Room name" autocomplete="off">' +
           '<label class="disc"><input type="checkbox" id="disc"> Show to people on this Wi-Fi so they can tap to join</label></div>' +
@@ -1034,7 +1036,7 @@
     var es = null, st = null, findOpen = Object.create(null), goneAt = 0, requestDetails = null;
 
     app.replaceChildren(h('div', { class: 'wrap guest-wrap' }, [
-      h('header', { class: 'top' }, [h('div', null, [h('h1', { id: 'gv-title-h', text: 'Room ' + code }), h('p', { id: 'g-sub', text: 'Pick genres, or name artists and songs you like. The room\'s music shifts to fit everyone who is here.' })])]),
+      h('header', { class: 'top guest-top' }, [h('div', { class: 'guest-brandline' }, [h('a', { class: 'brand', href: '/', 'aria-label': 'Room Blend home' }, [h('img', { src: '/brand-mark.svg', alt: '' }), h('span', null, ['room ', h('b', { text: 'blend' })])]), h('span', { class: 'room-pill', text: 'ROOM ' + code })]), h('div', null, [h('h1', { id: 'gv-title-h', text: 'Room ' + code }), h('p', { id: 'g-sub', text: 'Pick genres, or name artists and songs you like. The room\'s music shifts to fit everyone who is here.' })])]),
       h('section', { class: 'gcol', id: 'gform-sec' }),
       h('section', { class: 'gcol', id: 'glive-sec', hidden: 'hidden' }),
     ]));

@@ -634,3 +634,51 @@ a.btn.primary { color: var(--on-primary, #fff); }
 .tv-next-copy strong { font-weight: 650; }
 .tv-next-copy span { font-size: .72em; }
 .tv-request-label { margin-left: auto; flex: 0 0 auto; font-size: .48em; letter-spacing: .12em; font-weight: 750; color: #9fe8dc; border: 1px solid currentColor; border-radius: 4px; padding: 3px 6px; }
+
+
+/* Room Blend identity */
+:root {
+  --brand-a: #31c8b5;
+  --brand-b: #8c78f5;
+  --brand-ink: #17202b;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  text-decoration: none;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  white-space: nowrap;
+}
+.brand img { display: block; width: 34px; height: 34px; }
+.brand b { font-weight: 700; }
+.brand:focus-visible { border-radius: 6px; }
+.hero > .brand { margin-bottom: 2px; }
+.hero h1 { max-width: 12ch; }
+.roomhead { position: relative; }
+.rh-brand { flex: 0 0 100%; margin-bottom: -6px; }
+.rh-brand .brand img { width: 30px; height: 30px; }
+.roomhead .rh-left { min-width: 180px; }
+.guest-top { display: grid; justify-content: stretch; align-items: start; gap: 18px; }
+.guest-brandline { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.guest-brandline .brand img { width: 30px; height: 30px; }
+.room-pill {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 10px;
+  color: var(--muted);
+  font: 11px var(--font-mono);
+  letter-spacing: .08em;
+}
+.guest-top h1 { font-size: 28px; }
+@media (max-width: 560px) {
+  .rh-brand { margin-bottom: 0; }
+  .roomhead { gap: 16px; }
+  .brand { font-size: 18px; }
+}
