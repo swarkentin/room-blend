@@ -112,7 +112,7 @@ function sse(path) {
   const s3 = await host.waitFor((s) => s.now && s.now.track.id !== second); ok('ended event advances');
   const third = s3.now.track.id;
   await req('POST', `/api/rooms/${code}/host/player`, { event: 'unplayable', trackId: third }, H);
-  const s4 = await host.waitFor((s) => s.now && s.now.track.id !== third); ok('unplayable track is skipped');
+  const s4 = await host.waitFor((s) => s.version > s3.version && s.now && s.now.track.id !== third); ok('unplayable track is skipped');
   assert.ok(!s4.queue.some((q) => q.track.id === third) && s4.now.track.id !== third);
 
   // A strict majority of active guests can skip the current song.
