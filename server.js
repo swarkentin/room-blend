@@ -124,7 +124,7 @@ const SECURITY = {
     `script-src 'self' ${SDK_O} ${YT_O}`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src https://fonts.gstatic.com",
-    "img-src 'self' data: https://i.scdn.co",
+    "img-src 'self' data: https://i.scdn.co https://i.ytimg.com",
     `connect-src 'self' ${API_O} ${ACC_O} https: http:`, // https/http: hosts may connect their own music server
     `frame-src ${SDK_O} ${YT_O} https://www.youtube-nocookie.com`,
     "media-src 'self' blob: data: https: http:",
