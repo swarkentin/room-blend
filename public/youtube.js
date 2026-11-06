@@ -22,6 +22,7 @@
   function lsDel(k) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } }
   function apiKey() { return lsGet(KEY).trim(); }
   function keyLooksRight(k) { return /^[A-Za-z0-9_-]{30,60}$/.test(k); }
+  function artworkFor(id) { return /^[A-Za-z0-9_-]{11}$/.test(String(id || '')) ? 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg' : ''; }
 
   function storedObject(key) {
     try { return JSON.parse(lsGet(key) || '{}') || {}; } catch (e) { return {}; }
@@ -717,7 +718,7 @@
         var qs = window.Pools.queries(genre, 4, partners);
         for (var i = 0; i < qs.length; i++) {
           var got = await poolQuery(qs[i]);
-          got.forEach(function (t) { if (!seen[t.id]) { seen[t.id] = 1; out.push({ title: t.title, artist: t.artist, id: t.id, genres: qs[i].tags }); } });
+          got.forEach(function (t) { if (!seen[t.id]) { seen[t.id] = 1; out.push({ title: t.title, artist: t.artist, id: t.id, genres: qs[i].tags, artwork: artworkFor(t.id) }); } });
           if (out.length >= MIN_GENRE_TRACKS) break;
         }
       } catch (e) { note = e.message; if (rctx) rctx.status(e.message); }
@@ -728,17 +729,17 @@
     eraTracks: async function (era, genre) {
       try {
         var got = await poolQuery({ q: era + ' ' + genre, tags: [genre] });
-        return qualityOrder(got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, genres: [genre] }; }));
+        return qualityOrder(got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, genres: [genre], artwork: artworkFor(t.id) }; }));
       } catch (e) { note = e.message; if (rctx) rctx.status(e.message); return []; }
     },
     // A named artist: one playlist search ("<artist> greatest hits"); the room keeps only that artist's songs.
     artistTracks: async function (name, genre) {
       try {
         var handle = handleOf(name);
-        if (handle) return qualityOrder((await handleSongs(name, handle)).map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: t.genres && t.genres.length ? t.genres : [genre] }; }));
+        if (handle) return qualityOrder((await handleSongs(name, handle)).map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: t.genres && t.genres.length ? t.genres : [genre], artwork: artworkFor(t.id) }; }));
         var got = (await poolQuery({ q: name + ' greatest hits', tags: [genre] })).filter(function (t) { return nameFit(name, t.artist) >= 0.99; });
         if (!got.length) got = await channelSongs(name);
-        return qualityOrder(got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: t.genres && t.genres.length ? t.genres : [genre] }; }));
+        return qualityOrder(got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: t.genres && t.genres.length ? t.genres : [genre], artwork: artworkFor(t.id) }; }));
       } catch (e) { note = e.message; if (rctx) rctx.status(e.message); return []; }
     },
     ready: function () { return on; },
@@ -753,7 +754,7 @@
       var tries = ids.slice(0, 4);
       for (var i = 0; i < tries.length; i++) {
         var r = await tryVideo(tries[i]);
-        if (r === true) { await recordPlayback(tries[i], true); await rememberPlayed(track, tries[i]); return true; }
+        if (r === true) { track.artwork = track.artwork || artworkFor(tries[i]); await recordPlayback(tries[i], true); await rememberPlayed(track, tries[i]); return true; }
         if (r === false) return false;
         await recordPlayback(tries[i], false);
         await demote(track, tries[i]); // null: this video is unavailable or not embeddable, try the next one
