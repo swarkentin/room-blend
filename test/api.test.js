@@ -117,10 +117,11 @@ function sse(path) {
 
   // A strict majority of active guests can skip the current song.
   const votedTrack = s4.now.track.id;
-  await req('POST', `/api/rooms/${code}/vote`, { v: 'skip' }, A);
-  const oneSkip = await host.waitFor((s) => s.now && s.now.track.id === votedTrack && s.now.votes.skip === 1);
-  assert.strictEqual(oneSkip.now.skipVotes, undefined, 'skip progress is private to guest views');
-  const guestSkipState = await ga.waitFor((s) => s.now && s.now.track.title && s.now.skipVotes === 1);
+  const firstSkipVote = await req('POST', `/api/rooms/${code}/vote`, { v: 'skip' }, A);
+  assert.strictEqual(firstSkipVote.status, 200, 'the first active guest skip vote is accepted'); ok('first guest skip vote is accepted');
+  const oneSkip = await host.waitFor((s) => s.now && s.now.track.id === votedTrack && s.now.votes.skip === 1, 8000);
+  assert.strictEqual(oneSkip.now.skipVotes, undefined, 'skip progress is private to guest views'); ok('host sees one skip vote without advancing');
+  const guestSkipState = await ga.waitFor((s) => s.now && s.now.track.title && s.now.skipVotes === 1, 8000);
   assert.strictEqual(guestSkipState.now.skipNeeded, 2);
   await req('POST', `/api/rooms/${code}/vote`, { v: 'skip' }, B);
   const afterGuestSkip = await host.waitFor((s) => s.now && s.now.track.id !== votedTrack);
