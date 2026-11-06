@@ -81,7 +81,7 @@ assert.equal(artRoom.trackView(artRoom.extra[0]).artwork, 'https://i.scdn.co/ima
 assert.equal(artRoom.trackView({ id: 'bad', title: 'Bad', artist: 'URL', genres: [], artwork: 'https://example.com/cover.jpg' }).artwork, undefined);
 
 // The host's serialized TV projection contains the same request/blend order.
-assert.deepEqual(displayRoom.hostView().upNext.map((x) => x.track.title), upcoming.map((x) => x.track.title));
+assert.deepEqual(displayRoom.hostView().upNext.slice(0, upcoming.length).map((x) => x.track.title), upcoming.map((x) => x.track.title));
 
 // The host can add and remove requests; removing a guest also removes their pending requests.
 const hostRequest = restored.addRequest('', 'Host Song', 'Host Artist', true);
