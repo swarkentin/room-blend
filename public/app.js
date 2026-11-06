@@ -648,7 +648,7 @@
     function castArtwork(track) {
       var url = track && (track.artwork || (SP && SP.artworkFor ? SP.artworkFor(track) : ''));
       if (!url) return '';
-      try { var parsed = new URL(url); return parsed.protocol === 'https:' && parsed.hostname === 'i.scdn.co' && /^\/image\/[A-Za-z0-9]+$/.test(parsed.pathname) ? parsed.href : ''; } catch (e) { return ''; }
+      try { var parsed = new URL(url); return parsed.protocol === 'https:' && !parsed.username && !parsed.password && parsed.hostname && parsed.href.length <= 2048 ? parsed.href : ''; } catch (e) { return ''; }
     }
     function castPalette(genres) {
       var genre = (genres || []).join(' ').toLowerCase();
