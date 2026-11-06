@@ -7,6 +7,8 @@ interface Track {
   artist: string;
   genres: string[];
   nid?: string;
+  /** Optional album artwork supplied by the connected music provider. */
+  artwork?: string;
   /** Short list of genre tags the song is tagged with by the host's library or the service. */
   src?: string;
 }
