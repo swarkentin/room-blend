@@ -22,6 +22,19 @@ assert.ok(namedCount >= 1 && namedCount <= 2,
   'a preferred artist remains in the lineup but cannot dominate a five-song queue: ' + namedCount);
 ok('a preferred artist is represented without bypassing the recent-artist cooldown');
 
+// A solo guest's named artist must remain influential even when its genres do
+// not overlap the guest's genre picks (this forces the rotate scoring path).
+const unrelatedArtistCatalog = E.makeCatalog([
+  ...Array.from({ length: 12 }, (_, i) => ({ id: 'tool-unrelated-' + i, title: 'Tool Unrelated ' + i, artist: 'Tool', genres: ['metal'] })),
+  ...Array.from({ length: 24 }, (_, i) => ({ id: 'jazz-other-' + i, title: 'Jazz Other ' + i, artist: 'Jazz Artist ' + i, genres: ['jazz'] })),
+]);
+const unrelatedArtistQueue = E.buildQueue([
+  { id: 'listener', taste: { jazz: 4 }, artists: ['Tool'] },
+], { catalog: unrelatedArtistCatalog, n: 5, seed: 11 });
+assert.ok(unrelatedArtistQueue.queue.some((x) => x.track.artist === 'Tool'),
+  'a solo guest should hear a selected artist even when its genres do not match their picks');
+ok('a solo preferred artist influences rotate-mode queues outside the selected genres');
+
 const rollingArtists = [], rollingIds = [], longRun = [];
 for (let batch = 0; batch < 6; batch++) {
   const next = E.buildQueue(namedPeople, {
