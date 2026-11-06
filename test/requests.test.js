@@ -48,7 +48,7 @@ displayRoom.queue = [
 displayRoom.addRequest(d1.id, 'Request One', 'Artist D');
 displayRoom.addRequest(d2.id, 'Request Two', 'Artist E');
 let upcoming = displayRoom.upNext(5);
-assert.deepEqual(upcoming.map((x) => x.track.title), ['Request One', 'Request Two', 'Blend One', 'Request One', 'Blend Two'].slice(0, upcoming.length));
+assert.deepEqual(upcoming.map((x) => x.track.title), ['Request One', 'Request Two', 'Blend One', 'Blend Two', 'Blend Three'].slice(0, upcoming.length));
 assert.equal(displayRoom.requestQueue.length, 2, 'rendering the TV view does not consume requests');
 assert.equal(displayRoom.queue.length, 3, 'rendering the TV view does not consume blend tracks');
 displayRoom.requestStreak = 2;
