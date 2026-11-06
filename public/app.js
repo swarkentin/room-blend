@@ -1474,6 +1474,7 @@
       ]),
       h('div', { class: 'tv-now' }, [
         h('p', { class: 'tv-label', id: 'tv-name', text: 'Now playing' }),
+        h('img', { id: 'tv-current-art', class: 'tv-current-art', alt: '', hidden: 'hidden' }),
         h('h1', { id: 'tv-title', text: 'Waiting for the first guest' }),
         h('p', { class: 'tv-artist', id: 'tv-artist' }),
         h('p', { class: 'tv-meta', id: 'tv-meta' }),
@@ -1486,8 +1487,18 @@
       $('tv-title').textContent = st.now ? st.now.title : 'Waiting for the first guest';
       $('tv-artist').textContent = st.now ? st.now.artist : '';
       $('tv-meta').textContent = st.people + (st.people === 1 ? ' person' : ' people') + ' in the room' + (st.now ? (st.now.mode === 'rotate' ? ' · taking turns' : ' · blending everyone\'s taste') : '');
+      var currentArt = $('tv-current-art'), currentUrl = st.now && st.now.artwork;
+      currentArt.hidden = !currentUrl;
+      if (currentUrl && currentArt.src !== currentUrl) currentArt.src = currentUrl;
+      if (!currentUrl) currentArt.removeAttribute('src');
       var ol = $('tv-next'); ol.replaceChildren();
-      st.next.forEach(function (n) { ol.appendChild(h('li', null, [document.createTextNode(n.title + ' '), h('span', { text: n.artist })])); });
+      st.next.forEach(function (n) {
+        var content = [];
+        if (n.artwork) content.push(h('img', { class: 'tv-next-art', src: n.artwork, alt: '', loading: 'lazy' }));
+        content.push(h('span', { class: 'tv-next-copy' }, [h('strong', { text: n.title }), h('span', { text: n.artist })]));
+        if (n.mode === 'request') content.push(h('small', { class: 'tv-request-label', text: 'REQUEST' }));
+        ol.appendChild(h('li', { class: n.mode === 'request' ? 'is-request' : '' }, content));
+      });
     }
     var es = new EventSource('/api/rooms/' + code + '/events?screen=1');
     es.onmessage = function (m) { try { draw(JSON.parse(m.data)); } catch (e) { console.error(e); } };
