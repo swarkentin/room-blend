@@ -115,19 +115,28 @@ function sse(path) {
   const s4 = await host.waitFor((s) => s.version > s3.version && s.now && s.now.track.id !== third); ok('unplayable track is skipped');
   assert.ok(!s4.queue.some((q) => q.track.id === third) && s4.now.track.id !== third);
 
-  // A strict majority of active guests can skip the current song.
-  const votedTrack = s4.now.track.id;
-  const firstSkipVote = await req('POST', `/api/rooms/${code}/vote`, { v: 'skip' }, A);
+  // Exercise skip quorum in a fresh room so earlier player-event transitions cannot
+  // leave this assertion holding a stale track snapshot.
+  const voteRoom = (await req('POST', '/api/rooms')).json;
+  const voteHost = sse(`/api/rooms/${voteRoom.code}/events?key=${voteRoom.hostKey}`);
+  const voteA = (await req('POST', `/api/rooms/${voteRoom.code}/guests`, { name: 'Vote A', genres: ['rock'] })).json;
+  const voteB = (await req('POST', `/api/rooms/${voteRoom.code}/guests`, { name: 'Vote B', genres: ['rock'] })).json;
+  const voteGuestA = sse(`/api/rooms/${voteRoom.code}/events?gid=${voteA.guestId}&gkey=${voteA.guestKey}`);
+  const voteGuestB = sse(`/api/rooms/${voteRoom.code}/events?gid=${voteB.guestId}&gkey=${voteB.guestKey}`);
+  const voteStart = await voteHost.waitFor((s) => s.guests.length === 2 && s.guests.every((g) => g.status === 'active') && s.now && s.queue.length > 0, 10000);
+  const votedTrack = voteStart.now.track.id;
+  const firstSkipVote = await req('POST', `/api/rooms/${voteRoom.code}/vote`, { v: 'skip' }, { 'x-guest-id': voteA.guestId, 'x-guest-key': voteA.guestKey });
   assert.strictEqual(firstSkipVote.status, 200, 'the first active guest skip vote is accepted'); ok('first guest skip vote is accepted');
-  const hostAfterSkipVote = await host.waitFor((s) => s.version > s4.version, 8000);
-  assert.strictEqual(hostAfterSkipVote.now.track.id, votedTrack, `one of two active guests must not advance the song (guests=${JSON.stringify(hostAfterSkipVote.guests.map((g) => ({ id: g.id, status: g.status, away: g.away })))}, votes=${JSON.stringify(hostAfterSkipVote.now.votes)})`);
-  assert.strictEqual(hostAfterSkipVote.now.votes.skip, 1, 'host state should count the first skip vote');
+  const hostAfterSkipVote = await voteHost.waitFor((s) => s.version > voteStart.version && s.now && s.now.votes && s.now.votes.skip === 1, 8000);
+  assert.strictEqual(hostAfterSkipVote.now.track.id, votedTrack, 'one of two active guests must not advance the song');
   assert.strictEqual(hostAfterSkipVote.now.skipVotes, undefined, 'skip progress is private to guest views'); ok('host sees one skip vote without advancing');
-  const guestSkipState = await ga.waitFor((s) => s.now && s.now.track.title && s.now.skipVotes === 1, 8000);
+  const guestSkipState = await voteGuestA.waitFor((s) => s.now && s.now.track.title && s.now.skipVotes === 1, 8000);
   assert.strictEqual(guestSkipState.now.skipNeeded, 2);
-  await req('POST', `/api/rooms/${code}/vote`, { v: 'skip' }, B);
-  const afterGuestSkip = await host.waitFor((s) => s.now && s.now.track.id !== votedTrack);
+  const secondSkipVote = await req('POST', `/api/rooms/${voteRoom.code}/vote`, { v: 'skip' }, { 'x-guest-id': voteB.guestId, 'x-guest-key': voteB.guestKey });
+  assert.strictEqual(secondSkipVote.status, 200);
+  const afterGuestSkip = await voteHost.waitFor((s) => s.now && s.now.track.id !== votedTrack, 8000);
   assert.ok(afterGuestSkip.now.track.id); ok('two of two active guests skip the current song');
+  voteHost.close(); voteGuestA.close(); voteGuestB.close();
 
   // With one active guest, that guest's skip vote is enough.
   const soloRoom = (await req('POST', '/api/rooms')).json;
