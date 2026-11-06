@@ -105,8 +105,8 @@ window.Spotify_ = (function () {
   // A result must match most of the title and part of the artist, so a cover or a different song is not played.
   async function resolveUri(track) {
     var M = window.Match, title = M.cleanTitle(track.title), artist = M.cleanArtist(track.artist);
-    var ck = 'rb-uri2-' + M.words(title + ' ' + artist).join(' ');
-    try { var c = localStorage.getItem(ck); if (c) return c; } catch (e) { /* ignore */ }
+    var key = M.words(title + ' ' + artist).join(' '), ck = 'rb-uri2-' + key, ak = 'rb-art2-' + key;
+    try { var art = localStorage.getItem(ak); if (art) track.artwork = art; var c = localStorage.getItem(ck); if (c) return c; } catch (e) { /* ignore */ }
     var queries = [
       'track:' + title.replace(/"/g, '') + ' artist:' + artist.replace(/"/g, ''),
       title + ' ' + artist,
@@ -118,7 +118,9 @@ window.Spotify_ = (function () {
         return { title: t.name, artists: (t.artists || []).map(function (a) { return a.name; }), popularity: t.popularity };
       });
       if (ranked.length && M.acceptable(ranked[0].s)) {
-        var uri = ranked[0].item.uri;
+        var uri = ranked[0].item.uri, images = ranked[0].item.album && ranked[0].item.album.images || [];
+        var cover = images.find(function (x) { return x && x.url && x.url.indexOf('https://i.scdn.co/image/') === 0; });
+        if (cover) { track.artwork = cover.url; try { localStorage.setItem(ak, cover.url); } catch (e) { /* ignore */ } }
         try { localStorage.setItem(ck, uri); } catch (e) { /* ignore */ }
         return uri;
       }
@@ -141,7 +143,8 @@ window.Spotify_ = (function () {
         items.forEach(function (t) {
           if (!t || !t.name || !t.uri || !t.artists || !t.artists[0] || t.is_playable === false || seen[t.uri] || M.isBad(t.name)) return;
           seen[t.uri] = 1;
-          out.push({ title: t.name, artist: t.artists[0].name, id: t.uri, genres: qs[qi].tags });
+          var images = t.album && t.album.images || [], cover = images.find(function (x) { return x && x.url && x.url.indexOf('https://i.scdn.co/image/') === 0; });
+          out.push({ title: t.name, artist: t.artists[0].name, id: t.uri, genres: qs[qi].tags, ...(cover ? { artwork: cover.url } : {}) });
         });
         if (items.length < 10) break;
       }
@@ -159,7 +162,8 @@ window.Spotify_ = (function () {
       var items = r.data && r.data.tracks ? r.data.tracks.items || [] : [];
       items.forEach(function (t) {
         if (!t || !t.name || !t.uri || !t.artists || !t.artists[0] || t.is_playable === false || seen[t.uri] || M.isBad(t.name)) return;
-        seen[t.uri] = 1; out.push({ title: t.name, artist: t.artists[0].name, id: t.uri, genres: [genre] });
+        seen[t.uri] = 1; var images = t.album && t.album.images || [], cover = images.find(function (x) { return x && x.url && x.url.indexOf('https://i.scdn.co/image/') === 0; });
+        out.push({ title: t.name, artist: t.artists[0].name, id: t.uri, genres: [genre], ...(cover ? { artwork: cover.url } : {}) });
       });
       if (items.length < 10) break;
     }
@@ -225,7 +229,7 @@ window.Spotify_ = (function () {
 
   return {
     connected: function () { return !!load(); }, clientId: clientId, ownClient: ownId, setOwnClient: setOwnClient, hasScopes: hasScopes, login: login, handleCallback: handleCallback, logout: logout,
-    api: api, resolveUri: resolveUri, searchGenre: searchGenre, searchArtist: searchArtist, topArtistGenres: topArtistGenres,
+    api: api, resolveUri: resolveUri, artworkFor: function (track) { var M = window.Match, key = M.words(M.cleanTitle(track.title) + ' ' + M.cleanArtist(track.artist)).join(' '); try { return localStorage.getItem('rb-art2-' + key) || ''; } catch (e) { return ''; } }, searchGenre: searchGenre, searchArtist: searchArtist, topArtistGenres: topArtistGenres,
     startPlayer: startPlayer, transfer: transfer, play: play,
     pause: function () { return player && player.pause(); }, resume: function () { return player && player.resume(); },
     progress: function () {
