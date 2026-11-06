@@ -68,7 +68,6 @@ function sse(path) {
   assert.strictEqual((await req('POST', '/api/rooms/' + code + '/host/advance', {}, { 'x-host-key': 'nope' })).status, 401); ok('host actions need the host key');
 
   const H = { 'x-host-key': hostKey };
-  await req('POST', `/api/rooms/${code}/host/opts`, { settle: 0 }, H);
   const host = sse(`/api/rooms/${code}/events?key=${hostKey}`);
   await host.waitFor((s) => s.guests && s.guests.length === 0); ok('host stream opens with room state');
 
@@ -82,13 +81,13 @@ function sse(path) {
   const a = (await req('POST', `/api/rooms/${code}/guests`, { name: ' Maya<b> ', genres: ['indie', 'folk', 'indie', 'rock', 'blues', 'jazz'] })).json;
   const A = { 'x-guest-id': a.guestId, 'x-guest-key': a.guestKey };
   const ga = sse(`/api/rooms/${code}/events?gid=${a.guestId}&gkey=${a.guestKey}`);
-  const s1 = await host.waitFor((s) => s.guests.length === 1);
+  const s1 = await host.waitFor((s) => s.guests.length === 1 && s.guests[0].name === 'Maya');
   assert.strictEqual(s1.guests[0].name.includes('<'), false); assert.deepStrictEqual(s1.guests[0].genres, ['indie', 'folk', 'rock', 'blues']);
   ok('guest joins; name cleaned, genres deduped and capped at 4');
   const b = (await req('POST', `/api/rooms/${code}/guests`, { name: 'Sam', genres: ['hip hop', 'soul'] })).json;
   const B = { 'x-guest-id': b.guestId, 'x-guest-key': b.guestKey };
   const gb = sse(`/api/rooms/${code}/events?gid=${b.guestId}&gkey=${b.guestKey}`);
-  const st = await host.waitFor((s) => s.guests.length === 2 && s.guests.filter((g) => g.status === 'active').length === 2 && s.now && s.queue.length > 0, 10000);
+  const st = await host.waitFor((s) => s.guests.length === 2 && s.guests.every((g) => g.status === 'active') && s.now && s.queue.length > 0, 10000);
   assert.ok(st.now.track.title && st.now.fits.length); ok('a room with two guests plans a queue');
 
   const gs = await ga.waitFor((s) => s.now && s.me);
