@@ -448,6 +448,7 @@
       ]),
       h('div', { class: 'tv-cast-main' }, [
         h('p', { class: 'tv-cast-label', id: 'tv-cast-room', text: 'Now playing' }),
+        h('img', { id: 'tv-cast-cover', class: 'tv-cast-cover', alt: '', hidden: 'hidden' }),
         h('h1', { id: 'tv-cast-title', text: 'Waiting for the first guest' }),
         h('p', { class: 'tv-cast-artist', id: 'tv-cast-artist' }),
         h('p', { class: 'tv-cast-meta', id: 'tv-cast-meta' }),
@@ -644,6 +645,11 @@
       $('btn-pause').hidden = !P.ready();
     }
 
+    function castArtwork(track) {
+      var url = track && (track.artwork || (SP && SP.artworkFor ? SP.artworkFor(track) : ''));
+      if (!url) return '';
+      try { var parsed = new URL(url); return parsed.protocol === 'https:' && parsed.hostname === 'i.scdn.co' && /^\/image\/[A-Za-z0-9]+$/.test(parsed.pathname) ? parsed.href : ''; } catch (e) { return ''; }
+    }
     function castPalette(genres) {
       var genre = (genres || []).join(' ').toLowerCase();
       if (/electronic|dance|techno|house|ambient/.test(genre)) return ['#35d6c5', '#756bff'];
@@ -707,7 +713,10 @@
       if (S.playing !== track.id) return;
       if (r === null) { S.status = P.lastError ? P.lastError() : 'That song could not be played, so it was skipped.'; renderSource(); post('player', { event: 'unplayable', trackId: track.id }); return; }
       if (!r) { S.playing = null; S.status = P.lastError ? P.lastError() : 'Could not start playback.'; renderSource(); }
-      else if (S.status) { S.status = ''; renderSource(); }
+      else {
+        if (track.artwork && S.st && S.st.now && S.st.now.track.id === track.id) { S.st.now.track.artwork = track.artwork; render(S.st); }
+        if (S.status) { S.status = ''; renderSource(); }
+      }
     }
 
     // Genres the guests picked (broad picks spread out), so a search can prefer songs two of them can share.
@@ -803,6 +812,10 @@
       castTitle.classList.toggle('is-extra-long', castTitleText.length > 64);
       document.body.classList.toggle('tv-cast-playing', !!st.now);
       $('tv-cast-artist').textContent = st.now ? st.now.track.artist : '';
+      var castCover = $('tv-cast-cover'), coverUrl = st.now ? castArtwork(st.now.track) : '';
+      castCover.hidden = !coverUrl;
+      if (coverUrl && castCover.src !== coverUrl) castCover.src = coverUrl;
+      if (!coverUrl) castCover.removeAttribute('src');
       var palette = castPalette(st.now ? st.now.track.genres : []);
       $('tv-cast-view').style.setProperty('--cast-a', palette[0]);
       $('tv-cast-view').style.setProperty('--cast-b', palette[1]);
@@ -810,10 +823,15 @@
       $('tv-cast-genres').replaceChildren.apply($('tv-cast-genres'), st.now ? tagList(st.now.track.genres || []) : []);
       castAvatars.update(castEntries(st));
       var tvNext = $('tv-cast-next'); tvNext.replaceChildren();
-      st.queue.slice(0, 3).forEach(function (item) {
-        tvNext.appendChild(h('li', null, [document.createTextNode(item.track.title + ' '), h('span', { text: item.track.artist })]));
+      var comingUp = Array.isArray(st.upNext) ? st.upNext : st.queue;
+      comingUp.slice(0, 4).forEach(function (item) {
+        var track = item.track || item, art = castArtwork(track), row = [];
+        if (art) row.push(h('img', { class: 'tv-cast-next-art', src: art, alt: '', loading: 'lazy' }));
+        row.push(h('span', { class: 'tv-cast-next-copy' }, [h('strong', { text: track.title }), h('span', { text: track.artist })]));
+        if (item.mode === 'request') row.push(h('small', { class: 'tv-cast-request-label', text: 'REQUEST' }));
+        tvNext.appendChild(h('li', { class: item.mode === 'request' ? 'is-request' : '' }, row));
       });
-      if (!st.queue.length) tvNext.appendChild(h('li', { class: 'tv-cast-empty', text: 'Songs will appear here.' }));
+      if (!comingUp.length) tvNext.appendChild(h('li', { class: 'tv-cast-empty', text: 'Songs will appear here.' }));
       if (document.activeElement !== $('room-name') && $('room-name').value !== st.name) $('room-name').value = st.name || '';
       $('disc').checked = st.discoverable !== false;
       var people = {}; st.guests.forEach(function (g) { people[g.id] = g; });
