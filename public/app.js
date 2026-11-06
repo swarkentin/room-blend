@@ -839,6 +839,20 @@
       if (document.activeElement !== $('s-settle')) $('s-settle').value = st.opts.settle;
       if (document.activeElement !== $('s-doze')) $('s-doze').value = st.opts.doze || 30;
       outputs(st.opts); $('request-limit').checked = st.requestLimitEnabled !== false;
+      var blockedList = $('blocked-list'); blockedList.replaceChildren();
+      (st.blockedArtists || []).forEach(function (artist) {
+        blockedList.appendChild(h('div', { class: 'block-row' }, [
+          h('span', { text: artist + ' (artist)' }),
+          h('button', { class: 'btn small', type: 'button', text: 'Unblock', onclick: function () { post('blocks', { type: 'artist', artist: artist, remove: true }); } }),
+        ]));
+      });
+      (st.blockedSongs || []).forEach(function (song) {
+        blockedList.appendChild(h('div', { class: 'block-row' }, [
+          h('span', { text: song.title + ' — ' + song.artist }),
+          h('button', { class: 'btn small', type: 'button', text: 'Unblock', onclick: function () { post('blocks', { type: 'song', title: song.title, artist: song.artist, remove: true }); } }),
+        ]));
+      });
+      if (!(st.blockedArtists || []).length && !(st.blockedSongs || []).length) blockedList.appendChild(h('p', { class: 'hint', text: 'Nothing blocked.' }));
 
       var it = st.now, badge = $('mode-badge');
       if (!it) {
