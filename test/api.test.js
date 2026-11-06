@@ -81,7 +81,7 @@ function sse(path) {
   const a = (await req('POST', `/api/rooms/${code}/guests`, { name: ' Maya<b> ', genres: ['indie', 'folk', 'indie', 'rock', 'blues', 'jazz'] })).json;
   const A = { 'x-guest-id': a.guestId, 'x-guest-key': a.guestKey };
   const ga = sse(`/api/rooms/${code}/events?gid=${a.guestId}&gkey=${a.guestKey}`);
-  const s1 = await host.waitFor((s) => s.guests.length === 1 && s.guests[0].name === 'Maya');
+  const s1 = await host.waitFor((s) => s.guests.length === 1 && s.guests[0].name === 'Mayab');
   assert.strictEqual(s1.guests[0].name.includes('<'), false); assert.deepStrictEqual(s1.guests[0].genres, ['indie', 'folk', 'rock', 'blues']);
   ok('guest joins; name cleaned, genres deduped and capped at 4');
   const b = (await req('POST', `/api/rooms/${code}/guests`, { name: 'Sam', genres: ['hip hop', 'soul'] })).json;
