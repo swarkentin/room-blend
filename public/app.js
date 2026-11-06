@@ -1166,7 +1166,8 @@
           h('div', { class: 'now-head' }, [h('span', { class: 'label', text: 'Now playing' }), h('span', { class: 'meta', id: 'gv-count', text: 'Connecting…' }), h('span', { id: 'gv-mode', class: 'badge' }, [h('i'), h('span', { id: 'gv-mode-text', text: 'Waiting' })])]),
           h('h2', { class: 'now-title', id: 'gv-title', text: 'Waiting for the music' }), h('p', { class: 'now-artist', id: 'gv-artist' }),
           h('p', { class: 'why', id: 'gv-why' }),
-          h('div', { class: 'controls' }, [h('span', { class: 'label', text: 'Your call' }), h('button', { class: 'btn small', type: 'button', id: 'gv-good', title: 'Tell the host you like this song. Your vote is shown with the current song.', 'aria-label': 'Good pick: tell the host you like this song', 'aria-pressed': 'false', text: 'Good pick', onclick: function () { vote('up'); } }), h('button', { class: 'btn small', type: 'button', id: 'gv-bad', title: 'Tell the host this song is not working for you. Your vote is shown with the current song.', 'aria-label': 'Bad pick: tell the host this song is not working for you', 'aria-pressed': 'false', text: 'Bad pick', onclick: function () { vote('down'); } })]),
+          h('div', { class: 'controls' }, [h('span', { class: 'label', text: 'Your call' }), h('button', { class: 'btn small', type: 'button', id: 'gv-good', title: 'Tell the host you like this song. Your vote is shown with the current song.', 'aria-label': 'Good pick: tell the host you like this song', 'aria-pressed': 'false', text: 'Good pick', onclick: function () { vote('up'); } }), h('button', { class: 'btn small', type: 'button', id: 'gv-bad', title: 'Tell the host this song is not working for you. Your vote is shown with the current song.', 'aria-label': 'Bad pick: tell the host this song is not working for you', 'aria-pressed': 'false', text: 'Bad pick', onclick: function () { vote('down'); } }), h('button', { class: 'btn small skip-vote', type: 'button', id: 'gv-skip', title: 'Vote to move on. A majority of active guests skips the current song.', 'aria-label': 'Vote to skip this song', 'aria-pressed': 'false', text: 'Skip song', onclick: function () { vote('skip'); } })]),
+          h('p', { class: 'hint skip-vote-status', id: 'gv-skip-status', role: 'status', 'aria-live': 'polite' }),
         ]),
         h('section', { class: 'up-next-strip' }, [h('div', { class: 'sec-h' }, [h('h2', { text: 'Up next' }), h('span', { class: 'meta', id: 'gv-next-count' })]), h('ol', { class: 'gnext', id: 'gv-next' })]),
         ]),
@@ -1440,6 +1441,10 @@
       }
       $('gv-good').setAttribute('aria-pressed', it && it.myVote === 'up' ? 'true' : 'false');
       $('gv-bad').setAttribute('aria-pressed', it && it.myVote === 'down' ? 'true' : 'false');
+      $('gv-skip').setAttribute('aria-pressed', it && it.myVote === 'skip' ? 'true' : 'false');
+      $('gv-skip').textContent = it && it.myVote === 'skip' ? 'Cancel skip vote' : 'Skip song';
+      $('gv-skip').disabled = !it || !s.me || s.me.status !== 'active';
+      $('gv-skip-status').textContent = !it ? '' : (it.skipNeeded === 1 ? 'You are the only active guest. Your vote skips immediately.' : it.skipVotes + ' of ' + it.skipNeeded + ' votes needed to skip (majority of active guests).');
       var ol = $('gv-next'); ol.replaceChildren();
       var upcoming = s.next || [];
       $('gv-next-count').textContent = upcoming.length ? upcoming.length + ' queued' : 'Queue empty';
