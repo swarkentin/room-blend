@@ -115,6 +115,30 @@ function sse(path) {
   const s4 = await host.waitFor((s) => s.now && s.now.track.id !== third); ok('unplayable track is skipped');
   assert.ok(!s4.queue.some((q) => q.track.id === third) && s4.now.track.id !== third);
 
+  // A strict majority of active guests can skip the current song.
+  const votedTrack = s4.now.track.id;
+  await req('POST', `/api/rooms/${code}/vote`, { v: 'skip' }, A);
+  const oneSkip = await host.waitFor((s) => s.now && s.now.track.id === votedTrack && s.now.votes.skip === 1);
+  assert.strictEqual(oneSkip.now.skipVotes, undefined, 'skip progress is private to guest views');
+  const guestSkipState = await ga.waitFor((s) => s.now && s.now.track.title && s.now.skipVotes === 1);
+  assert.strictEqual(guestSkipState.now.skipNeeded, 2);
+  await req('POST', `/api/rooms/${code}/vote`, { v: 'skip' }, B);
+  const afterGuestSkip = await host.waitFor((s) => s.now && s.now.track.id !== votedTrack);
+  assert.ok(afterGuestSkip.now.track.id); ok('two of two active guests skip the current song');
+
+  // With one active guest, that guest's skip vote is enough.
+  const soloRoom = (await req('POST', '/api/rooms')).json;
+  const soloHost = sse(`/api/rooms/${soloRoom.code}/events?key=${soloRoom.hostKey}`);
+  const soloGuest = (await req('POST', `/api/rooms/${soloRoom.code}/guests`, { name: 'Solo', genres: ['rock'] })).json;
+  const soloHeaders = { 'x-guest-id': soloGuest.guestId, 'x-guest-key': soloGuest.guestKey };
+  const soloEvents = sse(`/api/rooms/${soloRoom.code}/events?gid=${soloGuest.guestId}&gkey=${soloGuest.guestKey}`);
+  const soloState = await soloHost.waitFor((s) => s.guests.length === 1 && s.now && s.queue.length > 0, 8000);
+  const soloFirst = soloState.now.track.id;
+  await req('POST', `/api/rooms/${soloRoom.code}/vote`, { v: 'skip' }, soloHeaders);
+  const soloNext = await soloHost.waitFor((s) => s.now && s.now.track.id !== soloFirst);
+  assert.ok(soloNext.now.track.id); ok('a solo guest can skip immediately with their own vote');
+  soloHost.close(); soloEvents.close();
+
   // jukebox requests are free-form and independent of the room catalogue
   const rq1 = await req('POST', `/api/rooms/${code}/request`, { title: 'A song not in the catalogue', artist: 'An unfamiliar artist' }, A);
   assert.strictEqual(rq1.status, 200);
