@@ -420,6 +420,11 @@
           '<div class="slider"><label for="s-lambda"><span>Protect the least-happy guest</span><output id="o-lambda"></output></label><input type="range" id="s-lambda" min="0" max="100" step="5"><p class="hint">0% chases the room average. 100% only counts whoever likes the song least.</p></div>' +
           '<div class="slider"><label for="s-tau"><span>Blend only above overlap</span><output id="o-tau"></output></label><input type="range" id="s-tau" min="0.2" max="0.9" step="0.05"><p class="hint">Below this, songs rotate between guests instead.</p></div>' +
           '<div class="slider"><label for="s-settle"><span>New guest counts after</span><output id="o-settle"></output></label><input type="range" id="s-settle" min="0" max="30" step="1"><p class="hint">Stops a passer-by from reshuffling the room.</p></div><div class="slider"><label for="s-doze"><span>Keep a guest counted after their phone locks</span><output id="o-doze"></output></label><input type="range" id="s-doze" min="5" max="120" step="5"><p class="hint">A locked phone cannot say it is still here, so it is trusted for this long, then they are dropped until they open the page again.</p></div><label class="disc"><input type="checkbox" id="request-limit" checked> Limit each guest to 2 outstanding song requests</label><p class="hint">Turn this off to let guests request as many songs as they like.</p></details>' +
+          '<details class="panel secondary" id="blocked-panel"><summary>Blocked songs &amp; artists</summary>' +
+          '<p class="hint">These exclusions apply to the whole room, including guest requests and automatic picks.</p>' +
+          '<form id="block-artist-form" class="host-add-song"><label for="block-artist">Block an artist</label><div class="row"><input id="block-artist" maxlength="80" placeholder="Artist name" required><button class="btn small" type="submit">Block</button></div></form>' +
+          '<form id="block-song-form" class="host-add-song"><label for="block-song-title">Block a song</label><input id="block-song-title" maxlength="100" placeholder="Song title" required><div class="row"><input id="block-song-artist" maxlength="100" placeholder="Artist name" required><button class="btn small" type="submit">Block</button></div></form>' +
+          '<p class="hint" id="block-hint" role="status"></p><div id="blocked-list" class="block-list"></div></details>' +
           '<details class="panel secondary"><summary>Fairness so far</summary><div class="sec-h"><span class="meta" id="f-meta"></span></div><div id="fairness"></div></details>' +
           '<details class="panel secondary"><summary>Room log</summary><ol class="log" id="log"></ol></details>' +
           '<details class="panel secondary"><summary>Session notes</summary><p class="hint">Copy the notes to share what worked.</p>' +
@@ -566,6 +571,18 @@
     function outputs(o) { $('o-lambda').textContent = pct(o.lambda) + '%'; $('o-tau').textContent = Number(o.tau).toFixed(2); $('o-settle').textContent = o.settle + ' s'; if ($('o-doze')) $('o-doze').textContent = (o.doze || 30) + ' min'; }
     slider('s-lambda', 'lambda', 100); slider('s-tau', 'tau', 1); slider('s-settle', 'settle', 1); slider('s-doze', 'doze', 1);
     $('request-limit').addEventListener('change', function () { post('opts', { requestLimitEnabled: this.checked }); });
+    $('block-artist-form').addEventListener('submit', async function (e) {
+      e.preventDefault(); var artist = $('block-artist').value.trim(); if (!artist) return;
+      var result = await post('blocks', { type: 'artist', artist: artist });
+      $('block-hint').textContent = result.ok ? 'Artist blocked.' : (result.data && result.data.error) || 'Could not block artist.';
+      if (result.ok) $('block-artist').value = '';
+    });
+    $('block-song-form').addEventListener('submit', async function (e) {
+      e.preventDefault(); var title = $('block-song-title').value.trim(), artist = $('block-song-artist').value.trim(); if (!title || !artist) return;
+      var result = await post('blocks', { type: 'song', title: title, artist: artist });
+      $('block-hint').textContent = result.ok ? 'Song blocked.' : (result.data && result.data.error) || 'Could not block song.';
+      if (result.ok) { $('block-song-title').value = ''; $('block-song-artist').value = ''; }
+    });
     $('copy-queue').addEventListener('click', function () {
       var st = S.st, lines = [];
       if (st && st.now) lines.push('Now: ' + st.now.track.title + ' - ' + st.now.track.artist);
@@ -822,6 +839,20 @@
       if (document.activeElement !== $('s-settle')) $('s-settle').value = st.opts.settle;
       if (document.activeElement !== $('s-doze')) $('s-doze').value = st.opts.doze || 30;
       outputs(st.opts); $('request-limit').checked = st.requestLimitEnabled !== false;
+      var blockedList = $('blocked-list'); blockedList.replaceChildren();
+      (st.blockedArtists || []).forEach(function (artist) {
+        blockedList.appendChild(h('div', { class: 'block-row' }, [
+          h('span', { text: artist + ' (artist)' }),
+          h('button', { class: 'btn small', type: 'button', text: 'Unblock', onclick: function () { post('blocks', { type: 'artist', artist: artist, remove: true }); } }),
+        ]));
+      });
+      (st.blockedSongs || []).forEach(function (song) {
+        blockedList.appendChild(h('div', { class: 'block-row' }, [
+          h('span', { text: song.title + ' — ' + song.artist }),
+          h('button', { class: 'btn small', type: 'button', text: 'Unblock', onclick: function () { post('blocks', { type: 'song', title: song.title, artist: song.artist, remove: true }); } }),
+        ]));
+      });
+      if (!(st.blockedArtists || []).length && !(st.blockedSongs || []).length) blockedList.appendChild(h('p', { class: 'hint', text: 'Nothing blocked.' }));
 
       var it = st.now, badge = $('mode-badge');
       if (!it) {

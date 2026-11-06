@@ -13,6 +13,18 @@ assert.equal(room.addRequest(guest.id, 'Third Song', 'Third Artist').ok, false, 
 assert.equal(room.addRequest(other.id, 'First Song', 'First Artist').ok, false, 'duplicate requests are rejected room-wide');
 assert.equal(room.requestQueue.length, 2);
 
+// Host exclusions persist, remove matching requests and prevent guest requests bypassing them.
+assert.equal(room.setBlock('artist', 'Blocked Band').ok, true);
+assert.equal(room.addRequest(other.id, 'Anything', 'Blocked Band').ok, false);
+assert.equal(room.requestQueue.some((x) => x.artist === 'Blocked Band'), false);
+assert.equal(room.setBlock('song', { title: 'No Thanks', artist: 'Allowed Band' }).ok, true);
+assert.equal(room.addRequest(other.id, 'No Thanks', 'Allowed Band').ok, false);
+const welcome = room.addRequest(other.id, 'Welcome', 'Allowed Band');
+assert.equal(welcome.ok, true);
+assert.equal(room.removeRequest(welcome.request.id), true);
+assert.equal(room.setBlock('artist', 'Blocked Band', true).ok, true);
+assert.equal(room.setBlock('artist', 'Persisted Band').ok, true);
+
 // A catalogue rebuild must not destroy the independent jukebox queue.
 room.rebuild('test rebuild', false);
 assert.equal(room.requestQueue.length, 2);
@@ -25,6 +37,8 @@ const restored = new Room('JUKE1', 'h'.repeat(32));
 assert.equal(restored.restoreSnapshot(room.snapshot()), true);
 assert.equal(restored.requestLimitEnabled, false);
 assert.equal(restored.requestQueue.length, 4);
+assert.deepEqual(restored.blockedArtists, room.blockedArtists);
+assert.deepEqual(restored.blockedSongs, room.blockedSongs);
 
 // Requests get priority, but a blend song is inserted after two consecutive requests.
 restored.advance();

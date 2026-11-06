@@ -477,6 +477,13 @@ async function api(req, res, url) {
       }
       saveRooms();
     }
+    else if (act === 'blocks' && m === 'POST') {
+      const type = body.type;
+      const value = type === 'artist' ? body.artist : { title: body.title, artist: body.artist };
+      const result = room.setBlock(type, value, body.remove === true);
+      if (!result.ok) return sendJson(res, 400, { error: result.error });
+      saveRooms();
+    }
     else if (act === 'room' && m === 'POST') { room.setInfo(body); saveRooms(); }
     else if (act === 'snapshot' && m === 'GET') {
       const snapshot = getRestorer().encryptSnapshot(code, room.hostKey, room.snapshot());

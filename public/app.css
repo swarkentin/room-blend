@@ -607,3 +607,12 @@ a.btn.primary { color: var(--on-primary, #fff); }
 .guest-wrap .playback-tracker .now { border-radius: 14px 14px 0 0; }
 .guest-wrap .playback-tracker .up-next-strip { margin: 0; border-radius: 0 0 14px 14px; border-top: 0; }
 .guest-wrap .now-head .meta { color: var(--now-muted); font-size: 12px; }
+
+
+/* Host exclusions */
+.block-list { display: grid; gap: 6px; margin-top: 12px; }
+.block-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.block-row > span { min-width: 0; overflow-wrap: anywhere; }
+.block-row .btn { flex: none; }
+#block-artist-form .row, #block-song-form .row { display: flex; gap: 8px; min-width: 0; }
+#block-artist-form input, #block-song-form input { min-width: 0; width: 100%; }
