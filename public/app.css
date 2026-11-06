@@ -625,3 +625,12 @@ a.btn.primary { color: var(--on-primary, #fff); }
 .block-row .btn { flex: none; }
 #block-artist-form .row, #block-song-form .row { display: flex; gap: 8px; min-width: 0; }
 #block-artist-form input, #block-song-form input { min-width: 0; width: 100%; }
+
+/* Big-screen request and artwork treatment */
+.tv-current-art { display: block; width: clamp(120px, 18vw, 260px); max-height: 220px; object-fit: cover; border-radius: 14px; margin: 14px 0; box-shadow: 0 12px 36px #0005; }
+.tv-next li { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.tv-next-art { width: clamp(44px, 5vw, 72px); height: clamp(44px, 5vw, 72px); object-fit: cover; border-radius: 8px; flex: 0 0 auto; }
+.tv-next-copy { display: grid; min-width: 0; }
+.tv-next-copy strong { font-weight: 650; }
+.tv-next-copy span { font-size: .72em; }
+.tv-request-label { margin-left: auto; flex: 0 0 auto; font-size: .48em; letter-spacing: .12em; font-weight: 750; color: #9fe8dc; border: 1px solid currentColor; border-radius: 4px; padding: 3px 6px; }
