@@ -458,7 +458,10 @@ async function api(req, res, url) {
   if (parts[2] === 'vote' && m === 'POST') {
     const g = guestFor();
     if (!g) return sendJson(res, 401, { error: 'unknown guest' });
-    room.vote(g.id, body.v); notify(code);
+    const previous = room.nowItem && room.nowItem.track.id;
+    if (!room.vote(g.id, body.v)) return sendJson(res, 400, { error: 'join the active room to vote to skip' });
+    if (body.v === 'skip' && (!room.nowItem || room.nowItem.track.id !== previous)) saveRooms();
+    notify(code);
     return sendJson(res, 200, { ok: true });
   }
 
