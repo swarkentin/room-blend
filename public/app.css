@@ -682,3 +682,17 @@ a.btn.primary { color: var(--on-primary, #fff); }
   .roomhead { gap: 16px; }
   .brand { font-size: 18px; }
 }
+
+
+/* Search-first host exclusions, matching the jukebox autocomplete interaction. */
+.block-search { display: grid; gap: 9px; margin-top: 14px; }
+.block-tabs { display: flex; gap: 6px; }
+.block-search > input[type="search"] { box-sizing: border-box; width: 100%; min-width: 0; border: 1px solid var(--line); background: var(--bg); color: inherit; border-radius: 8px; padding: 10px 11px; font: inherit; }
+.block-search .song-suggestions { position: static; max-height: 260px; overflow-y: auto; }
+.block-selection { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--line); border-radius: 9px; padding: 10px; background: var(--soft); }
+.block-selection > div { display: grid; gap: 3px; min-width: 0; }
+.block-selection strong { overflow-wrap: anywhere; }
+.block-selection span { color: var(--muted); font-size: 12px; }
+.block-selection .btn { flex: none; }
+.block-list-heading { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 13px; font-weight: 600; }
+.block-row { align-items: center; }

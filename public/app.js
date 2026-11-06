@@ -423,10 +423,12 @@
           '<div class="slider"><label for="s-tau"><span>Blend only above overlap</span><output id="o-tau"></output></label><input type="range" id="s-tau" min="0.2" max="0.9" step="0.05"><p class="hint">Below this, songs rotate between guests instead.</p></div>' +
           '<div class="slider"><label for="s-settle"><span>New guest counts after</span><output id="o-settle"></output></label><input type="range" id="s-settle" min="0" max="30" step="1"><p class="hint">Stops a passer-by from reshuffling the room.</p></div><div class="slider"><label for="s-doze"><span>Keep a guest counted after their phone locks</span><output id="o-doze"></output></label><input type="range" id="s-doze" min="5" max="120" step="5"><p class="hint">A locked phone cannot say it is still here, so it is trusted for this long, then they are dropped until they open the page again.</p></div><label class="disc"><input type="checkbox" id="request-limit" checked> Limit each guest to 2 outstanding song requests</label><p class="hint">Turn this off to let guests request as many songs as they like.</p></details>' +
           '<details class="panel secondary" id="blocked-panel"><summary>Blocked songs &amp; artists</summary>' +
-          '<p class="hint">These exclusions apply to the whole room, including guest requests and automatic picks.</p>' +
-          '<form id="block-artist-form" class="host-add-song"><label for="block-artist">Block an artist</label><div class="row"><input id="block-artist" maxlength="80" placeholder="Artist name" required><button class="btn small" type="submit">Block</button></div></form>' +
-          '<form id="block-song-form" class="host-add-song"><label for="block-song-title">Block a song</label><input id="block-song-title" maxlength="100" placeholder="Song title" required><div class="row"><input id="block-song-artist" maxlength="100" placeholder="Artist name" required><button class="btn small" type="submit">Block</button></div></form>' +
-          '<p class="hint" id="block-hint" role="status"></p><div id="blocked-list" class="block-list"></div></details>' +
+          '<p class="hint">Blocked items are never played in this room, even when guests request them.</p>' +
+          '<div class="block-search"><div class="block-tabs" role="group" aria-label="What to block"><button class="btn small primary" type="button" id="block-mode-artist" aria-pressed="true">Artist</button><button class="btn small" type="button" id="block-mode-song" aria-pressed="false">Song</button></div>' +
+          '<label class="hint" id="block-search-label" for="block-search-input">Search for an artist</label><input id="block-search-input" type="search" maxlength="100" autocomplete="off" placeholder="Start typing an artist name…">' +
+          '<div id="block-search-results" class="song-suggestions" role="listbox" aria-label="Search results" hidden></div><p class="hint" id="block-search-status" role="status">Select a search result to add it to the blocklist.</p>' +
+          '<div class="block-selection" id="block-selection" hidden><div><strong id="block-selection-title"></strong><span id="block-selection-subtitle"></span></div><button class="btn primary small" type="button" id="block-confirm">Block this item</button></div></div>' +
+          '<div class="block-list-heading">Currently blocked</div><div id="blocked-list" class="block-list"></div></details>' +
           '<details class="panel secondary"><summary>Fairness so far</summary><div class="sec-h"><span class="meta" id="f-meta"></span></div><div id="fairness"></div></details>' +
           '<details class="panel secondary"><summary>Room log</summary><ol class="log" id="log"></ol></details>' +
           '<details class="panel secondary"><summary>Session notes</summary><p class="hint">Copy the notes to share what worked.</p>' +
@@ -574,17 +576,55 @@
     function outputs(o) { $('o-lambda').textContent = pct(o.lambda) + '%'; $('o-tau').textContent = Number(o.tau).toFixed(2); $('o-settle').textContent = o.settle + ' s'; if ($('o-doze')) $('o-doze').textContent = (o.doze || 30) + ' min'; }
     slider('s-lambda', 'lambda', 100); slider('s-tau', 'tau', 1); slider('s-settle', 'settle', 1); slider('s-doze', 'doze', 1);
     $('request-limit').addEventListener('change', function () { post('opts', { requestLimitEnabled: this.checked }); });
-    $('block-artist-form').addEventListener('submit', async function (e) {
-      e.preventDefault(); var artist = $('block-artist').value.trim(); if (!artist) return;
-      var result = await post('blocks', { type: 'artist', artist: artist });
-      $('block-hint').textContent = result.ok ? 'Artist blocked.' : (result.data && result.data.error) || 'Could not block artist.';
-      if (result.ok) $('block-artist').value = '';
+    var blockMode = 'artist', blockSelection = null, blockTimer = null, blockSequence = 0;
+    function clearBlockSelection() { blockSelection = null; $('block-selection').hidden = true; }
+    function setBlockMode(mode) {
+      clearTimeout(blockTimer); blockSequence++; blockMode = mode; clearBlockSelection(); $('block-search-input').value = ''; $('block-search-results').replaceChildren(); $('block-search-results').hidden = true;
+      $('block-search-status').textContent = mode === 'artist' ? 'Search and select the artist you want to exclude.' : 'Search and select the exact song you want to exclude.';
+      $('block-search-label').textContent = mode === 'artist' ? 'Search for an artist' : 'Search for a song';
+      $('block-search-input').placeholder = mode === 'artist' ? 'Start typing an artist name…' : 'Start typing a song title…';
+      $('block-mode-artist').classList.toggle('primary', mode === 'artist'); $('block-mode-song').classList.toggle('primary', mode === 'song');
+      $('block-mode-artist').setAttribute('aria-pressed', String(mode === 'artist')); $('block-mode-song').setAttribute('aria-pressed', String(mode === 'song'));
+    }
+    $('block-mode-artist').addEventListener('click', function () { setBlockMode('artist'); });
+    $('block-mode-song').addEventListener('click', function () { setBlockMode('song'); });
+    $('block-search-input').addEventListener('input', function () {
+      clearTimeout(blockTimer); var query = this.value.trim(), mine = ++blockSequence; clearBlockSelection();
+      $('block-search-results').replaceChildren(); $('block-search-results').hidden = true;
+      if (query.length < 3) { $('block-search-status').textContent = 'Type at least 3 characters to search.'; return; }
+      $('block-search-status').textContent = 'Searching…';
+      blockTimer = setTimeout(async function () {
+        var mode = blockMode, params = new URLSearchParams(); if (mode === 'artist') params.set('q', query); else params.set('title', query);
+        var response;
+        try { response = await http('GET', '/api/rooms/' + code + '/search?' + params.toString(), null, H); }
+        catch (e) { if (mine === blockSequence) $('block-search-status').textContent = 'Search is temporarily unavailable. Try again.'; return; }
+        if (mine !== blockSequence) return;
+        var items = response.ok && response.data ? (mode === 'artist' ? response.data.artists : response.data.songs) || [] : [];
+        if (!items.length) { $('block-search-status').textContent = response.data && response.data.lookupUnavailable ? 'Music search is unavailable right now.' : 'No matches found. Try another search.'; return; }
+        var results = $('block-search-results'); results.hidden = false;
+        items.slice(0, 8).forEach(function (item) {
+          var artistMode = mode === 'artist';
+          var button = h('button', { type: 'button', class: 'song-suggestion', role: 'option' }, artistMode
+            ? [h('strong', { text: item.name }), h('span', { text: item.disambiguation || item.type || 'Artist' }), item.source === 'musicbrainz' ? h('small', { text: 'MusicBrainz' }) : null]
+            : [h('strong', { text: item.title }), h('span', { text: item.artist }), item.source === 'musicbrainz' ? h('small', { text: 'MusicBrainz' }) : null]);
+          button.addEventListener('click', function () {
+            blockSelection = artistMode ? { type: 'artist', artist: item.name } : { type: 'song', title: item.title, artist: item.artist };
+            results.hidden = true; results.replaceChildren();
+            $('block-selection-title').textContent = artistMode ? item.name : item.title;
+            $('block-selection-subtitle').textContent = artistMode ? (item.disambiguation || 'Artist') : item.artist;
+            $('block-selection').hidden = false; $('block-search-status').textContent = 'Confirm to add this exclusion.';
+          });
+          results.appendChild(button);
+        });
+        $('block-search-status').textContent = 'Choose the correct match from the results.';
+      }, 650);
     });
-    $('block-song-form').addEventListener('submit', async function (e) {
-      e.preventDefault(); var title = $('block-song-title').value.trim(), artist = $('block-song-artist').value.trim(); if (!title || !artist) return;
-      var result = await post('blocks', { type: 'song', title: title, artist: artist });
-      $('block-hint').textContent = result.ok ? 'Song blocked.' : (result.data && result.data.error) || 'Could not block song.';
-      if (result.ok) { $('block-song-title').value = ''; $('block-song-artist').value = ''; }
+    $('block-search-input').addEventListener('keydown', function (e) { if (e.key === 'Escape') { clearTimeout(blockTimer); blockSequence++; $('block-search-results').hidden = true; clearBlockSelection(); } });
+    $('block-confirm').addEventListener('click', async function () {
+      if (!blockSelection) return;
+      var selected = blockSelection, result = await post('blocks', selected);
+      $('block-search-status').textContent = result.ok ? 'Added to the blocklist.' : (result.data && result.data.error) || 'Could not add this exclusion.';
+      if (result.ok) { $('block-search-input').value = ''; clearBlockSelection(); $('block-search-results').hidden = true; }
     });
     $('copy-queue').addEventListener('click', function () {
       var st = S.st, lines = [];
