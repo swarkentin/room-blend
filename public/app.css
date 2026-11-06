@@ -179,6 +179,8 @@ button { cursor: pointer; }
 .nextrow span { color: var(--muted); font-weight: 400; }
 .gnext { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
 .gbtns { display: flex; flex-wrap: wrap; gap: 8px; }
+.skip-vote-status { margin: -4px 0 0; }
+.skip-vote:disabled { opacity: .45; cursor: not-allowed; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (prefers-reduced-motion: no-preference) { .progress div { transition: width 0.25s linear; } }
 
