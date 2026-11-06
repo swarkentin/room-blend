@@ -68,6 +68,7 @@ function sse(path) {
   assert.strictEqual((await req('POST', '/api/rooms/' + code + '/host/advance', {}, { 'x-host-key': 'nope' })).status, 401); ok('host actions need the host key');
 
   const H = { 'x-host-key': hostKey };
+  await req('POST', `/api/rooms/${code}/host/opts`, { settle: 0 }, H);
   const host = sse(`/api/rooms/${code}/events?key=${hostKey}`);
   await host.waitFor((s) => s.guests && s.guests.length === 0); ok('host stream opens with room state');
 
@@ -120,7 +121,7 @@ function sse(path) {
   const firstSkipVote = await req('POST', `/api/rooms/${code}/vote`, { v: 'skip' }, A);
   assert.strictEqual(firstSkipVote.status, 200, 'the first active guest skip vote is accepted'); ok('first guest skip vote is accepted');
   const hostAfterSkipVote = await host.waitFor((s) => s.version > s4.version, 8000);
-  assert.strictEqual(hostAfterSkipVote.now.track.id, votedTrack, 'one of two guests must not advance the song');
+  assert.strictEqual(hostAfterSkipVote.now.track.id, votedTrack, `one of two active guests must not advance the song (guests=${JSON.stringify(hostAfterSkipVote.guests.map((g) => ({ id: g.id, status: g.status, away: g.away })))}, votes=${JSON.stringify(hostAfterSkipVote.now.votes)})`);
   assert.strictEqual(hostAfterSkipVote.now.votes.skip, 1, 'host state should count the first skip vote');
   assert.strictEqual(hostAfterSkipVote.now.skipVotes, undefined, 'skip progress is private to guest views'); ok('host sees one skip vote without advancing');
   const guestSkipState = await ga.waitFor((s) => s.now && s.now.track.title && s.now.skipVotes === 1, 8000);
