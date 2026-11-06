@@ -116,6 +116,7 @@ const SEED = SONGS.map(([f]) => ({ path: 'Album/' + f, b64: b64(f) }))
     ok('a jukebox request for a song in the local library plays the matching local file');
 
     await host.click('#tv-mode');
+    await until(() => host.isVisible('#tv-cast-progress'), 5000, 'cast view local song progress');
     assert.strictEqual(await host.isVisible('#tv-cast-progress'), true); ok('the cast view shows local song progress and duration');
     await host.click('#tv-cast-exit');
 
