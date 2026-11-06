@@ -87,7 +87,7 @@ function sse(path) {
   const b = (await req('POST', `/api/rooms/${code}/guests`, { name: 'Sam', genres: ['hip hop', 'soul'] })).json;
   const B = { 'x-guest-id': b.guestId, 'x-guest-key': b.guestKey };
   const gb = sse(`/api/rooms/${code}/events?gid=${b.guestId}&gkey=${b.guestKey}`);
-  const st = await host.waitFor((s) => s.guests.length === 2 && s.now && s.queue.length > 0, 8000);
+  const st = await host.waitFor((s) => s.guests.length === 2 && s.guests.filter((g) => g.status === 'active').length === 2 && s.now && s.queue.length > 0, 10000);
   assert.ok(st.now.track.title && st.now.fits.length); ok('a room with two guests plans a queue');
 
   const gs = await ga.waitFor((s) => s.now && s.me);
