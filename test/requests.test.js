@@ -19,8 +19,11 @@ assert.equal(room.addRequest(other.id, 'Anything', 'Blocked Band').ok, false);
 assert.equal(room.requestQueue.some((x) => x.artist === 'Blocked Band'), false);
 assert.equal(room.setBlock('song', { title: 'No Thanks', artist: 'Allowed Band' }).ok, true);
 assert.equal(room.addRequest(other.id, 'No Thanks', 'Allowed Band').ok, false);
-assert.equal(room.addRequest(other.id, 'Welcome', 'Allowed Band').ok, true);
+const welcome = room.addRequest(other.id, 'Welcome', 'Allowed Band');
+assert.equal(welcome.ok, true);
+assert.equal(room.removeRequest(welcome.request.id), true);
 assert.equal(room.setBlock('artist', 'Blocked Band', true).ok, true);
+assert.equal(room.setBlock('artist', 'Persisted Band').ok, true);
 
 // A catalogue rebuild must not destroy the independent jukebox queue.
 room.rebuild('test rebuild', false);
