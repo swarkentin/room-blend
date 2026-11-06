@@ -36,6 +36,26 @@ assert.equal(restored.nowItem.request.requester, 'Guest Two', 'requesters rotate
 restored.advance();
 assert.notEqual(restored.nowItem.mode, 'request');
 
+// The TV view merges request and blend entries in actual playback order without mutating either queue.
+const displayRoom = new Room('JUKE3', 'd'.repeat(32));
+const d1 = displayRoom.addGuest('Display One', ['rock'], { immediate: true });
+const d2 = displayRoom.addGuest('Display Two', ['jazz'], { immediate: true });
+displayRoom.queue = [
+  { track: { id: 'blend-1', title: 'Blend One', artist: 'Artist A', genres: ['rock'] }, mode: 'blend' },
+  { track: { id: 'blend-2', title: 'Blend Two', artist: 'Artist B', genres: ['jazz'] }, mode: 'blend' },
+  { track: { id: 'blend-3', title: 'Blend Three', artist: 'Artist C', genres: ['rock'] }, mode: 'blend' },
+];
+displayRoom.addRequest(d1.id, 'Request One', 'Artist D');
+displayRoom.addRequest(d2.id, 'Request Two', 'Artist E');
+let upcoming = displayRoom.upNext(5);
+assert.deepEqual(upcoming.map((x) => x.track.title), ['Request One', 'Request Two', 'Blend One', 'Request One', 'Blend Two'].slice(0, upcoming.length));
+assert.equal(displayRoom.requestQueue.length, 2, 'rendering the TV view does not consume requests');
+assert.equal(displayRoom.queue.length, 3, 'rendering the TV view does not consume blend tracks');
+displayRoom.requestStreak = 2;
+displayRoom.lastRequestGuest = d2.id;
+upcoming = displayRoom.upNext(4);
+assert.deepEqual(upcoming.map((x) => x.track.title), ['Blend One', 'Request One', 'Request Two', 'Blend Two']);
+
 // Position estimates include the blend songs required by the two-request burst limit.
 const positionRoom = new Room('JUKE2', 'p'.repeat(32));
 const p1 = positionRoom.addGuest('One', ['rock'], { immediate: true });
