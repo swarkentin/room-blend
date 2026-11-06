@@ -64,7 +64,7 @@
       clearTimeout(timer);
       sequence++;
       clear();
-      timer = setTimeout(search, 250);
+      timer = setTimeout(search, 700);
     }
     titleInput.addEventListener('input', changed);
     artistInput.addEventListener('input', changed);
@@ -1126,7 +1126,7 @@
         results.setAttribute('aria-busy', 'true');
         msg.classList.add('is-loading');
         msg.textContent = 'Searching the room and MusicBrainz. This may take a few seconds.';
-        timer = setTimeout(function () { run(mine); }, 250);
+        timer = setTimeout(function () { run(mine); }, 700);
       });
       async function run(mine) {
         var q = input.value.trim();

@@ -249,4 +249,19 @@ const { Room } = require('../lib/room');
   assert.deepStrictEqual(await retries.lookupArtist('Unavailable'), []);
   assert.strictEqual(attempts, 2, 'a transient service overload is retried once');
   console.log('  ok  transient MusicBrainz overloads retry once, then return a normal no-match');
+
+  let releaseFirstRequest;
+  const bounded = createClient({
+    intervalMs: 0,
+    maxQueuedRequests: 1,
+    fetchImpl: () => new Promise((resolve) => {
+      releaseFirstRequest = () => resolve({ ok: true, json: async () => ({ artists: [] }) });
+    }),
+  });
+  const firstLookup = bounded.lookupArtist('First');
+  await new Promise((resolve) => setImmediate(resolve));
+  await assert.rejects(bounded.lookupArtist('Second'), /request queue is full/);
+  releaseFirstRequest();
+  await firstLookup;
+  console.log('  ok  MusicBrainz rejects excess queued work instead of allowing an unbounded backlog');
 })().catch((e) => { console.error(e); process.exitCode = 1; });

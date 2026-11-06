@@ -420,7 +420,8 @@ async function api(req, res, url) {
     const result = room.search(combined ? title + ' ' + artist : query);
     const matchesBoth = (song) => (!title || Engine.normKey(song.title).includes(Engine.normKey(title))) &&
       (!artist || Engine.normKey(song.artist).includes(Engine.normKey(artist)));
-    if (Engine.normKey(query).length < 2) return sendJson(res, 200, { ...result, albums: [] });
+    // Two-character searches can still find local catalogue entries, but are too broad to spend MusicBrainz requests on.
+    if (Engine.normKey(query).length < 3) return sendJson(res, 200, { ...result, albums: [] });
     if (combined) result.songs = result.songs.filter(matchesBoth);
     if (process.env.MUSICBRAINZ_SEARCH_DISABLED === '1') {
       return sendJson(res, 200, { ...result, albums: [], lookupUnavailable: true });
