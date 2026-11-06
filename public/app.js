@@ -924,7 +924,7 @@
         $('now-title').textContent = it.track.title; $('now-artist').textContent = it.track.artist;
         $('now-genres').replaceChildren.apply($('now-genres'), tagList(it.track.genres));
         $('now-why').textContent = it.why;
-        $('now-votes').textContent = it.votes && (it.votes.up || it.votes.down) ? 'Guests on their phones: ' + it.votes.up + ' good, ' + it.votes.down + ' bad.' : '';
+        $('now-votes').textContent = it.votes && (it.votes.up || it.votes.down || it.votes.skip) ? 'Guests on their phones: ' + it.votes.up + ' good, ' + it.votes.down + ' bad, ' + (it.votes.skip || 0) + ' skip.' : '';
         $('now-fits').replaceChildren.apply($('now-fits'), Array.prototype.slice.call(fitMeters(it.fits, people).childNodes));
         $('mode-text').textContent = it.mode === 'request' ? 'Requested song' : it.mode === 'blend' ? 'Blending' : 'Rotating';
         badge.className = 'badge' + (it.mode === 'rotate' ? ' rotate' : '');
