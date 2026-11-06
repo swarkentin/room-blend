@@ -71,6 +71,18 @@ positions = positionRoom.requestPositions();
 assert.equal(positions.get(pReq1.id), 2, 'a blend song plays after two requests');
 assert.equal(positions.get(pReq2.id), 3, 'a later request waits behind the blend song');
 
+// Artwork is accepted only from the Spotify image host and is included in the host-facing track view.
+const artRoom = new Room('ART01', 'a'.repeat(32));
+artRoom.addExtras('rock', [{
+  title: 'Artwork Song', artist: 'Artwork Artist', genres: ['rock'], id: 'spotify:track:123',
+  artwork: 'https://i.scdn.co/image/ab67616d0000b273abcdef0123456789',
+}], { pool: true });
+assert.equal(artRoom.trackView(artRoom.extra[0]).artwork, 'https://i.scdn.co/image/ab67616d0000b273abcdef0123456789');
+assert.equal(artRoom.trackView({ id: 'bad', title: 'Bad', artist: 'URL', genres: [], artwork: 'https://example.com/cover.jpg' }).artwork, undefined);
+
+// The host's serialized TV projection contains the same request/blend order.
+assert.deepEqual(displayRoom.hostView().upNext.map((x) => x.track.title), upcoming.map((x) => x.track.title));
+
 // The host can add and remove requests; removing a guest also removes their pending requests.
 const hostRequest = restored.addRequest('', 'Host Song', 'Host Artist', true);
 assert.equal(hostRequest.ok, true);
