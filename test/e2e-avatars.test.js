@@ -67,6 +67,18 @@ const intersects = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x && a.y <
     await until(async () => (await host.locator('.av').count()) === 3 && await host.locator('#tv-cast-avatars').isVisible(), 5000, 'avatars back');
     ok('turning it back on brings everyone back');
 
+    // A guest's request makes only that guest dance; a Ween track also starts the guava shower.
+    const request = await host.evaluate(([c, g]) => fetch('/api/rooms/' + c + '/request', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-guest-id': g.guestId, 'x-guest-key': g.guestKey },
+      body: JSON.stringify({ title: 'Ocean Man', artist: 'Ween' }),
+    }).then((r) => r.json()), [code, ana]);
+    assert.strictEqual(request.ok, true);
+    await host.click('#tv-cast-next-btn');
+    await until(async () => (await host.locator('.av.is-dancing').count()) === 1, 5000, 'requester dancing');
+    assert.match(await host.locator('.av.is-dancing').getAttribute('aria-label'), /^Ana:/);
+    assert.strictEqual(await host.locator('#tv-cast-guavas .tv-cast-guava').count(), 18);
+    ok('the guest who requested the playing song dances, and Ween starts the guava shower');
+
     // leaving removes the avatar
     await host.evaluate(([c, g]) => fetch('/api/rooms/' + c + '/guests/' + g.guestId, { method: 'DELETE', headers: { 'x-guest-id': g.guestId, 'x-guest-key': g.guestKey } }), [code, ana]);
     await until(async () => (await host.locator('.av').count()) === 2, 5000, 'avatar removed');
