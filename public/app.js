@@ -449,6 +449,7 @@
         h('div', { class: 'tv-cast-glow' }),
         h('div', { class: 'tv-cast-spectrum' }, tvCastBars),
       ]),
+      h('div', { class: 'tv-cast-guavas', id: 'tv-cast-guavas', 'aria-hidden': 'true' }),
       h('div', { class: 'tv-cast-avatars', id: 'tv-cast-avatars', role: 'group', 'aria-label': 'Guests in the room', hidden: 'hidden' }),
       h('div', { class: 'tv-cast-join' }, [
         h('div', { id: 'tv-cast-qr', role: 'img', 'aria-label': 'QR code to join this room' }),
@@ -495,6 +496,7 @@
         if (g.picks) stats.push(['Named', g.artistCount + (g.artistCount === 1 ? ' artist, ' : ' artists, ') + g.songCount + (g.songCount === 1 ? ' song' : ' songs')]);
         return {
           id: g.id, name: g.name, color: COLORS[g.color % COLORS.length],
+          dancing: !!(st.now && st.now.mode === 'request' && st.now.owner === g.id),
           genres: (g.genres.length ? g.genres : g.inferred || []).map(gl), stats: stats,
           mood: { fit: now == null ? null : now, avg: f.avg, songs: f.songs, resting: resting, restLabel: g.hostSit ? 'Sat out by the host' : g.away ? 'Stepped away' : 'Sitting this one out' },
         };
@@ -704,6 +706,21 @@
       $('btn-pause').hidden = !P.ready();
     }
 
+    var castEffectTrackId = null;
+    function triggerGuavas() {
+      var layer = $('tv-cast-guavas');
+      if (!layer || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      layer.replaceChildren();
+      for (var i = 0; i < 18; i++) {
+        var fruit = h('span', { class: 'tv-cast-guava' }, [h('i')]);
+        fruit.style.left = (2 + Math.random() * 96) + '%';
+        fruit.style.animationDuration = (4.2 + Math.random() * 2.8) + 's';
+        fruit.style.animationDelay = (-Math.random() * 2.4) + 's';
+        fruit.style.setProperty('--guava-turn', (Math.random() * 100 - 50) + 'deg');
+        fruit.addEventListener('animationend', function () { this.remove(); });
+        layer.appendChild(fruit);
+      }
+    }
     function castArtwork(track) {
       var url = track && (track.artwork || (SP && SP.artworkFor ? SP.artworkFor(track) : ''));
       if (!url) return '';
@@ -864,6 +881,12 @@
       saveSnap(code, st);
       scheduleRoomSnapshot(st.version);
       var castTitle = $('tv-cast-title');
+      var currentTrackId = st.now && st.now.track && st.now.track.id || null;
+      if (currentTrackId !== castEffectTrackId) {
+        castEffectTrackId = currentTrackId;
+        if (currentTrackId && window.Avatars && window.Avatars.isWeenArtist(st.now.track.artist)) triggerGuavas();
+        else $('tv-cast-guavas').replaceChildren();
+      }
       var castTitleText = st.now ? st.now.track.title : 'Waiting for the first guest';
       $('tv-cast-room').textContent = st.name || 'Now playing';
       castTitle.textContent = castTitleText;

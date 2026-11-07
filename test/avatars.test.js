@@ -16,4 +16,10 @@ assert.strictEqual(A.mood({ fit: 0.8, avg: 0.1, songs: 6 }).key, 'happy'); ok('a
 assert.strictEqual(A.mood({ fit: 0.8, avg: 0.8, songs: 1 }).score, 0.8); ok('one song of history is not enough to count');
 const r = A.mood({ fit: 1, resting: true, restLabel: 'Stepped away' });
 assert.deepStrictEqual([r.key, r.label], ['resting', 'Stepped away']); ok('guests sitting out rest, whatever the song');
+
+assert.strictEqual(A.isWeenArtist('Ween'), true); ok('Ween artist credit matches case-insensitively');
+assert.strictEqual(A.isWeenArtist('WEEN'), true); ok('uppercase Ween artist credit matches');
+assert.strictEqual(A.isWeenArtist('Ween, Gene Ween'), true); ok('Ween matches a multi-artist credit');
+assert.strictEqual(A.isWeenArtist('Between the Buried and Me'), false); ok('Ween does not match inside another artist name');
+assert.strictEqual(A.isWeenArtist('Queen'), false); ok('similar artist names do not trigger the Ween effect');
 console.log(n + ' avatar checks passed');
