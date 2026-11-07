@@ -297,7 +297,7 @@ body.tv-cast-mode #yt-dock .hint { display: none; }
 .tv-cast-guavas { position: fixed; inset: 0; z-index: 4; overflow: hidden; pointer-events: none; }
 .tv-cast-guava { position: absolute; top: -12vh; width: clamp(22px, 2.8vw, 42px); height: clamp(30px, 3.7vw, 54px); border-radius: 48% 52% 46% 54% / 42% 42% 58% 58%; background: radial-gradient(ellipse at 35% 28%, #d6ef9a 0 8%, #86bd52 28%, #438a45 72%, #28633d 100%); box-shadow: inset -4px -5px 8px #173d3144, 0 3px 8px #0004; transform: rotate(var(--guava-turn)); }
 .tv-cast-guava::before { content: ''; position: absolute; top: -5px; left: 45%; width: 34%; height: 18%; border-radius: 100% 0 100% 0; background: #4e9a4d; transform: rotate(-28deg); }
-.tv-cast-guava i { position: absolute; inset: 24% 19%; border-radius: 50%; background: radial-gradient(ellipse at 50% 45%, #f5b3a0 0 38%, #f7d2a5 68%, #d8a76d 100%); opacity: .0; }
+.tv-cast-guava i { position: absolute; inset: 24% 19%; border-radius: 50%; background: radial-gradient(ellipse at 50% 45%, #f5b3a0 0 38%, #f7d2a5 68%, #d8a76d 100%); opacity: .82; }
 @media (prefers-reduced-motion: no-preference) {
   .tv-cast-guava { animation: tv-guava-fall 5s linear both; }
   @keyframes tv-guava-fall { from { transform: translate3d(0, -12vh, 0) rotate(var(--guava-turn)); } to { transform: translate3d(7vw, 115vh, 0) rotate(calc(var(--guava-turn) + 300deg)); } }
