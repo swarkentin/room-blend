@@ -25,6 +25,8 @@ const { createClient } = require('./lib/musicbrainz');
 const Restore = require('./lib/restore');
 
 const PORT = Number(process.env.PORT || 3000);
+// Changes on every server process start, including deployments that do not provide a commit SHA.
+const BUILD_ID = process.env.RENDER_GIT_COMMIT || process.env.SOURCE_VERSION || (Date.now().toString(36) + '-' + process.pid.toString(36));
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
 const TRUST_PROXY = /^(1|true|yes)$/i.test(process.env.TRUST_PROXY || '');
 const ROOMS_PER_IP_HOUR = Number(process.env.ROOMS_PER_IP_HOUR || 8);
@@ -609,6 +611,10 @@ const server = http.createServer(async (req, res) => {
     });
   }
   try {
+    if (url.pathname === '/version.json') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...SECURITY });
+      return res.end(JSON.stringify({ build: BUILD_ID }));
+    }
     if (url.pathname === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }); return res.end('ok'); }
     if (url.pathname === '/status') {
       if (!statusAllowed(req, url)) { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('Not found'); }
