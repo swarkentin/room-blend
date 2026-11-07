@@ -29,7 +29,7 @@ const intersects = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x && a.y <
     const ana = await join('Ana', ['rock']); await join('Ben', ['blues']); await join('Cy <b>', ['country']);
     await until(async () => (await host.locator('.av').count()) === 3, 10000, 'three avatars');
     ok('each guest gets an avatar');
-    assert.strictEqual(await host.locator('.av b').count(), 0); ok('guest names are text, never markup');
+    assert.strictEqual(await host.locator('.av .av-name *').count(), 0); ok('guest names are text, never markup');
     await until(() => host.evaluate(() => [...document.querySelectorAll('.av')].every((a) => a.dataset.mood)), 5000, 'moods set');
 
     // the stage never covers the QR code, the code text, or the video dock

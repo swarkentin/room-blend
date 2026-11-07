@@ -457,6 +457,22 @@ async function api(req, res, url) {
     notify(code); saveRooms();
     return sendJson(res, 200, { ok: true, request: result.request });
   }
+  // POST /api/rooms/:code/fight/{challenge|respond|pick}  -> a guest duels another guest for a song's place in line.
+  // The room enforces every limit (see Room.canChallenge); a refusal says why, and retryAt when waiting will fix it.
+  if (parts[2] === 'fight' && parts.length === 4 && m === 'POST') {
+    const g = guestFor();
+    if (!g) return sendJson(res, 401, { error: 'unknown guest' });
+    const now = Date.now();
+    const act = parts[3];
+    let r;
+    if (act === 'challenge') r = typeof body.targetId === 'string' ? room.challenge(g.id, body.targetId, now) : { ok: false, error: 'Choose someone to challenge.' };
+    else if (act === 'respond') r = room.respondToFight(g.id, body.accept === true, now);
+    else if (act === 'pick') r = room.pickMove(g.id, body.move, now);
+    else return sendJson(res, 404, { error: 'not found' });
+    notify(code);
+    if (!r.ok) return sendJson(res, 400, { error: r.error, ...(r.retryAt ? { retryAt: r.retryAt } : {}) });
+    return sendJson(res, 200, { ok: true });
+  }
   if (parts[2] === 'vote' && m === 'POST') {
     const g = guestFor();
     if (!g) return sendJson(res, 401, { error: 'unknown guest' });
@@ -481,6 +497,17 @@ async function api(req, res, url) {
         if (!result.ok) return sendJson(res, 400, { error: result.error });
       }
       saveRooms();
+    }
+    // Duel settings (on or off, challenges per guest per window, the window) and calling a duel off.
+    else if (act === 'fights' && m === 'POST') {
+      if (body.cancel === true) room.cancelFight();
+      else {
+        /** @type {any} */ const patch = {};
+        if (typeof body.enabled === 'boolean') patch.enabled = body.enabled;
+        if (Number.isFinite(body.perWindow)) patch.perWindow = body.perWindow;
+        if (Number.isFinite(body.windowMin)) patch.windowMin = body.windowMin;
+        room.setFightOpts(patch);
+      }
     }
     else if (act === 'blocks' && m === 'POST') {
       const type = body.type;
@@ -638,6 +665,12 @@ const clock = setInterval(() => {
   }
 }, 1000);
 clock.unref();
+// A duel's rounds last a few seconds, so while one is on, its clock runs four times a second. Rooms without a duel cost nothing.
+const fightClock = setInterval(() => {
+  const now = Date.now();
+  for (const [code, room] of rooms) if (room.fight && room.tickFight(now)) notify(code);
+}, 250);
+fightClock.unref();
 
 if (require.main === module) {
   const level = L.configure();

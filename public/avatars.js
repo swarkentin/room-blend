@@ -38,6 +38,23 @@
     return { key: key, label: LABELS[key], score: score };
   }
 
+  /** Colour band for a health bar: plenty, getting low, nearly out. */
+  function hpTone(hp) { return hp > 50 ? 'ok' : hp > 25 ? 'low' : 'crit'; }
+
+  /**
+   * The short line above a fighter's name: what they are doing right now.
+   * f is the public duel the server sends the TV; side is "a" (the challenger) or "b".
+   */
+  function fightStatus(f, side) {
+    var me = f[side], r = f.result, rv = f.reveal;
+    if (f.phase === 'challenge') return side === 'a' ? 'Challenger' : 'Challenged';
+    if (f.phase === 'intro') return 'Ready?';
+    if (f.phase === 'pick') return me.locked ? 'Locked in' : me.streak >= 2 ? 'On fire!' : 'Choosing…';
+    if (f.phase === 'reveal') return rv && rv.fire === side ? 'On fire!' : rv && rv.underdog === side ? 'Underdog!' : '';
+    if (f.phase === 'over') return r && r.winnerId ? (r.winnerId === me.id ? 'Winner!' : r.reason === 'ko' ? 'K.O.' : '') : '';
+    return '';
+  }
+
   // Cut the interval [lo, hi] out of a list of [start, end] spans.
   function cut(spans, lo, hi) {
     var out = [];
@@ -79,7 +96,7 @@
 
   function create(stage, opts) {
     opts = opts || {};
-    var recs = new Map(), timer = null, avW = 0, enabled = opts.enabled !== false;
+    var recs = new Map(), timer = null, avW = 0, enabled = opts.enabled !== false, fight = null;
 
     function reduced() { return !!(opts.reduced && opts.reduced()); }
     function visible() { return stage.getClientRects().length > 0; }
@@ -118,9 +135,13 @@
       if (instant) rec.el.style.transition = 'none';
       rec.el.style.transform = 'translateX(' + Math.round(x) + 'px)';
     }
-    function stopWalking(rec) { clearTimeout(rec.walkT); rec.el.classList.remove('is-walking'); rec.el.style.transition = 'none'; rec.walking = false; }
-    function walkTo(rec, x) {
-      var dist = Math.abs(x - rec.x), secs = Math.max(1.4, dist / (avW * 0.8));
+    function stopWalking(rec) {
+      clearTimeout(rec.walkT); rec.el.classList.remove('is-walking'); rec.el.style.transition = 'none'; rec.walking = false;
+      if (rec.faceAfter === true || rec.faceAfter === false) rec.el.classList.toggle('face-left', rec.faceAfter);   // a fighter ends the walk facing the other one
+    }
+    // fast: a fighter running to the ring or back, instead of a guest's easy stroll
+    function walkTo(rec, x, fast) {
+      var dist = Math.abs(x - rec.x), secs = fast ? Math.min(2.2, Math.max(0.9, dist / (avW * 3))) : Math.max(1.4, dist / (avW * 0.8));
       rec.el.classList.toggle('face-left', x < rec.x);
       rec.el.style.transition = 'transform ' + secs.toFixed(2) + 's ease-in-out';
       rec.el.classList.add('is-walking'); rec.walking = true;
@@ -150,6 +171,7 @@
       var spans = freeSpans();
       recs.forEach(function (rec) {
         if (!rec.placed) { place(rec); return; }
+        if (rec.fighting) return;   // the ring is theirs for now
         if (!spans.length) { rec.el.hidden = true; return; }
         rec.el.hidden = false;
         if (spanIndex(spans, rec.x) < 0) {   // the screen changed under them: step to the nearest free spot
@@ -158,12 +180,13 @@
           stopWalking(rec); setX(rec, best, true);
         }
       });
+      applyFight();
     }
 
     // Now and then one guest takes a short stroll. Never while hovered, resting, or while someone else is already walking.
     function stroll() {
       schedule();
-      if (!enabled || reduced() || (typeof document !== 'undefined' && document.hidden) || !visible()) return;
+      if (!enabled || fight || reduced() || (typeof document !== 'undefined' && document.hidden) || !visible()) return;
       var cands = [], busy = false;
       recs.forEach(function (r) { if (r.walking) busy = true; else if (r.placed && !r.hovered && r.mood !== 'resting' && !r.dancing) cands.push(r); });
       if (busy || !cands.length) return;
@@ -216,8 +239,17 @@
       var fx = document.createElement('div'); fx.className = 'av-fx'; fx.setAttribute('aria-hidden', 'true');
       fx.innerHTML = '<span class="fx-note n1">♪</span><span class="fx-note n2">♫</span><span class="fx-cloud"><i></i><i></i></span><span class="fx-z z1">z</span><span class="fx-z z2">Z</span>';
       var tip = document.createElement('div'); tip.className = 'av-tip'; tip.setAttribute('aria-hidden', 'true'); tip.setAttribute('data-place', 'top');
-      el.appendChild(fx); el.appendChild(flip); el.appendChild(tip);
-      var rec = { id: e.id, el: el, tip: tip, x: 0, placed: false, walking: false, hovered: false, mood: '', dancing: false, sig: '' };
+      // Above the head: what they are doing (during a duel), their name, and (during a duel) their health. User text goes in with textContent only.
+      var hud = document.createElement('div'); hud.className = 'av-hud'; hud.setAttribute('aria-hidden', 'true');
+      var statusEl = document.createElement('div'); statusEl.className = 'av-status';
+      var nameEl = document.createElement('div'); nameEl.className = 'av-name';
+      var hp = document.createElement('div'); hp.className = 'av-hp'; hp.setAttribute('data-tone', 'ok');
+      var hpFill = document.createElement('i'), hpNum = document.createElement('b'); hp.appendChild(hpFill); hp.appendChild(hpNum);
+      hud.appendChild(statusEl); hud.appendChild(nameEl); hud.appendChild(hp);
+      el.appendChild(fx); el.appendChild(flip); el.appendChild(hud); el.appendChild(tip);
+      var rec = { id: e.id, el: el, tip: tip, x: 0, placed: false, walking: false, hovered: false, mood: '', dancing: false, sig: '',
+        nameEl: nameEl, nameText: '', statusEl: statusEl, hp: hp, hpFill: hpFill, hpNum: hpNum,
+        fighting: false, inRing: false, faceAfter: null, lastRound: 0, moveT: null };
       function over() { rec.hovered = true; placeTip(rec); }
       function out() { rec.hovered = false; }
       el.addEventListener('pointerenter', over); el.addEventListener('pointerleave', out);
@@ -226,13 +258,84 @@
       return rec;
     }
 
-    /** entries: [{ id, name, color, genres: [label], stats: [[label, value]], mood: {fit, avg, songs, resting, restLabel} }] */
+    // ----- duels -----
+    // The two fighters walk to the middle of the floor, grow a little, and show their health. Everyone else cheers.
+    function ringSpots() {
+      var w = stage.getBoundingClientRect().width, gap = avW * 3.2, mid = w / 2;
+      return { a: Math.max(0, mid - gap / 2 - avW / 2), b: Math.min(Math.max(0, w - avW), mid + gap / 2 - avW / 2) };
+    }
+    function clearMove(rec) {
+      clearTimeout(rec.moveT);
+      rec.el.classList.remove('mv-strike', 'mv-feint', 'mv-guard', 'is-hit', 'is-fire');
+    }
+    function release(rec) {   // a fighter goes back to the floor
+      var wasInRing = rec.inRing;
+      clearMove(rec);
+      rec.fighting = false; rec.inRing = false; rec.lastRound = 0; rec.faceAfter = null;
+      rec.el.classList.remove('is-fighting', 'in-ring', 'is-win', 'is-ko', 'is-lose');
+      rec.statusEl.textContent = '';
+      if (!wasInRing) return;
+      var spans = freeSpans();
+      if (!spans.length) return;
+      var x = randomIn(spans, rec); if (x === null) x = spans[0][0];
+      if (reduced()) setX(rec, x, true); else walkTo(rec, x, true);
+    }
+    function pop(rec, delta) {   // a number floating up from the fighter's head
+      if (!delta) return;
+      var p = document.createElement('span'); p.className = 'av-pop ' + (delta < 0 ? 'is-dmg' : 'is-heal');
+      p.textContent = (delta > 0 ? '+' : '−') + Math.abs(delta);
+      rec.el.appendChild(p); setTimeout(function () { p.remove(); }, 1700);
+    }
+    function applyFight() {
+      if (!visible()) return;
+      var any = stage.querySelector('.av'); if (any) avW = any.offsetWidth || avW;
+      var f = fight;
+      var ring = !!f && (f.phase === 'intro' || f.phase === 'pick' || f.phase === 'reveal' || (f.phase === 'over' && !!(f.result && f.result.winnerId)));
+      var spots = f ? ringSpots() : null;
+      recs.forEach(function (rec, id) {
+        var side = f ? (id === f.a.id ? 'a' : id === f.b.id ? 'b' : null) : null;
+        rec.el.classList.toggle('is-cheering', !!f && !side && ring);
+        if (!side) { if (rec.fighting) release(rec); return; }
+        if (!rec.fighting) { rec.fighting = true; stopWalking(rec); rec.el.classList.add('is-fighting'); }
+        if (rec.fightId !== f.id) { rec.fightId = f.id; rec.lastRound = 0; }   // a new duel: its rounds count from 1 again
+        if (!ring && rec.inRing) { release(rec); rec.fighting = true; rec.el.classList.add('is-fighting'); }
+        if (ring && !rec.inRing) {
+          rec.inRing = true; rec.faceAfter = side === 'b';
+          rec.el.classList.add('in-ring');
+          if (reduced()) { setX(rec, spots[side], true); stopWalking(rec); } else walkTo(rec, spots[side], true);
+        }
+        var me = f[side], won = f.phase === 'over' && f.result && f.result.winnerId;
+        rec.hpFill.style.width = Math.max(0, Math.min(100, me.hp)) + '%';
+        rec.hpNum.textContent = String(Math.round(me.hp));
+        rec.hp.setAttribute('data-tone', hpTone(me.hp));
+        rec.statusEl.textContent = fightStatus(f, side);
+        rec.el.classList.toggle('is-win', !!won && f.result.winnerId === me.id);
+        rec.el.classList.toggle('is-ko', !!won && f.result.winnerId !== me.id && f.result.reason === 'ko');
+        rec.el.classList.toggle('is-lose', !!won && f.result.winnerId !== me.id && f.result.reason !== 'ko');
+        var rv = f.phase === 'reveal' ? f.reveal : null;
+        if (rv && rec.lastRound !== rv.round) {   // each round's reveal plays once
+          rec.lastRound = rv.round;
+          clearMove(rec);
+          rec.el.classList.add('mv-' + rv[side]);
+          if (rv.delta[side] < 0) rec.el.classList.add('is-hit');
+          if (rv.fire === side) rec.el.classList.add('is-fire');
+          pop(rec, rv.delta[side]);
+          rec.moveT = setTimeout(function () { clearMove(rec); }, 2200);
+        }
+      });
+    }
+    /** The public duel the server sends the TV, or null when there is none. */
+    function setFight(f) { fight = f || null; applyFight(); }
+
+    /** entries: [{ id, name, color, requesting, genres: [label], stats: [[label, value]], mood: {fit, avg, songs, resting, restLabel} }] */
     function update(entries) {
       var seen = {};
       entries.forEach(function (e) {
         seen[e.id] = true;
         var rec = recs.get(e.id) || add(e), m = mood(e.mood);
         rec.mood = m.key;
+        if (rec.nameText !== e.name) { rec.nameText = e.name; rec.nameEl.textContent = e.name; }
+        rec.el.classList.toggle('has-req', !!e.requesting);   // a song is waiting: this guest can duel for it
         rec.el.setAttribute('data-mood', m.key);
         rec.dancing = !!e.dancing;
         rec.el.classList.toggle('is-dancing', rec.dancing);
@@ -265,8 +368,8 @@
       window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(layout, 150); });
     }
     schedule();
-    return { update: update, layout: layout, setEnabled: setEnabled };
+    return { update: update, layout: layout, setEnabled: setEnabled, setFight: setFight };
   }
 
-  return { mood: mood, create: create, LABELS: LABELS, isWeenArtist: isWeenArtist };
+  return { mood: mood, create: create, LABELS: LABELS, isWeenArtist: isWeenArtist, hpTone: hpTone, fightStatus: fightStatus };
 });
