@@ -76,8 +76,8 @@ const intersects = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x && a.y <
     await host.click('#tv-cast-next-btn');
     await until(async () => (await host.locator('.av.is-dancing').count()) === 1, 5000, 'requester dancing');
     assert.match(await host.locator('.av.is-dancing').getAttribute('aria-label'), /^Ana:/);
-    assert.strictEqual(await host.locator('#tv-cast-guavas .tv-cast-guava').count(), 18);
-    ok('the guest who requested the playing song dances, and Ween starts the guava shower');
+    assert.strictEqual(await host.locator('#tv-cast-guavas .tv-cast-guava').count(), 0);
+    ok('the requester dances, but an unplayed Ween request does not trigger guavas');
 
     // leaving removes the avatar
     await host.evaluate(([c, g]) => fetch('/api/rooms/' + c + '/guests/' + g.guestId, { method: 'DELETE', headers: { 'x-guest-id': g.guestId, 'x-guest-key': g.guestKey } }), [code, ana]);

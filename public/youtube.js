@@ -13,7 +13,7 @@
   var DB_NAME = 'room-blend-youtube', DB_VERSION = 2, DB_STORE = 'entries';
   var cacheDbPromise = null, cacheMemory = Object.create(null), cacheWarning = '';
   var SEARCH_DAILY_LIMIT = 90, DISCOVERY_DAILY_LIMIT = 65, SEARCH_BUDGET_KEY = 'rb-yt-search-budget';
-  var on = false, paused = true, busy = false, note = '', player = null, dock = null, cur = null, waiter = null, rctx = null, catalogueRequestId = 0;
+  var on = false, paused = true, busy = false, note = '', player = null, dock = null, cur = null, curStarted = false, waiter = null, rctx = null, catalogueRequestId = 0;
   var apiQueue = Promise.resolve(), apiRetryMs = 1000, playbackAttempt = 0;
   var quotaPausedDay = '', API_INTERVAL_MS = Number.isFinite(Number(C.ytApiIntervalMs)) && Number(C.ytApiIntervalMs) >= 0 ? Number(C.ytApiIntervalMs) : 2000, MAX_RETRY_WAIT_MS = 5000, MIN_GENRE_TRACKS = 12;
 
@@ -625,9 +625,11 @@
 
   function stateChange(e) {
     var s = e && e.data;
-    if (s === 1) { paused = false; if (waiter) waiter(true); }
+    if (s === 1) { paused = false; curStarted = true; if (waiter) waiter(true); }
     else if (s === 2) paused = true;
-    else if (s === 0) { paused = true; if (cur && !waiter) { cur = null; if (rctx) rctx.ended(); } }
+    // Ignore an ENDED event until this particular load has first reached PLAYING.
+    // YouTube can emit a delayed end-state from the previous video while a new one loads.
+    else if (s === 0) { paused = true; if (cur && curStarted && !waiter) { cur = null; curStarted = false; if (rctx) rctx.ended(); } }
   }
   function playerError(e) {
     var code = e && e.data;
@@ -642,7 +644,7 @@
       var done = false, timer;
       function fin(v) { if (done) return; done = true; clearTimeout(timer); waiter = null; resolve(v); }
       timer = setTimeout(function () { note = 'YouTube did not start the song. Press play on the YouTube player in the corner.'; fin(false); }, 15000);
-      waiter = fin; cur = id; note = '';
+      waiter = fin; cur = id; curStarted = false; note = '';
       try { player.loadVideoById(id); } catch (e) { note = 'The YouTube player is not ready.'; fin(false); }
     });
   }
