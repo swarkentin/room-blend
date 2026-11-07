@@ -294,6 +294,14 @@ body.tv-cast-mode #yt-dock .hint { display: none; }
   .tv-cast-spectrum { display: none; }
 }
 /* ---- TV / cast view: little animated guests ---- */
+.tv-cast-guavas { position: fixed; inset: 0; z-index: 4; overflow: hidden; pointer-events: none; }
+.tv-cast-guava { position: absolute; top: -12vh; width: clamp(22px, 2.8vw, 42px); height: clamp(30px, 3.7vw, 54px); border-radius: 48% 52% 46% 54% / 42% 42% 58% 58%; background: radial-gradient(ellipse at 35% 28%, #d6ef9a 0 8%, #86bd52 28%, #438a45 72%, #28633d 100%); box-shadow: inset -4px -5px 8px #173d3144, 0 3px 8px #0004; transform: rotate(var(--guava-turn)); }
+.tv-cast-guava::before { content: ''; position: absolute; top: -5px; left: 45%; width: 34%; height: 18%; border-radius: 100% 0 100% 0; background: #4e9a4d; transform: rotate(-28deg); }
+.tv-cast-guava i { position: absolute; inset: 24% 19%; border-radius: 50%; background: radial-gradient(ellipse at 50% 45%, #f5b3a0 0 38%, #f7d2a5 68%, #d8a76d 100%); opacity: .0; }
+@media (prefers-reduced-motion: no-preference) {
+  .tv-cast-guava { animation: tv-guava-fall 5s linear both; }
+  @keyframes tv-guava-fall { from { transform: translate3d(0, -12vh, 0) rotate(var(--guava-turn)); } to { transform: translate3d(7vw, 115vh, 0) rotate(calc(var(--guava-turn) + 300deg)); } }
+}
 .tv-cast-avatars { --av-w: clamp(46px, 4.4vw, 88px); position: fixed; z-index: 2; left: 5vw; right: 5vw; bottom: 78px; height: calc(var(--av-w) * 1.4); pointer-events: none; }
 .av { position: absolute; left: 0; bottom: 0; width: var(--av-w); aspect-ratio: 60 / 84; pointer-events: auto; outline: none; will-change: transform; }
 .av:hover, .av:focus-visible { z-index: 5; }
@@ -360,6 +368,11 @@ body.tv-cast-mode #yt-dock .hint { display: none; }
   .av.is-walking .av-arm-r { animation: av-swing .56s ease-in-out infinite; }
   .av.is-walking .av-figure { animation: av-bob .28s ease-in-out infinite alternate; }
   .av[data-mood="thrilled"]:not(.is-walking) .av-figure { animation: av-dance .6s ease-in-out infinite alternate var(--d); }
+  .av.is-dancing:not(.is-walking) .av-figure { animation: av-dance .42s ease-in-out infinite alternate var(--d); }
+  .av.is-dancing:not(.is-walking) .av-arm-l { animation: av-cheer-l .42s ease-in-out infinite alternate var(--d); }
+  .av.is-dancing:not(.is-walking) .av-arm-r { animation: av-cheer-r .42s ease-in-out infinite alternate var(--d); }
+  .av.is-dancing:not(.is-walking) .av-leg-l { animation: av-step .42s ease-in-out infinite; }
+  .av.is-dancing:not(.is-walking) .av-leg-r { animation: av-step .42s ease-in-out infinite -.21s; }
   .av[data-mood="thrilled"]:not(.is-walking) .av-arm-l { animation: av-cheer-l .6s ease-in-out infinite alternate var(--d); }
   .av[data-mood="thrilled"]:not(.is-walking) .av-arm-r { animation: av-cheer-r .6s ease-in-out infinite alternate var(--d); }
   .av[data-mood="happy"]:not(.is-walking) .av-figure, .av[data-mood="waiting"]:not(.is-walking) .av-figure { animation: av-sway 2.8s ease-in-out infinite alternate var(--d); }
