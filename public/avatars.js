@@ -165,7 +165,7 @@
       schedule();
       if (!enabled || reduced() || (typeof document !== 'undefined' && document.hidden) || !visible()) return;
       var cands = [], busy = false;
-      recs.forEach(function (r) { if (r.walking) busy = true; else if (r.placed && !r.hovered && r.mood !== 'resting') cands.push(r); });
+      recs.forEach(function (r) { if (r.walking) busy = true; else if (r.placed && !r.hovered && r.mood !== 'resting' && !r.dancing) cands.push(r); });
       if (busy || !cands.length) return;
       var rec = cands[Math.floor(Math.random() * cands.length)], spans = freeSpans(), k = spanIndex(spans, rec.x);
       if (k < 0) return;
@@ -217,7 +217,7 @@
       fx.innerHTML = '<span class="fx-note n1">♪</span><span class="fx-note n2">♫</span><span class="fx-cloud"><i></i><i></i></span><span class="fx-z z1">z</span><span class="fx-z z2">Z</span>';
       var tip = document.createElement('div'); tip.className = 'av-tip'; tip.setAttribute('aria-hidden', 'true'); tip.setAttribute('data-place', 'top');
       el.appendChild(fx); el.appendChild(flip); el.appendChild(tip);
-      var rec = { id: e.id, el: el, tip: tip, x: 0, placed: false, walking: false, hovered: false, mood: '', sig: '' };
+      var rec = { id: e.id, el: el, tip: tip, x: 0, placed: false, walking: false, hovered: false, mood: '', dancing: false, sig: '' };
       function over() { rec.hovered = true; placeTip(rec); }
       function out() { rec.hovered = false; }
       el.addEventListener('pointerenter', over); el.addEventListener('pointerleave', out);
@@ -234,7 +234,9 @@
         var rec = recs.get(e.id) || add(e), m = mood(e.mood);
         rec.mood = m.key;
         rec.el.setAttribute('data-mood', m.key);
-        rec.el.classList.toggle('is-dancing', !!e.dancing);
+        rec.dancing = !!e.dancing;
+        rec.el.classList.toggle('is-dancing', rec.dancing);
+        if (rec.dancing && rec.walking) stopWalking(rec);
         rec.el.style.setProperty('--av', e.color);
         rec.el.setAttribute('aria-label', e.name + ': ' + m.label);
         var sig = JSON.stringify([e.name, e.color, e.genres, e.stats, m.label]);
