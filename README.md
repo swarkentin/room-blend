@@ -17,6 +17,12 @@ Room Blend only decides what plays next. The host's own music service plays the 
 
 Guests can also join from a short link, from the "Playing near you" list on the same Wi-Fi, or by typing the 5-letter room code. Once in, they can name artists and songs they like, or request a song for the host to play.
 
+### Duels
+
+Guests who both have a song waiting can duel for its place in line. On the TV / cast view their avatars walk to the middle of the floor, with a name tag and health bar over each head, and play a few quick rounds of Strike, Feint and Guard (Strike beats Feint, Feint beats Guard, Guard beats Strike) picked secretly on their phones. Now and then a Chaos Card changes the rules for a round. The winner's request moves up 2 to 4 places; the loser's never drops.
+
+To keep it fair, each guest can declare only a few challenges per window of time, nobody can be pulled into back-to-back duels, and the room runs one duel at a time. The host sets the allowance and window (or turns duels off) under **Duels** in the host console, and can call off a duel in progress.
+
 ## What it looks like
 
 <table>

@@ -440,6 +440,12 @@
           '<div class="slider"><label for="s-lambda"><span>Protect the least-happy guest</span><output id="o-lambda"></output></label><input type="range" id="s-lambda" min="0" max="100" step="5"><p class="hint">0% chases the room average. 100% only counts whoever likes the song least.</p></div>' +
           '<div class="slider"><label for="s-tau"><span>Blend only above overlap</span><output id="o-tau"></output></label><input type="range" id="s-tau" min="0.2" max="0.9" step="0.05"><p class="hint">Below this, songs rotate between guests instead.</p></div>' +
           '<div class="slider"><label for="s-settle"><span>New guest counts after</span><output id="o-settle"></output></label><input type="range" id="s-settle" min="0" max="30" step="1"><p class="hint">Stops a passer-by from reshuffling the room.</p></div><div class="slider"><label for="s-doze"><span>Keep a guest counted after their phone locks</span><output id="o-doze"></output></label><input type="range" id="s-doze" min="5" max="120" step="5"><p class="hint">A locked phone cannot say it is still here, so it is trusted for this long, then they are dropped until they open the page again.</p></div><label class="disc"><input type="checkbox" id="request-limit" checked> Limit each guest to 2 outstanding song requests</label><p class="hint">Turn this off to let guests request as many songs as they like.</p></details>' +
+          '<details class="panel secondary" id="duel-panel"><summary>Duels</summary>' +
+          '<p class="hint">Guests with a song waiting can challenge each other on the TV view. The winner’s song moves up the request list; the loser’s never drops.</p>' +
+          '<label class="disc"><input type="checkbox" id="duel-on" checked> Allow duels in this room</label>' +
+          '<div class="slider"><label for="s-duel-n"><span>Challenges each guest can declare</span><output id="o-duel-n"></output></label><input type="range" id="s-duel-n" min="1" max="6" step="1"></div>' +
+          '<div class="slider"><label for="s-duel-w"><span>Per window of</span><output id="o-duel-w"></output></label><input type="range" id="s-duel-w" min="5" max="120" step="5"><p class="hint">Whatever the settings, nobody can be dragged into back-to-back duels, and the ring runs one duel at a time.</p></div>' +
+          '<div class="row"><button class="btn small" type="button" id="duel-cancel" hidden>Call off the current duel</button></div></details>' +
           '<details class="panel secondary" id="blocked-panel"><summary>Blocked songs &amp; artists</summary>' +
           '<p class="hint">Blocked items are never played in this room, even when guests request them.</p>' +
           '<div class="block-search"><div class="block-tabs" role="group" aria-label="What to block"><button class="btn small primary" type="button" id="block-mode-artist" aria-pressed="true">Artist</button><button class="btn small" type="button" id="block-mode-song" aria-pressed="false">Song</button></div>' +
@@ -469,6 +475,7 @@
       ]),
       h('div', { class: 'tv-cast-guavas', id: 'tv-cast-guavas', 'aria-hidden': 'true' }),
       h('div', { class: 'tv-cast-avatars', id: 'tv-cast-avatars', role: 'group', 'aria-label': 'Guests in the room', hidden: 'hidden' }),
+      h('div', { id: 'tv-cast-fight', hidden: 'hidden' }),
       h('div', { class: 'tv-cast-join' }, [
         h('div', { id: 'tv-cast-qr', role: 'img', 'aria-label': 'QR code to join this room' }),
         h('p', { class: 'tv-cast-label', text: 'Scan to join' }),
@@ -500,9 +507,16 @@
       enabled: avatarsOn,
       avoid: function () { return [tvCastView.querySelector('.tv-cast-join'), $('yt-dock')]; },
       reduced: function () { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; },
-    }) : { update: function () {}, layout: function () {}, setEnabled: function () {} };
+    }) : { update: function () {}, layout: function () {}, setEnabled: function () {}, setFight: function () {} };
+    // Duels: the overlay on the cast view (round clock, Chaos Cards, move reveal). The fighters' health bars and name tags live on the avatars.
+    var castFight = window.FightUI ? window.FightUI.createTV($('tv-cast-fight'), {
+      avatars: castAvatars, view: tvCastView,
+      color: function (i) { return COLORS[i % COLORS.length]; },
+      avatarsVisible: function () { return avatarsOn; },
+    }) : { update: function () {} };
     function castEntries(st) {
-      var fits = {}, fair = {};
+      var fits = {}, fair = {}, asking = {};
+      (st.requests || []).forEach(function (r) { if (r.guestId) asking[r.guestId] = true; });
       if (st.now) st.now.fits.forEach(function (f) { fits[f.id] = f.fit; });
       st.fairness.forEach(function (f) { fair[f.id] = f; });
       return st.guests.filter(function (g) { return g.status !== 'arriving'; }).map(function (g) {
@@ -513,7 +527,7 @@
         stats.push(['Own turns', String(f.own)]);
         if (g.picks) stats.push(['Named', g.artistCount + (g.artistCount === 1 ? ' artist, ' : ' artists, ') + g.songCount + (g.songCount === 1 ? ' song' : ' songs')]);
         return {
-          id: g.id, name: g.name, color: COLORS[g.color % COLORS.length],
+          id: g.id, name: g.name, color: COLORS[g.color % COLORS.length], requesting: !!asking[g.id],
           dancing: !!(st.now && st.now.mode === 'request' && st.now.owner === g.id),
           genres: (g.genres.length ? g.genres : g.inferred || []).map(gl), stats: stats,
           mood: { fit: now == null ? null : now, avg: f.avg, songs: f.songs, resting: resting, restLabel: g.hostSit ? 'Sat out by the host' : g.away ? 'Stepped away' : 'Sitting this one out' },
@@ -539,6 +553,7 @@
     function setAvatars(on) {
       avatarsOn = on; lsSet('rb-tv-avatars', on ? 'on' : 'off');
       castAvatars.setEnabled(on);
+      if (S.st) castFight.update(S.st.fight || null);
       $('tv-cast-guests-btn').setAttribute('aria-pressed', on ? 'true' : 'false');
       $('tv-cast-guests-btn').textContent = on ? 'Guests: on' : 'Guests: off';
     }
@@ -596,6 +611,23 @@
     function outputs(o) { $('o-lambda').textContent = pct(o.lambda) + '%'; $('o-tau').textContent = Number(o.tau).toFixed(2); $('o-settle').textContent = o.settle + ' s'; if ($('o-doze')) $('o-doze').textContent = (o.doze || 30) + ' min'; }
     slider('s-lambda', 'lambda', 100); slider('s-tau', 'tau', 1); slider('s-settle', 'settle', 1); slider('s-doze', 'doze', 1);
     $('request-limit').addEventListener('change', function () { post('opts', { requestLimitEnabled: this.checked }); });
+    // Duel settings: on or off, how many challenges a guest may declare, and how long the window is.
+    function duelOutputs(n, w) { $('o-duel-n').textContent = n + (n === 1 ? ' challenge' : ' challenges'); $('o-duel-w').textContent = w + ' min'; }
+    function duelSettings(st) {
+      var o = st.fightOpts || {}, n = o.perWindow || 2, w = o.windowMin || 15;
+      $('duel-on').checked = o.enabled !== false;
+      if (document.activeElement !== $('s-duel-n')) $('s-duel-n').value = n;
+      if (document.activeElement !== $('s-duel-w')) $('s-duel-w').value = w;
+      duelOutputs(n, w);
+      $('s-duel-n').disabled = $('s-duel-w').disabled = o.enabled === false;
+      $('duel-cancel').hidden = !(st.fight && st.fight.phase !== 'over');
+    }
+    $('duel-on').addEventListener('change', function () { post('fights', { enabled: this.checked }); });
+    [['s-duel-n', 'perWindow'], ['s-duel-w', 'windowMin']].forEach(function (p) {
+      $(p[0]).addEventListener('input', function () { duelOutputs(Number($('s-duel-n').value), Number($('s-duel-w').value)); });
+      $(p[0]).addEventListener('change', function () { var o = {}; o[p[1]] = Number($(p[0]).value); post('fights', o); });
+    });
+    $('duel-cancel').addEventListener('click', function () { post('fights', { cancel: true }); });
     var blockMode = 'artist', blockSelection = null, blockTimer = null, blockSequence = 0;
     function clearBlockSelection() { blockSelection = null; $('block-selection').hidden = true; }
     function setBlockMode(mode) {
@@ -940,6 +972,7 @@
       $('tv-cast-meta').textContent = st.guests.filter(function (g) { return g.status === 'active'; }).length + ' listening · ' + (st.now ? (st.now.mode === 'rotate' ? 'taking turns' : 'blending everyone’s taste') : 'waiting for guests');
       $('tv-cast-genres').replaceChildren.apply($('tv-cast-genres'), st.now ? tagList(st.now.track.genres || []) : []);
       castAvatars.update(castEntries(st));
+      castFight.update(st.fight || null);
       var tvNext = $('tv-cast-next'); tvNext.replaceChildren();
       var comingUp = Array.isArray(st.upNext) ? st.upNext : st.queue;
       comingUp.slice(0, 4).forEach(function (item) {
@@ -958,6 +991,7 @@
       if (document.activeElement !== $('s-settle')) $('s-settle').value = st.opts.settle;
       if (document.activeElement !== $('s-doze')) $('s-doze').value = st.opts.doze || 30;
       outputs(st.opts); $('request-limit').checked = st.requestLimitEnabled !== false;
+      duelSettings(st);
       var blockedList = $('blocked-list'); blockedList.replaceChildren();
       (st.blockedArtists || []).forEach(function (artist) {
         blockedList.appendChild(h('div', { class: 'block-row' }, [
@@ -1132,7 +1166,7 @@
     var reg = null; try { reg = JSON.parse(lsGet(regKey) || 'null'); } catch (e) { reg = null; }
     function saveReg() { lsSet(regKey, JSON.stringify(reg)); savePrefs(reg); }
     var params = new URLSearchParams(location.search);
-    var es = null, st = null, findOpen = Object.create(null), goneAt = 0, requestDetails = null;
+    var es = null, st = null, findOpen = Object.create(null), goneAt = 0, requestDetails = null, duelUI = null;
 
     app.replaceChildren(h('div', { class: 'wrap guest-wrap' }, [
       h('header', { class: 'top guest-top' }, [h('div', { class: 'guest-brandline' }, [h('a', { class: 'brand', href: '/', 'aria-label': 'Room Blend home' }, [h('img', { src: '/brand-mark.svg', alt: '' }), h('span', null, ['room ', h('b', { text: 'blend' })])]), h('span', { class: 'room-pill', text: 'ROOM ' + code })]), h('div', null, [h('h1', { id: 'gv-title-h', text: 'Room ' + code }), h('p', { id: 'g-sub', text: 'Pick genres, or name artists and songs you like. The room\'s music shifts to fit everyone who is here.' })])]),
@@ -1219,6 +1253,14 @@
 
     function showLive() {
       $('gform-sec').hidden = true; $('glive-sec').hidden = false;
+      // Duels: challenge another guest, answer a challenge, pick moves. The server decides everything; this only draws it.
+      if (duelUI) duelUI.destroy();
+      var duelEl = h('section');
+      duelUI = window.FightUI ? window.FightUI.createPhone(duelEl, {
+        color: function (i) { return COLORS[i % COLORS.length]; },
+        post: function (action, body) { return http('POST', '/api/rooms/' + code + '/fight/' + action, body || {}, auth()); },
+      }) : null;
+      if (!duelUI) duelEl = h('section', { hidden: 'hidden' });
       $('glive-sec').replaceChildren(
         h('section', { class: 'playback-tracker' }, [
         h('div', { class: 'now' }, [
@@ -1231,6 +1273,7 @@
         h('section', { class: 'up-next-strip' }, [h('div', { class: 'sec-h' }, [h('h2', { text: 'Up next' }), h('span', { class: 'meta', id: 'gv-next-count' })]), h('ol', { class: 'gnext', id: 'gv-next' })]),
         ]),
         h('section', { class: 'panel' }, [h('div', { class: 'sec-h' }, [h('h2', { text: 'Request a song' })]), h('p', { class: 'hint', text: 'Ask the host to play any song. It does not need to be in the room’s music library.' }), h('form', { id: 'guest-request-form', class: 'guest-add-song', autocomplete: 'off', 'aria-label': 'Request a song' }, [h('label', { htmlFor: 'guest-request-title', text: 'Song' }), h('input', { id: 'guest-request-title', type: 'text', maxlength: '100', required: 'required', autocomplete: 'off', placeholder: 'Song title' }), h('label', { htmlFor: 'guest-request-artist', text: 'Artist' }), h('input', { id: 'guest-request-artist', type: 'text', maxlength: '100', required: 'required', autocomplete: 'off', placeholder: 'Artist name' }), h('p', { class: 'hint guest-request-status', id: 'guest-request-search-status', role: 'status' }), h('p', { class: 'hint guest-request-status', id: 'guest-request-hint', role: 'status' })])]),
+        duelEl,
         (requestDetails = h('details', { class: 'secondary', id: 'gv-request-details' }, [h('summary', { text: 'Requested songs' }), h('ol', { class: 'gnext', id: 'gv-requests' })])),
         h('details', { class: 'secondary', id: 'gv-preferences-details' }, [h('summary', { text: 'Profile & music preferences' }), picksSection()]),
         h('details', { class: 'secondary', id: 'gv-played-sec' }, [h('summary', { text: 'Played while you were here' }),
@@ -1518,6 +1561,7 @@
       var me = s.me;
       if (me && reg && typeof me.lookupGenres === 'boolean' && me.lookupGenres !== !!reg.lookupGenres) { reg.lookupGenres = me.lookupGenres; saveReg(); if (picksSection.refresh) picksSection.refresh(); }
       if (me && Array.isArray(me.artists) && reg) { var ch = JSON.stringify([me.artists, me.songs, me.genres]) !== JSON.stringify([reg.artists || [], reg.songs || [], reg.genres || []]); if (ch) { reg.artists = me.artists; reg.songs = me.songs; reg.genres = me.genres || []; saveReg(); if (picksSection.refresh) picksSection.refresh(); } }
+      if (duelUI) duelUI.update(s.fights);
       renderPlayed(s);
       $('gv-ask').hidden = !(me && me.ask && !me.away);
       $('gv-sit').setAttribute('aria-pressed', me && me.sit ? 'true' : 'false');

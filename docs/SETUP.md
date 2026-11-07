@@ -101,3 +101,15 @@ There is nothing to switch on. Every press of **Start a room** creates a separat
 | `AWAY_REMOVE_MS` | 900000 | Away from the Wi-Fi this long: removed. |
 | `IDLE_ASK_S` | 3600 | Seconds without a touch before asking "still here?". |
 | `IDLE_ANSWER_MS` | 300000 | Time to answer before the guest sits out. |
+
+### Duel settings
+
+Duels are set per room in the host console under **Duels**, and are saved with the room.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| Allow duels | on | Turn duels off for the whole room. A duel in progress is called off. |
+| Challenges each guest can declare | 2 (1 to 6) | How many challenges one guest may start inside the window. Challenges that are called off do not count. |
+| Window | 15 min (5 to 120) | How long a challenge counts against the allowance. |
+
+Other limits are fixed: a 90 second cooldown after a duel, a 3 minute shield for the guest who was challenged, 90 seconds of peace after someone says no, no rematch of the same pair inside the window, and a cap on the whole room of three times one guest's allowance per window.
