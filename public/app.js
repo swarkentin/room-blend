@@ -790,6 +790,13 @@
       if (r === null) { S.status = P.lastError ? P.lastError() : 'That song could not be played, so it was skipped.'; renderSource(); post('player', { event: 'unplayable', trackId: track.id }); return; }
       if (!r) { S.playing = null; S.status = P.lastError ? P.lastError() : 'Could not start playback.'; renderSource(); }
       else {
+        // Trigger visual effects only after the provider confirms playback; selected-but-unplayable
+        // tracks must not produce a guava shower before being skipped.
+        if (castEffectTrackId !== track.id) {
+          castEffectTrackId = track.id;
+          if (window.Avatars && window.Avatars.isWeenArtist(track.artist)) triggerGuavas();
+          else $('tv-cast-guavas').replaceChildren();
+        }
         if (track.artwork && S.st && S.st.now && S.st.now.track.id === track.id) { S.st.now.track.artwork = track.artwork; render(S.st); }
         if (S.status) { S.status = ''; renderSource(); }
       }
@@ -881,12 +888,6 @@
       saveSnap(code, st);
       scheduleRoomSnapshot(st.version);
       var castTitle = $('tv-cast-title');
-      var currentTrackId = st.now && st.now.track && st.now.track.id || null;
-      if (currentTrackId !== castEffectTrackId) {
-        castEffectTrackId = currentTrackId;
-        if (currentTrackId && window.Avatars && window.Avatars.isWeenArtist(st.now.track.artist)) triggerGuavas();
-        else $('tv-cast-guavas').replaceChildren();
-      }
       var castTitleText = st.now ? st.now.track.title : 'Waiting for the first guest';
       $('tv-cast-room').textContent = st.name || 'Now playing';
       castTitle.textContent = castTitleText;
