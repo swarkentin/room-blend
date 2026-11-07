@@ -355,6 +355,24 @@
     var joinUrl = (C.publicUrl || location.origin) + '/' + code;
     var S = { st: null, prov: null, reup: 0, srcSig: '', playing: null, status: '', busy: false, extrasBusy: false, tried: {}, paused: false, snapshotTimer: null, snapshotBusy: false, snapshotWantedVersion: -1, snapshotSavedVersion: -1, snapshotEpoch: 0, recovering: false, snapshotUnavailable: false };
     var addPicked = [];
+    // A deployment can replace the client code while this host tab remains open. Detect it,
+    // but wait for a natural idle gap so reloading never cuts off a song mid-playback.
+    var serverBuild = null, updatePending = false;
+    function refreshIfSafe() {
+      if (updatePending && S.st && !S.st.now && !S.playing && !S.busy && !S.recovering) location.reload();
+    }
+    async function checkForServerUpdate() {
+      try {
+        var response = await http('GET', '/version.json');
+        var build = response.ok && response.data && response.data.build;
+        if (!build) return;
+        if (serverBuild === null) serverBuild = build;
+        else if (build !== serverBuild) updatePending = true;
+        refreshIfSafe();
+      } catch (e) { /* transient deploy/network errors; retry on the next poll */ }
+    }
+    checkForServerUpdate();
+    setInterval(checkForServerUpdate, 30000);
 
     function scheduleRoomSnapshot(version) {
       if (S.snapshotUnavailable || !Number.isFinite(version) || version <= S.snapshotSavedVersion) return;
@@ -878,6 +896,7 @@
     // ----- rendering -----
     function render(st) {
       S.st = st;
+      refreshIfSafe();
       saveSnap(code, st);
       scheduleRoomSnapshot(st.version);
       var castTitle = $('tv-cast-title');
