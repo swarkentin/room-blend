@@ -18,6 +18,12 @@
 
   function num(v) { return typeof v === 'number' && isFinite(v) ? v : null; }
 
+  // Match Ween as an artist credit, not as an incidental substring (e.g. "between").
+  function isWeenArtist(value) {
+    return String(value || '').split(/\s*(?:,|&|;|\bfeat(?:uring)?\.?|\bwith\b)\s*/i)
+      .some(function (artist) { return artist.trim().toLowerCase() === 'ween'; });
+  }
+
   /**
    * How a guest is feeling, from how well the song now playing fits them (0 to 1) and how well the room has
    * served them so far (average fit over the songs they have heard).
@@ -228,6 +234,7 @@
         var rec = recs.get(e.id) || add(e), m = mood(e.mood);
         rec.mood = m.key;
         rec.el.setAttribute('data-mood', m.key);
+        rec.el.classList.toggle('is-dancing', !!e.dancing);
         rec.el.style.setProperty('--av', e.color);
         rec.el.setAttribute('aria-label', e.name + ': ' + m.label);
         var sig = JSON.stringify([e.name, e.color, e.genres, e.stats, m.label]);
@@ -259,5 +266,5 @@
     return { update: update, layout: layout, setEnabled: setEnabled };
   }
 
-  return { mood: mood, create: create, LABELS: LABELS };
+  return { mood: mood, create: create, LABELS: LABELS, isWeenArtist: isWeenArtist };
 });
