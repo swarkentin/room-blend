@@ -49,6 +49,11 @@ function sse(path) {
   ok('genre map maps Spotify genres to the canonical list');
 
   // static + config
+  const version = await req('GET', '/version.json');
+  assert.strictEqual(version.status, 200);
+  assert.ok(version.json && typeof version.json.build === 'string' && version.json.build.length > 0);
+  assert.strictEqual(version.headers['cache-control'], 'no-store');
+  ok('deployment version endpoint returns a non-cacheable build identifier');
   assert.strictEqual((await req('GET', '/')).status, 200);
   assert.strictEqual((await req('GET', '/host/ABCDE')).status, 200);
   assert.strictEqual((await req('GET', '/r/ABCDE')).status, 200);
