@@ -724,20 +724,33 @@
       $('btn-pause').hidden = !P.ready();
     }
 
-    var castEffectTrackId = null;
-    function triggerGuavas() {
+    var castEffectTrackId = null, guavaTrackId = null, guavaTimer = null;
+    function stopGuavas() {
+      if (guavaTimer) { clearInterval(guavaTimer); guavaTimer = null; }
+      guavaTrackId = null;
+      var layer = $('tv-cast-guavas');
+      if (layer) layer.replaceChildren();
+    }
+    function triggerGuavas(trackId) {
+      stopGuavas();
       var layer = $('tv-cast-guavas');
       if (!layer || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-      layer.replaceChildren();
-      for (var i = 0; i < 18; i++) {
+      guavaTrackId = trackId;
+      function dropGuava(stagger) {
+        // A steady stream keeps fruit falling for the whole song without accumulating old nodes.
         var fruit = h('span', { class: 'tv-cast-guava' }, [h('i')]);
         fruit.style.left = (2 + Math.random() * 96) + '%';
         fruit.style.animationDuration = (4.2 + Math.random() * 2.8) + 's';
-        fruit.style.animationDelay = (-Math.random() * 2.4) + 's';
+        fruit.style.animationDelay = stagger ? (-Math.random() * 2.4) + 's' : '0s';
         fruit.style.setProperty('--guava-turn', (Math.random() * 100 - 50) + 'deg');
         fruit.addEventListener('animationend', function () { this.remove(); });
         layer.appendChild(fruit);
       }
+      for (var i = 0; i < 12; i++) dropGuava(true);
+      guavaTimer = setInterval(function () {
+        if (guavaTrackId !== trackId || !document.getElementById('tv-cast-guavas')) { stopGuavas(); return; }
+        dropGuava(false);
+      }, 420);
     }
     function castArtwork(track) {
       var url = track && (track.artwork || (SP && SP.artworkFor ? SP.artworkFor(track) : ''));
@@ -812,8 +825,8 @@
         // tracks must not produce a guava shower before being skipped.
         if (castEffectTrackId !== track.id) {
           castEffectTrackId = track.id;
-          if (window.Avatars && window.Avatars.isWeenArtist(track.artist)) triggerGuavas();
-          else $('tv-cast-guavas').replaceChildren();
+          if (window.Avatars && window.Avatars.isWeenArtist(track.artist)) triggerGuavas(track.id);
+          else stopGuavas();
         }
         if (track.artwork && S.st && S.st.now && S.st.now.track.id === track.id) { S.st.now.track.artwork = track.artwork; render(S.st); }
         if (S.status) { S.status = ''; renderSource(); }
@@ -907,6 +920,9 @@
       saveSnap(code, st);
       scheduleRoomSnapshot(st.version);
       var castTitle = $('tv-cast-title');
+      var currentTrackId = st.now && st.now.track && st.now.track.id || null;
+      // A room-state transition away from the confirmed playing Ween track ends its guava shower.
+      if (guavaTrackId && currentTrackId !== guavaTrackId) stopGuavas();
       var castTitleText = st.now ? st.now.track.title : 'Waiting for the first guest';
       $('tv-cast-room').textContent = st.name || 'Now playing';
       castTitle.textContent = castTitleText;
