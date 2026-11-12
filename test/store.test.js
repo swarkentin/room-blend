@@ -4,18 +4,13 @@
 //   TEST_DATABASE_URL='postgresql://...' node test/store.test.js
 const assert = require('assert');
 const contract = require('./store.contract');
-const { createMemoryStore, createStore, tokensOf } = require('../lib/store');
+const { createMemoryStore, createStore } = require('../lib/store');
 const { createPgStore, MIGRATIONS } = require('../lib/pgstore');
 
 let passed = 0;
 const ok = (n) => { passed++; console.log('  ok  ' + n); };
 
 (async () => {
-  assert.deepStrictEqual(tokensOf('Take Five (Official Video)', 'Dave Brubeck'), ['take', 'five', 'dave', 'brubeck']);
-  assert.deepStrictEqual(tokensOf('Beyoncé – Halo!', ''), ['beyoncé', 'halo']);
-  assert.deepStrictEqual(tokensOf('日本語 の 歌', ''), ['日本語', 'の', '歌'].filter((w) => w.length >= 2));
-  ok('song words are lowercase letters and digits, any script, no filler');
-
   assert.strictEqual(createStore({}).kind, 'memory');
   assert.strictEqual(createStore({}).persistent, false);
   const named = createStore({ DATABASE_URL: 'memory://one' });
@@ -26,11 +21,10 @@ const ok = (n) => { passed++; console.log('  ok  ' + n); };
   await contract(createMemoryStore(), ok);
 
   // The memory store stays bounded.
-  const small = createMemoryStore({ maxSongs: 10, maxLookups: 5 });
-  await small.putPool('p', Array.from({ length: 50 }, (_, i) => ({ id: 'v' + String(i).padStart(3, '0'), title: 'T' + i, artist: 'A', genres: [], quality: 0 })), 1000);
-  assert.ok((await small.stats()).songs <= 10);
-  for (let i = 0; i < 20; i++) await small.putSearch('k' + i, ['x'], 1000);
-  assert.ok((await small.stats()).searches <= 5);
+  const small = createMemoryStore({ maxVideos: 10, maxLookups: 5 });
+  for (let i = 0; i < 40; i++) await small.recordPlay('v', 'vid' + String(i).padStart(3, '0'), true, 'k' + i);
+  const sm = await small.stats(1);
+  assert.ok(sm.ratedVideos <= 10 && sm.lookupsWithVotes <= 5);
   ok('memory store is bounded');
 
   // ----- Postgres, with a scripted pool: migrations and retries without a database -----

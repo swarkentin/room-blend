@@ -27,78 +27,54 @@ module.exports = async function contract(store, ok) {
   assert.deepStrictEqual(await store.loadRooms(0), []);
   ok('rooms: identity, newest-wins checkpoints, expiry window, delete');
 
-  // ----- pools and songs -----
-  const song = (id, title, artist, genres = [], quality = 1) => ({ id, title, artist, genres, quality });
-  await store.putPool('blues rock', [song('vid-blues1', 'Pride and Joy', 'Stevie Ray Vaughan', ['blues']), song('vid-blues2', 'Crossfire', 'Stevie Ray Vaughan', ['blues', 'rock'], 2)], 30 * DAY, now);
-  await store.putPool('empty one', [], 12 * 3600000, now);
-  let got = await store.getPools(['blues rock', 'empty one', 'never stored'], now + 1000);
-  assert.deepStrictEqual(got['blues rock'].map((s) => s.id), ['vid-blues1', 'vid-blues2'], 'a pool keeps its order');
-  assert.deepStrictEqual(got['empty one'], [], 'an empty pool is a real answer');
-  assert.ok(!('never stored' in got), 'unknown pools are absent');
-  assert.strictEqual(got['blues rock'][1].title, 'Crossfire');
-  got = await store.getPools(['blues rock', 'empty one'], now + 13 * 3600000);
-  assert.ok('blues rock' in got && !('empty one' in got), 'pools expire on their own schedule');
-  got = await store.getPools(['blues rock'], now + 31 * DAY);
-  assert.ok(!('blues rock' in got));
-  ok('pools: ordered, negative answers, per-pool expiry');
-
-  // songs merge across pools: genres add up (capped), quality keeps the best
-  await store.putPool('rock hits', [song('vid-blues2', 'Crossfire', 'Stevie Ray Vaughan', ['classic rock', 'guitar', 'electric', 'extra'], 5)], DAY, now);
-  const merged = (await store.getPools(['rock hits'], now))['rock hits'][0];
-  assert.strictEqual(merged.quality, 5, 'best quality wins');
-  assert.strictEqual(merged.genres.length, 4, 'genres are capped');
-  assert.ok(merged.genres.includes('blues') && merged.genres.includes('rock'), 'earlier genres are kept');
-  await store.putSongs([song('vid-blues2', 'Crossfire', 'Stevie Ray Vaughan', [], 0.5)], now);
-  assert.strictEqual((await store.getPools(['rock hits'], now))['rock hits'][0].quality, 5, 'a lower quality never replaces a higher one');
-  ok('songs: genres merge (capped), quality only goes up');
-
-  // ----- searches -----
-  await store.putSearch('take five|dave brubeck', ['vid-a', 'vid-b'], 30 * DAY, now);
-  await store.putSearch('missing|nobody', [], 6 * 3600000, now);
-  let s = await store.getSearches(['take five|dave brubeck', 'missing|nobody', 'nope'], now + 1000);
-  assert.deepStrictEqual(s['take five|dave brubeck'], ['vid-a', 'vid-b']);
-  assert.deepStrictEqual(s['missing|nobody'], []);
-  assert.ok(!('nope' in s));
-  await store.putSearch('take five|dave brubeck', ['vid-b', 'vid-a'], 30 * DAY, now);
-  assert.deepStrictEqual((await store.getSearches(['take five|dave brubeck'], now))['take five|dave brubeck'], ['vid-b', 'vid-a'], 'a later answer replaces the earlier one');
-  s = await store.getSearches(['missing|nobody'], now + 7 * 3600000);
-  assert.ok(!('missing|nobody' in s), 'not-found answers expire sooner');
-  ok('song lookups: ordered ids, replace, expiry');
-
-  // ----- playback record -----
-  await Promise.all([store.addPlayback('vid-blues1', 1, 0, now), store.addPlayback('vid-blues1', 1, 0, now), store.addPlayback('vid-blues1', 0, 1, now), store.addPlayback('vid-bad', 0, 1, now), store.addPlayback('vid-bad', 0, 1, now)]);
-  assert.deepStrictEqual(await store.getPlayback(['vid-blues1', 'vid-bad', 'vid-none']), { 'vid-blues1': { successes: 2, failures: 1 }, 'vid-bad': { successes: 0, failures: 2 } }, 'simultaneous reports all count');
+  // ----- play votes: one standing opinion per room per video -----
+  await store.recordPlay('room-a', 'vid-good', true, undefined, now);
+  await store.recordPlay('room-a', 'vid-good', true, undefined, now + 1);
+  await store.recordPlay('room-b', 'vid-good', true, undefined, now);
+  await store.recordPlay('room-c', 'vid-good', false, undefined, now);
+  await Promise.all([store.recordPlay('room-a', 'vid-bad', false, undefined, now), store.recordPlay('room-b', 'vid-bad', false, undefined, now)]);
+  assert.deepStrictEqual(await store.getPlayback(['vid-good', 'vid-bad', 'vid-none']), { 'vid-good': { successes: 2, failures: 1 }, 'vid-bad': { successes: 0, failures: 2 } }, 'a room counts once per video, however often it reports');
   assert.deepStrictEqual(await store.getPlayback([]), {});
-  await store.putPool('blues again', [song('vid-blues1', 'Pride and Joy', 'Stevie Ray Vaughan', ['blues'])], DAY, now);
-  const withTally = (await store.getPools(['blues again'], now))['blues again'][0];
-  assert.strictEqual(withTally.s, 2); assert.strictEqual(withTally.f, 1, 'pool reads carry the community tally');
-  ok('playback: atomic tallies, carried on pool reads');
+  await store.recordPlay('room-c', 'vid-good', true, undefined, now + 5);
+  assert.deepStrictEqual((await store.getPlayback(['vid-good']))['vid-good'], { successes: 3, failures: 0 }, 'a room that changes its mind replaces its earlier report');
+  ok('quality: one vote per room per video, latest report wins');
 
-  // ----- finding songs -----
-  await store.putSongs([
-    song('vid-take5', 'Take Five', 'Dave Brubeck', ['jazz'], 3), song('vid-take5b', 'Take Five (Live)', 'Dave Brubeck Quartet', ['jazz'], 1),
-    song('vid-other', 'Blue Rondo a la Turk', 'Dave Brubeck', ['jazz'], 2), song('vid-unrelated', 'Thunderstruck', 'AC/DC', ['rock'], 4),
-  ], now);
-  const cand = await store.candidates('Take Five', 'Dave Brubeck', 10);
-  assert.strictEqual(cand[0].id, 'vid-take5', 'the closest title and artist comes first');
-  assert.ok(cand.some((c) => c.id === 'vid-take5b') && cand.some((c) => c.id === 'vid-other'));
-  assert.ok(!cand.some((c) => c.id === 'vid-unrelated'), 'songs sharing no words are not candidates');
-  assert.deepStrictEqual(await store.candidates('', '', 10), []);
-  assert.strictEqual((await store.candidates('Take Five', 'Dave Brubeck', 1)).length, 1, 'limit applies');
-  ok('candidates: ranked by shared words, bounded');
+  // ----- song lookups: served only once enough different rooms agree -----
+  const key = 'take five|dave brubeck';
+  await store.recordPlay('room-a', 'vid-take5', true, key, now);
+  await store.recordPlay('room-a', 'vid-take5', true, key, now + 1);
+  assert.deepStrictEqual(await store.getSearches([key], 2, now + 2), {}, 'one room, however often it reports, is not a quorum');
+  assert.deepStrictEqual(await store.getSearches([key], 1, now + 2), { [key]: ['vid-take5'] }, 'a quorum of one serves it');
+  await store.recordPlay('room-b', 'vid-take5', true, key, now + 3);
+  await store.recordPlay('room-b', 'vid-live', true, key, now + 3);
+  await store.recordPlay('room-c', 'vid-take5', true, key, now + 4);
+  let got = await store.getSearches([key, 'nope|nobody'], 2, now + 5);
+  assert.deepStrictEqual(got, { [key]: ['vid-take5'] }, 'only videos with a quorum are served, unknown lookups are absent');
+  await store.recordPlay('room-c', 'vid-live', true, key, now + 6);
+  got = await store.getSearches([key], 2, now + 7);
+  assert.deepStrictEqual(got[key], ['vid-take5', 'vid-live'].sort((x, y) => (x === 'vid-take5' ? -1 : 1)), 'the most confirmed video comes first');
+  assert.deepStrictEqual(await store.getSearches([], 2, now), {});
+  ok('lookups: a quorum of different rooms, most confirmed first');
 
-  for (let i = 0; i < 12; i++) await store.putSongs([song('vid-j' + i, 'Jazz Tune ' + i, 'Jazz Artist ' + i, ['jazz'], 1 + i / 100)], now);
-  await store.addPlayback('vid-j0', 0, 1, now); await store.addPlayback('vid-j0', 0, 1, now); // two failures: taken out of rotation
-  const sample = await store.genreSongs('jazz', 5, () => 0.5);
-  assert.strictEqual(sample.length, 5);
-  assert.ok(sample.every((x) => x.genres.includes('jazz')), 'only the asked-for genre');
-  assert.ok(!sample.some((x) => x.id === 'vid-j0'));
-  const all = await store.genreSongs('jazz', 100, () => 0.5);
-  assert.ok(!all.some((x) => x.id === 'vid-j0'), 'songs that keep failing are skipped');
-  assert.ok(all.length >= 12 && all.every((x) => x.genres.includes('jazz')));
-  assert.deepStrictEqual(await store.genreSongs('polka', 5), []);
-  assert.notDeepStrictEqual((await store.genreSongs('jazz', 5, () => 0.01)).map((x) => x.id), (await store.genreSongs('jazz', 5, () => 0.99)).map((x) => x.id), 'the sample is shuffled');
-  ok('genre sample: right genre, failing songs skipped, shuffled');
+  // a failure withdraws that room's vote, and a video that fails more than it plays is not served
+  await store.recordPlay('room-c', 'vid-live', false, key, now + 8);
+  got = await store.getSearches([key], 2, now + 9);
+  assert.deepStrictEqual(got[key], ['vid-take5'], 'a room that saw it fail withdraws its vote, so the quorum is lost');
+  for (const room of ['r1', 'r2', 'r3']) await store.recordPlay(room, 'vid-doomed', true, 'doomed|song', now);
+  assert.deepStrictEqual((await store.getSearches(['doomed|song'], 2, now))['doomed|song'], ['vid-doomed']);
+  for (const room of ['f1', 'f2', 'f3', 'f4']) await store.recordPlay(room, 'vid-doomed', false, undefined, now); // failed elsewhere, without a lookup vote
+  assert.deepStrictEqual(await store.getSearches(['doomed|song'], 2, now), {}, 'a video that has failed in more rooms than it played in is no longer served');
+  ok('lookups: failures withdraw votes and retire bad videos');
+
+  // old votes stop counting
+  await store.recordPlay('old-1', 'vid-old', true, 'old|song', now);
+  await store.recordPlay('old-2', 'vid-old', true, 'old|song', now);
+  assert.ok((await store.getSearches(['old|song'], 2, now + 89 * DAY))['old|song']);
+  assert.deepStrictEqual(await store.getSearches(['old|song'], 2, now + 91 * DAY), {}, 'lookup votes expire unless renewed');
+  await store.recordPlay('old-1', 'vid-old', true, 'old|song', now + 90 * DAY);
+  await store.recordPlay('old-2', 'vid-old', true, 'old|song', now + 90 * DAY);
+  assert.ok((await store.getSearches(['old|song'], 2, now + 91 * DAY))['old|song'], 'and are renewed by a new play');
+  ok('lookups: votes age out and are renewed by new plays');
 
   // ----- artist genres -----
   assert.strictEqual(await store.getArtistGenres('tool', now), undefined);
@@ -110,15 +86,12 @@ module.exports = async function contract(store, ok) {
   ok('artist genres: stored, expire, empty answers kept');
 
   // ----- housekeeping -----
-  const before = await store.stats();
-  assert.ok(before.songs >= 18 && before.ratedVideos >= 3);
+  const before = await store.stats(2, now + 5);
+  assert.ok(before.ratedVideos >= 5 && before.playVotes >= 8 && before.confirmedLookups >= 1 && before.lookupsWithVotes >= 3, JSON.stringify(before));
   await store.sweep(now + 40 * DAY);
-  const after = await store.stats();
-  assert.ok(after.pools <= before.pools && after.searches <= before.searches, 'sweep clears expired lookups');
-  assert.ok(after.songs === before.songs, 'recent songs stay');
-  await store.sweep(now + 200 * DAY);
-  const late = await store.stats();
-  assert.ok(late.songs < before.songs && late.songs >= 1, 'old songs go unless they have played successfully: ' + JSON.stringify(late));
-  assert.ok((await store.getPlayback(['vid-blues1']))['vid-blues1'].successes === 2, 'play history survives the sweep');
-  ok('sweep: expired lookups and stale unplayed songs only');
+  assert.deepStrictEqual(await store.stats(2, now + 5), { ...before, artists: 1 }, 'recent votes stay (expired artist answers go)');
+  await store.sweep(now + 300 * DAY);
+  const late = await store.stats(2, now + 300 * DAY);
+  assert.ok(late.playVotes < before.playVotes && late.lookupsWithVotes === 0, 'votes older than six months are forgotten: ' + JSON.stringify(late));
+  ok('sweep: expired artist answers and stale votes only');
 };

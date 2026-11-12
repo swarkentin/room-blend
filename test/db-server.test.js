@@ -82,54 +82,43 @@ function req(method, p, body, headers = {}) {
   assert.strictEqual((await req('GET', '/api/catalog/stats', undefined, { 'x-room-code': code, 'x-guest-id': joined.guestId, 'x-host-key': joined.guestKey })).status, 403, 'a guest cannot use it');
   ok('only a host can use the shared catalogue');
 
-  const songs = [
-    { id: 'abcDEF12345', title: 'Pride and Joy', artist: 'Stevie Ray Vaughan', quality: 2.5 },
-    { id: 'bad id!', title: 'Rejected', artist: 'Nobody' },
-    { id: 'ghIJKL67890', title: '', artist: 'No title' },
-    { id: 'mnOPQR13579', title: 'Crossfire\u0000\n', artist: 'Stevie Ray Vaughan', genres: ['blues', 'not-a-genre', 'rock'], quality: 1e9 },
-  ];
-  const put = await req('POST', '/api/catalog/put', { pools: [{ key: 'texas blues', songs, tags: ['blues', 'made-up'] }], searches: [{ key: 'pride and joy|stevie ray vaughan', ids: ['abcDEF12345', '!!', 'mnOPQR13579'] }] }, auth);
-  assert.strictEqual(put.status, 200);
-  assert.deepStrictEqual(put.json, { pools: 1, searches: 1 });
-  let got = (await req('POST', '/api/catalog/get', { pools: ['texas blues', 'unknown pool'], searches: ['pride and joy|stevie ray vaughan'], quality: ['abcDEF12345'] }, auth)).json;
-  assert.deepStrictEqual(got.pools['texas blues'].map((s) => s.id), ['abcDEF12345', 'mnOPQR13579'], 'junk songs are dropped, order kept');
-  assert.ok(!('unknown pool' in got.pools));
-  assert.deepStrictEqual(got.searches['pride and joy|stevie ray vaughan'], ['abcDEF12345', 'mnOPQR13579'], 'junk ids are dropped');
-  const crossfire = got.pools['texas blues'][1];
-  assert.strictEqual(crossfire.title, 'Crossfire', 'control characters are removed');
-  assert.ok(crossfire.quality <= 20, 'quality is bounded');
-  assert.deepStrictEqual(crossfire.genres.slice().sort(), ['blues', 'rock'], 'only real genres, and the pool tags are added');
-  assert.deepStrictEqual(got.pools['texas blues'][0].genres, ['blues'], 'pool tags reach songs without genres');
-  ok('catalogue: shared pools and lookups, validated on the way in');
+  // each room is one voter
+  const roomB = (await req('POST', '/api/rooms')).json, roomC = (await req('POST', '/api/rooms')).json;
+  const asB = { 'x-room-code': roomB.code, 'x-host-key': roomB.hostKey }, asC = { 'x-room-code': roomC.code, 'x-host-key': roomC.hostKey };
+  const KEY = 'pride and joy|stevie ray vaughan', good = 'abcDEF12345', other = 'mnOPQR13579';
+  const fb = (headers, body) => req('POST', '/api/catalog/feedback', body, headers);
 
-  assert.strictEqual((await req('POST', '/api/catalog/feedback', { id: 'abcDEF12345', ok: true, song: { title: 'Pride and Joy', artist: 'Stevie Ray Vaughan', genres: ['blues'] } }, auth)).status, 200);
-  assert.strictEqual((await req('POST', '/api/catalog/feedback', { id: 'abcDEF12345', ok: true }, auth)).status, 200);
-  assert.strictEqual((await req('POST', '/api/catalog/feedback', { id: 'abcDEF12345', ok: false }, auth)).status, 200);
-  assert.strictEqual((await req('POST', '/api/catalog/feedback', { id: 'no good', ok: true }, auth)).status, 400);
-  assert.strictEqual((await req('POST', '/api/catalog/feedback', { id: 'abcDEF12345', ok: 'yes' }, auth)).status, 400);
-  got = (await req('POST', '/api/catalog/get', { quality: ['abcDEF12345', 'zzzzzzzzzzz'], pools: ['texas blues'] }, auth)).json;
-  assert.deepStrictEqual(got.quality, { abcDEF12345: { successes: 2, failures: 1 } });
-  assert.strictEqual(got.pools['texas blues'][0].s, 2, 'a pool read carries the community tally');
-  ok('catalogue: playback feedback counts for every host');
+  assert.strictEqual((await fb(auth, { id: good, ok: true, key: KEY })).status, 200);
+  assert.strictEqual((await fb(auth, { id: good, ok: true, key: KEY })).status, 200, 'the same room again');
+  let got = (await req('POST', '/api/catalog/get', { searches: [KEY], quality: [good] }, auth)).json;
+  assert.deepStrictEqual(got.searches, {}, 'one room is not enough to share a lookup');
+  assert.deepStrictEqual(got.quality, { [good]: { successes: 1, failures: 0 } }, 'and counts once for quality however often it reports');
+  assert.strictEqual((await fb(asB, { id: good, ok: true, key: KEY })).status, 200);
+  got = (await req('POST', '/api/catalog/get', { searches: [KEY, 'unknown|song'], quality: [good, 'zzzzzzzzzzz'] }, asC)).json;
+  assert.deepStrictEqual(got.searches, { [KEY]: [good] }, 'two different rooms confirm it, and a third room can use it');
+  assert.deepStrictEqual(got.quality, { [good]: { successes: 2, failures: 0 } });
+  ok('catalogue: a lookup is shared once two different rooms confirmed it');
 
-  const cand = (await req('GET', '/api/catalog/candidates?title=Pride%20And%20Joy&artist=Stevie%20Ray%20Vaughan', undefined, auth)).json;
-  assert.strictEqual(cand.songs[0].id, 'abcDEF12345');
-  const genre = (await req('GET', '/api/catalog/genre?g=blues&limit=5', undefined, auth)).json;
-  assert.ok(genre.songs.length >= 1 && genre.songs.every((s) => s.genres.includes('blues')));
-  assert.deepStrictEqual((await req('GET', '/api/catalog/genre?g=not-a-genre', undefined, auth)).json.songs, []);
+  // a lone host cannot push a bad video, or bury a good one
+  assert.strictEqual((await fb(asC, { id: other, ok: true, key: KEY })).status, 200);
+  got = (await req('POST', '/api/catalog/get', { searches: [KEY] }, auth)).json;
+  assert.deepStrictEqual(got.searches[KEY], [good], 'a video one room vouches for is not served');
+  for (let i = 0; i < 5; i++) await fb(asC, { id: good, ok: false, key: KEY });
+  got = (await req('POST', '/api/catalog/get', { quality: [good] }, auth)).json;
+  assert.deepStrictEqual(got.quality[good], { successes: 2, failures: 1 }, 'a room that reports failure five times is still one vote');
+  assert.deepStrictEqual((await req('POST', '/api/catalog/get', { searches: [KEY] }, auth)).json.searches[KEY], [good], 'one dissenting room does not unseat a video two rooms confirmed');
+  ok('catalogue: one host cannot steer results');
+
+  assert.strictEqual((await fb(auth, { id: 'no good', ok: true })).status, 400);
+  assert.strictEqual((await fb(auth, { id: good, ok: 'yes' })).status, 400);
+  assert.strictEqual((await fb(auth, { ok: true })).status, 400);
+  assert.strictEqual((await req('POST', '/api/catalog/get', { searches: Array.from({ length: 500 }, (_, i) => 'k' + i), quality: ['bad id', 5, null] }, auth)).status, 200, 'oversized or junk read requests are bounded, not fatal');
+  for (const gone of ['put', 'import', 'candidates', 'genre']) assert.strictEqual((await req(gone === 'candidates' || gone === 'genre' ? 'GET' : 'POST', '/api/catalog/' + gone, gone === 'put' || gone === 'import' ? { pools: [{ key: 'x', songs: [] }] } : undefined, auth)).status, 404, gone + ' is not offered: playlists and song lists stay in the host browser');
   const stats = (await req('GET', '/api/catalog/stats', undefined, auth)).json;
-  assert.ok(stats.songs >= 2 && stats.pools >= 1 && stats.playbackSuccesses >= 2);
-  assert.strictEqual((await req('GET', '/api/catalog/nothing', undefined, auth)).status, 404);
-  ok('catalogue: candidate search, genre samples and stats');
-
-  const big = { pools: Array.from({ length: 200 }, (_, i) => ({ key: 'p' + i, songs: [{ id: 'imp' + String(i).padStart(5, '0'), title: 'T', artist: 'A', genres: ['rock'] }] })), quality: [{ id: 'abcDEF12345', successes: 9999, failures: 0 }] };
-  const imp = (await req('POST', '/api/catalog/import', big, auth)).json;
-  assert.strictEqual(imp.pools, 60, 'an import is capped');
-  assert.strictEqual((await req('POST', '/api/catalog/get', { quality: ['abcDEF12345'] }, auth)).json.quality.abcDEF12345.successes, 2 + 50, 'one browser cannot swamp the play record');
-  assert.strictEqual((await req('POST', '/api/catalog/put', { pools: [] }, auth)).status, 200);
-  const huge = await req('POST', '/api/catalog/put', { pools: [{ key: 'x', songs: [{ id: 'abcDEF12345', title: 'x'.repeat(600000), artist: 'a' }] }] }, auth).catch((e) => ({ status: e.code }));
-  assert.ok(huge.status === 413 || huge.status === 'ECONNRESET', 'oversized bodies are refused (the server may hang up mid-upload)');
-  ok('catalogue: imports are capped, oversized requests refused');
+  assert.ok(stats.ratedVideos >= 2 && stats.confirmedLookups >= 1 && stats.playVotes >= 3);
+  const huge = await req('POST', '/api/catalog/feedback', { id: good, ok: true, key: 'x'.repeat(100000) }, auth).catch((e) => ({ status: e.code }));
+  assert.ok(huge.status === 413 || huge.status === 'ECONNRESET' || huge.status === 200, 'a huge body is refused or its key is cut to a safe length');
+  ok('catalogue: bad input refused, playlists and song lists are not shared, stats');
 
   // ---------- artist genres are looked up once, for everyone ----------
   let lookups = 0;
@@ -146,9 +135,9 @@ function req(method, p, body, headers = {}) {
   ok('artist genres are fetched once and then served from storage');
 
   // ---------- storage trouble never takes rooms down ----------
-  const realPut = store.putPool; store.putPool = async () => { throw new Error('database is asleep'); };
-  assert.strictEqual((await req('POST', '/api/catalog/put', { pools: [{ key: 'x', songs }] }, auth)).status, 503, 'catalogue failures are a soft 503');
-  store.putPool = realPut;
+  const realPut = store.recordPlay; store.recordPlay = async () => { throw new Error('database is asleep'); };
+  assert.strictEqual((await req('POST', '/api/catalog/feedback', { id: 'abcDEF12345', ok: true }, auth)).status, 503, 'catalogue failures are a soft 503');
+  store.recordPlay = realPut;
   const realUpsert = store.upsertRoom; store.upsertRoom = async () => { throw new Error('database is asleep'); };
   const third = await req('POST', '/api/rooms');
   assert.strictEqual(third.status, 200, 'rooms can still be made');

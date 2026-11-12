@@ -12,6 +12,7 @@
 //                        catalogue and the artist-genre cache live in Postgres instead of rooms.json. See docs/DATABASE.md
 //   DATABASE_POOL_MAX    most simultaneous database connections (default 5; Neon's free tier is happy with that)
 //   CATALOG_MEMORY=1     serve the shared YouTube catalogue from memory without a database (development and tests)
+//   CATALOG_QUORUM       how many different rooms must have played a video for a song before it is shared as that song's answer (default 2)
 //   DATA_DIR             where room identities are kept across restarts when there is no database (default ./data)
 //   SESSION_SECRET       signs the receipts a host's browser uses to restore its room after a restart (set it on Render)
 //   RESTORE_DAYS         how long after the host last opened a room it can still be restored (default 30)
@@ -28,7 +29,7 @@ const L = require('./lib/log');
 const { createClient } = require('./lib/musicbrainz');
 const Restore = require('./lib/restore');
 const { createStore } = require('./lib/store');
-const { createCatalog } = require('./lib/ytcatalog');
+const { createCatalog, voterFor } = require('./lib/ytcatalog');
 
 const PORT = Number(process.env.PORT || 3000);
 // Changes on every server process start, including deployments that do not provide a commit SHA.
@@ -44,7 +45,7 @@ const MAX_ROOMS = Number(process.env.MAX_ROOMS || 2000);
 // Storage (lib/store.js): Postgres when DATABASE_URL is set, otherwise memory plus the rooms.json file below.
 const store = createStore();
 const USE_DB = store.persistent;
-const catalog = createCatalog({ store, genres: Engine.GENRES });
+const catalog = createCatalog({ store, quorum: Number(process.env.CATALOG_QUORUM) || 2 });
 const CATALOG_ON = USE_DB || process.env.CATALOG_MEMORY === '1';
 let dbReady = !USE_DB; // true once migrations ran and rooms were loaded
 
@@ -403,13 +404,9 @@ async function api(req, res, url) {
     }
   }
 
-  // ---- Shared YouTube catalogue (lib/ytcatalog.js). Only a host's browser may read or write it: send the room code and host key. ----
-  //   POST /api/catalog/get        { pools: [key], searches: [key], quality: [videoId] }  -> what the catalogue knows (absent = unknown)
-  //   POST /api/catalog/put        { pools: [{key, songs, tags, ttlDays}], searches: [{key, ids, ttlDays}] }
-  //   POST /api/catalog/feedback   { id, ok, song? }   one playback outcome, counted for every host
-  //   POST /api/catalog/import     { pools, searches, quality }   a browser hands over its older local catalogue, once
-  //   GET  /api/catalog/candidates?title=&artist=   songs that might be this one, to be ranked by the caller
-  //   GET  /api/catalog/genre?g=&limit=   a sample of good songs for one genre, no YouTube quota needed
+  // ---- Shared YouTube catalogue (lib/ytcatalog.js): song lookups and video quality, built from votes. Only a host's browser may use it. ----
+  //   POST /api/catalog/get        { searches: [lookupKey], quality: [videoId] }  -> confirmed lookups and play/fail tallies (absent = not known yet)
+  //   POST /api/catalog/feedback   { id, ok, key? }   this room's report that a video played or failed; with key, a good play votes for that lookup
   //   GET  /api/catalog/stats
   if (parts[0] === 'catalog') {
     if (!CATALOG_ON) return sendJson(res, 404, { error: 'The shared catalogue is not enabled on this server.' });
@@ -419,14 +416,10 @@ async function api(req, res, url) {
     const action = parts[1] || '';
     try {
       if (parts.length === 2 && action === 'get' && m === 'POST') { const r = await catalog.get(await readBody(req)); L.count('catalog.get'); return sendJson(res, 200, r); }
-      if (parts.length === 2 && action === 'put' && m === 'POST') { const r = await catalog.put(await readBody(req, 512 * 1024)); L.count('catalog.put'); return sendJson(res, 200, r); }
       if (parts.length === 2 && action === 'feedback' && m === 'POST') {
-        const ok = await catalog.feedback(await readBody(req));
+        const ok = await catalog.feedback(await readBody(req), voterFor(hostRoom.code, hostRoom.hostKey));
         return ok ? sendJson(res, 200, { ok: true }) : sendJson(res, 400, { error: 'bad feedback' });
       }
-      if (parts.length === 2 && action === 'import' && m === 'POST') { const r = await catalog.importBulk(await readBody(req, 1024 * 1024)); L.count('catalog.import'); return sendJson(res, 200, r); }
-      if (parts.length === 2 && action === 'candidates' && m === 'GET') return sendJson(res, 200, { songs: await catalog.candidates(url.searchParams.get('title'), url.searchParams.get('artist')) });
-      if (parts.length === 2 && action === 'genre' && m === 'GET') return sendJson(res, 200, { songs: await catalog.genre(String(url.searchParams.get('g') || ''), url.searchParams.get('limit')) });
       if (parts.length === 2 && action === 'stats' && m === 'GET') return sendJson(res, 200, await catalog.stats());
       return sendJson(res, 404, { error: 'not found' });
     } catch (e) {

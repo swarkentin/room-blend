@@ -2,8 +2,8 @@
 #
 # Storage. Render's free plan has no disk and no free Postgres, so use Neon's free Postgres (docs/DATABASE.md, about five minutes):
 # create a Neon project, copy its pooled connection string, and paste it as DATABASE_URL when Render asks. With it, rooms and a
-# checkpoint of each live room survive restarts and redeploys on the server side, and every host shares one YouTube catalogue
-# (songs, genre playlists, playback quality) instead of each browser keeping its own.
+# checkpoint of each live room survive restarts and redeploys on the server side, and hosts share which YouTube video answers a song
+# lookup and how well videos play (confirmed by several rooms), instead of each browser learning it alone.
 #
 # Without DATABASE_URL the app still works as before: the host's browser keeps a signed receipt and an encrypted checkpoint for its
 # room and hands them back when the server has forgotten the room (see lib/restore.js), and each host's browser keeps its own

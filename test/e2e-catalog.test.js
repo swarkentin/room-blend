@@ -1,6 +1,6 @@
 'use strict';
-// Browser test for the shared YouTube catalogue, against a FAKE YouTube. Two hosts with separate browsers (so separate IndexedDB):
-// the second one must find the first one's discoveries on the server instead of spending YouTube quota again.
+// Browser test for the shared YouTube catalogue, against a FAKE YouTube. Hosts have separate browsers (so separate IndexedDB).
+// What is shared is song lookups and video quality, and only once different rooms agree; playlists stay in each host's browser.
 const http = require('http');
 const assert = require('assert');
 const { spawn } = require('child_process');
@@ -17,7 +17,8 @@ const addVid = (id, title, channel, dur) => { VIDEOS[id] = { id, snippet: { titl
 addVid('plA1', 'Dave Brubeck - Take Five (Official Audio)', 'Dave Brubeck', 'PT5M24S');
 addVid('plA2', 'Nina Simone - Feeling Good', 'NinaSimoneVEVO', 'PT2M55S');
 for (let i = 0; i < 14; i++) addVid('plB' + i, 'Pool Artist ' + i + ' - Pool Tune ' + i + ' (Official Video)', 'Pool Artist ' + i, 'PT3M30S');
-const log = { plSearches: [], plItems: 0, videoCalls: 0 };
+const log = { plSearches: [], plItems: 0, videoCalls: 0, searches: [] };
+const slug = (q) => q.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 14).padEnd(6, 'x');
 const IFRAME_API = `
 window.__ytLog = [];
 window.YT = { Player: function (id, opts) {
@@ -38,6 +39,10 @@ const yt = http.createServer((req, res) => {
   }
   if (u.pathname === '/youtube/v3/playlistItems') { log.plItems++; return send(200, 'application/json', JSON.stringify({ items: PLITEMS })); }
   if (u.pathname === '/youtube/v3/videos') { log.videoCalls++; return send(200, 'application/json', JSON.stringify({ items: u.searchParams.get('id').split(',').map((i) => VIDEOS[i]).filter(Boolean) })); }
+  if (u.pathname === '/youtube/v3/search') {
+    const q = u.searchParams.get('q'); log.searches.push(q);
+    return send(200, 'application/json', JSON.stringify({ items: [{ id: { videoId: 'sv_' + slug(q) }, snippet: { title: q + ' (Official Audio)', channelTitle: 'Artist - Topic' } }] }));
+  }
   send(404, 'text/plain', 'no');
 });
 
@@ -69,54 +74,47 @@ const play = async (page) => { await page.click('#yt-start'); await page.waitFor
   const browser = await chromium.launch();
   const errors = [], toApp = [];
   try {
-    // ---- host A discovers jazz and plays two songs ----
+    const song = { title: 'Take Five', artist: 'Dave Brubeck' }, KEY = 'take five|dave brubeck';
+    const playSong = (page, t) => page.evaluate((t) => window.Providers.get('youtube').play(t), t);
+    const loaded = (page) => page.evaluate(() => window.__ytLog.slice());
+
+    // ---- hosts A and B each pay for the same lookup, and play it ----
     const a = await startHost(browser, errors, toApp);
     assert.strictEqual(await a.evaluate(() => window.CONFIG.catalog), true); ok('the server tells browsers the shared catalogue exists');
     await play(a);
-    const poolA = await a.evaluate(() => window.Providers.get('youtube').extras('jazz', []));
-    assert.ok(poolA.length >= 12 && log.plSearches.includes('jazz songs') && log.plItems === 1 && log.videoCalls === 1); ok('host A paid for the jazz playlist once: ' + poolA.length + ' songs');
-    const shared = await until(async () => { const j = await catalog(a, 'POST', 'get', { pools: ['jazz'] }); return j.pools && j.pools['jazz'] && j.pools['jazz'].length >= 12 ? j : null; }, 8000, 'pool reached the server');
-    assert.ok(shared.pools['jazz'].every((s) => s.genres.includes('jazz'))); ok('the playlist reached the shared catalogue, tagged with the genre it stands for');
+    assert.strictEqual(await playSong(a, song), true);
+    const idA = (await loaded(a)).pop();
+    assert.strictEqual(log.searches.length, 1); ok('host A found the song with a YouTube search: ' + idA);
+    const afterA = await catalog(a, 'POST', 'get', { searches: [KEY], quality: [idA] });
+    assert.deepStrictEqual(afterA.searches, {}); assert.deepStrictEqual(afterA.quality[idA], { successes: 1, failures: 0 }); ok('one room is not enough to share a lookup, but its play is counted');
 
-    await a.evaluate(() => { window.__ytFail = 'all'; });
-    assert.strictEqual(await a.evaluate(() => window.Providers.get('youtube').play({ title: 'Take Five', artist: 'Dave Brubeck', nid: 'plA1' })), null);
-    await a.evaluate(() => { window.__ytFail = ''; });
-    assert.strictEqual(await a.evaluate(() => window.Providers.get('youtube').play({ title: 'Feeling Good', artist: 'Nina Simone', nid: 'plA2', genres: ['jazz'] })), true);
-    const q = await until(async () => { const j = await catalog(a, 'POST', 'get', { quality: ['plA1', 'plA2'] }); return j.quality.plA1 && j.quality.plA2 ? j.quality : null; }, 8000, 'feedback reached the server');
-    assert.deepStrictEqual(q.plA1, { successes: 0, failures: 1 }); assert.deepStrictEqual(q.plA2, { successes: 1, failures: 0 }); ok('a failed and a successful play were counted on the server');
-
-    // ---- host B has an empty browser and a different room ----
-    const searchesBefore = log.plSearches.length, itemsBefore = log.plItems, videosBefore = log.videoCalls;
     const b = await startHost(browser, errors, toApp);
     await play(b);
-    const poolB = await b.evaluate(() => window.Providers.get('youtube').extras('jazz', []));
-    assert.ok(poolB.length >= 12); ok('host B, with an empty browser, got ' + poolB.length + ' jazz songs');
-    assert.strictEqual(log.plSearches.length, searchesBefore); assert.strictEqual(log.plItems, itemsBefore); assert.strictEqual(log.videoCalls, videosBefore); ok('and spent no YouTube quota to get them');
-    assert.ok(poolB.findIndex((t) => t.id === 'plA1') > poolB.findIndex((t) => t.id === 'plA2'), 'host A\'s failed video ranks below host A\'s good one for host B'); ok('a video that failed for host A is ranked down for host B');
-    const local = await b.evaluate(() => new Promise((resolve) => { const r = indexedDB.open('room-blend-youtube'); r.onsuccess = () => { const g = r.result.transaction('entries').objectStore('entries').get('pool:jazz'); g.onsuccess = () => resolve(!!g.result); }; }));
-    assert.strictEqual(local, true); ok('the pool is now also cached in host B\'s own browser');
-    const lookup = await b.evaluate(() => window.Providers.get('youtube').play({ title: 'Nina Simone', artist: 'Feeling Good' }));
-    assert.ok(lookup === true || lookup === null);
+    assert.strictEqual(await playSong(b, song), true);
+    assert.strictEqual(log.searches.length, 2); ok('host B had to search too, since no lookup was confirmed yet');
+    const confirmed = await until(async () => { const j = await catalog(b, 'POST', 'get', { searches: [KEY] }); return j.searches[KEY] ? j : null; }, 8000, 'lookup confirmed');
+    assert.deepStrictEqual(confirmed.searches[KEY], [idA]); ok('a second room playing the same video confirms the lookup');
 
-    // ---- host C already has a local cache from before the server had a catalogue ----
+    // ---- host C, a brand new browser, uses it without any YouTube search ----
     const c = await startHost(browser, errors, toApp);
-    await c.waitForFunction(() => indexedDB.databases().then((d) => d.some((x) => x.name === 'room-blend-youtube')), null, { timeout: 8000 });
-    await c.evaluate(() => new Promise((resolve, reject) => {
-      const r = indexedDB.open('room-blend-youtube');
-      r.onsuccess = () => {
-        const tx = r.result.transaction('entries', 'readwrite'), s = tx.objectStore('entries'), now = Date.now(), exp = now + 86400000;
-        s.put({ id: 'pool:garage rock', kind: 'pool', value: [{ title: 'Old Song', artist: 'Old Band', id: 'impA0000001', genres: ['rock'], quality: 1 }], at: now, usedAt: now, expiresAt: exp });
-        s.put({ id: 'search:old song|old band', kind: 'search', value: ['impA0000001'], at: now, usedAt: now, expiresAt: exp });
-        s.put({ id: 'quality:impA0000001', kind: 'quality', value: { successes: 3, failures: 0 }, at: now, usedAt: now, expiresAt: exp });
-        tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
-      };
-    }));
     await play(c);
-    const imported = await until(async () => { const j = await catalog(c, 'POST', 'get', { pools: ['garage rock'], searches: ['old song|old band'], quality: ['impA0000001'] }); return j.pools['garage rock'] && j.searches['old song|old band'] && j.quality.impA0000001 ? j : null; }, 8000, 'import reached the server');
-    assert.deepStrictEqual(imported.searches['old song|old band'], ['impA0000001']);
-    assert.deepStrictEqual(imported.quality.impA0000001, { successes: 3, failures: 0 }); ok('a browser\'s older local catalogue is handed to the server once');
-    assert.strictEqual(await c.evaluate(() => localStorage.getItem('rb-yt-shared-import-v1')), 'done');
-    await c.waitForFunction(() => /Shared by all hosts: \d+ songs/.test(document.querySelector('#yt-catalogue-status').textContent), null, { timeout: 8000 }); ok('the YouTube panel shows what the shared catalogue holds');
+    assert.strictEqual(await playSong(c, song), true);
+    assert.strictEqual(log.searches.length, 2); assert.deepStrictEqual(await loaded(c), [idA]); ok('host C played the confirmed video with no YouTube search quota spent');
+
+    // ---- quality: a video that fails is ranked down for everyone ----
+    await c.evaluate(() => { window.__ytFail = 'all'; });
+    assert.strictEqual(await playSong(c, { title: 'Feeling Good', artist: 'Nina Simone', nid: 'badVid12345' }), null);
+    await c.evaluate(() => { window.__ytFail = ''; });
+    const q = await until(async () => { const j = await catalog(a, 'POST', 'get', { quality: ['badVid12345'] }); return j.quality.badVid12345 ? j.quality : null; }, 8000, 'failure counted');
+    assert.deepStrictEqual(q.badVid12345, { successes: 0, failures: 1 }); ok('a failed play is counted for every host');
+
+    // ---- playlists and song lists are NOT shared ----
+    const before = log.plSearches.length;
+    assert.ok((await a.evaluate(() => window.Providers.get('youtube').extras('jazz', []))).length >= 12);
+    assert.ok((await b.evaluate(() => window.Providers.get('youtube').extras('jazz', []))).length >= 12);
+    assert.ok(log.plSearches.length > before && log.plItems >= 2); ok('each host reads its own genre playlists: they are not shared');
+    assert.deepStrictEqual(await catalog(a, 'POST', 'get', { pools: ['jazz'] }), { searches: {}, quality: {} }); ok('the server holds no playlists');
+    await c.waitForFunction(() => /Shared by all hosts: \d+ confirmed song lookups/.test(document.querySelector('#yt-catalogue-status').textContent), null, { timeout: 8000 }); ok('the YouTube panel shows what the shared catalogue holds');
 
     // ---- the server stays unaware of the key ----
     assert.ok(toApp.length > 10 && !toApp.some((x) => x.includes('AIzaFakeKey'))); ok('the API key never reaches the Room Blend server (' + toApp.length + ' requests checked)');
