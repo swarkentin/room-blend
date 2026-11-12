@@ -4,7 +4,9 @@
 //
 // Songs come from YouTube playlists, one per genre in the room (see poolQuery). Search requests have a separate
 // daily limit (typically 100 calls per project); playlist-item and video-detail requests use the much larger quota.
-// Search results and discovered pools are cached in the host's browser, never on the Room Blend server.
+// Search results, discovered pools and playback feedback are kept in two places: this browser (IndexedDB, fast, works offline) and, when the
+// server has a database (CONFIG.catalog), a catalogue shared by every host (see lib/ytcatalog.js), so one host's discoveries and one video's
+// failures help all the others. The API key never leaves this browser.
 // YouTube requires the player to stay visible, so it sits in a corner of the page. Free YouTube may play ads between songs.
 (function () {
   'use strict';
@@ -98,6 +100,93 @@
       return false;
     }
   }
+
+  // ---------- shared catalogue (server side, optional) ----------
+  // Every call is best effort: if the server has no catalogue, is asleep or errors, the local cache alone carries on, and after a failure
+  // we leave the server alone for 30 seconds. Nothing here may ever block or break playback.
+  var SHARED_IMPORT_KEY = 'rb-yt-shared-import-v1', QUALITY_FRESH_MS = 5 * 60000;
+  var shared = (function () {
+    var down = 0, mem = Object.create(null), importing = null;
+    function on() { return !!C.catalog && !!window.RoomBlendHost && Date.now() >= down; }
+    function call(method, path, body) {
+      if (!on()) return Promise.resolve(null);
+      var h = window.RoomBlendHost;
+      return fetch('/api/catalog/' + path, {
+        method: method, headers: { 'Content-Type': 'application/json', 'x-room-code': h.code, 'x-host-key': h.headers['x-host-key'] },
+        body: body ? JSON.stringify(body) : undefined,
+      }).then(function (r) {
+        if (r.status >= 500) { down = Date.now() + 30000; return null; }
+        return r.ok ? r.json() : null;
+      }).catch(function () { down = Date.now() + 30000; return null; });
+    }
+    function remember(songs) {
+      var now = Date.now();
+      return (songs || []).map(function (s) {
+        if (s.s !== undefined) mem[s.id] = { successes: s.s, failures: s.f || 0, at: now };
+        else mem[s.id] = { none: true, at: now };
+        return { title: s.title, artist: s.artist, id: s.id, genres: s.genres, quality: s.quality };
+      });
+    }
+    return {
+      enabled: on,
+      getPool: async function (k) { var j = await call('POST', 'get', { pools: [k] }); return j && j.pools && j.pools[k] ? remember(j.pools[k]) : undefined; },
+      putPool: function (k, tracks, tags, ttlDays) { return call('POST', 'put', { pools: [{ key: k, songs: tracks, tags: tags || [], ttlDays: ttlDays }] }); },
+      getSearch: async function (k) { var j = await call('POST', 'get', { searches: [k] }); return j && j.searches && j.searches[k] ? j.searches[k] : undefined; },
+      putSearch: function (k, ids, ttlDays) { return call('POST', 'put', { searches: [{ key: k, ids: ids, ttlDays: ttlDays }] }); },
+      feedback: function (id, ok, track) {
+        delete mem[id];
+        return call('POST', 'feedback', { id: id, ok: ok, song: ok && track ? { title: track.title, artist: track.artist, genres: track.genres || [], quality: 1 } : undefined });
+      },
+      // Community tally for a video (good starts, failures), or undefined when unknown.
+      quality: function (id) { var q = mem[id]; return q && !q.none && Date.now() - q.at < QUALITY_FRESH_MS ? q : undefined; },
+      prefetchQuality: async function (ids) {
+        var now = Date.now(), need = ids.filter(function (id) { return id && !(mem[id] && now - mem[id].at < QUALITY_FRESH_MS); });
+        if (!need.length || !on()) return;
+        var j = await call('POST', 'get', { quality: need.slice(0, 300) });
+        if (!j) return;
+        need.slice(0, 300).forEach(function (id) { var q = j.quality && j.quality[id]; mem[id] = q ? { successes: q.successes, failures: q.failures, at: now } : { none: true, at: now }; });
+      },
+      candidates: async function (track) {
+        var j = await call('GET', 'candidates?title=' + encodeURIComponent(track.title || '') + '&artist=' + encodeURIComponent(track.artist || ''));
+        return j && Array.isArray(j.songs) ? remember(j.songs) : [];
+      },
+      genreSongs: async function (genre) {
+        var j = await call('GET', 'genre?limit=40&g=' + encodeURIComponent(genre));
+        return j && Array.isArray(j.songs) ? j.songs : [];
+      },
+      stats: function () { return call('GET', 'stats'); },
+      // Hands this browser's older local catalogue to the server, once, so what hosts already learned is not lost.
+      importLocal: function () {
+        if (!on() || lsGet(SHARED_IMPORT_KEY) === 'done') return Promise.resolve(false);
+        if (importing) return importing;
+        importing = (async function () {
+          var db = await openCacheDb();
+          if (!db) return false;
+          var rows = await new Promise(function (resolve) {
+            var tx = db.transaction(DB_STORE, 'readonly'), req = tx.objectStore(DB_STORE).getAll();
+            req.onsuccess = function () { resolve((req.result || []).filter(function (r) { return r.expiresAt > Date.now(); })); };
+            req.onerror = function () { resolve(null); };
+          });
+          if (!rows) return false;
+          var GM = window.GenreMap, pools = [], searches = [], quality = [];
+          rows.forEach(function (r) {
+            var key = String(r.id || '');
+            if (r.kind === 'pool' && Array.isArray(r.value) && r.value.length) { var name = key.replace(/^pool:/, ''); pools.push({ key: name, songs: r.value.slice(0, 600), tags: GM ? GM.classifyAll(name, 3) : [] }); }
+            else if (r.kind === 'search' && Array.isArray(r.value) && r.value.length) searches.push({ key: key.replace(/^search:/, ''), ids: r.value.slice(0, 12) });
+            else if (r.kind === 'quality' && r.value) quality.push({ id: key.replace(/^quality:/, ''), successes: r.value.successes || 0, failures: r.value.failures || 0 });
+          });
+          var ok = true;
+          async function send(body) { var j = await call('POST', 'import', body); if (!j) ok = false; }
+          for (var i = 0; i < pools.length && ok; i += 3) await send({ pools: pools.slice(i, i + 3) });
+          for (var k = 0; k < searches.length && ok; k += 300) await send({ searches: searches.slice(k, k + 300) });
+          for (var m = 0; m < quality.length && ok; m += 1000) await send({ quality: quality.slice(m, m + 1000) });
+          if (ok) lsSet(SHARED_IMPORT_KEY, 'done');
+          return ok;
+        })().catch(function () { return false; }).then(function (v) { importing = null; return v; });
+        return importing;
+      },
+    };
+  })();
 
   function retryAfterMs(response) {
     var value = response.headers && response.headers.get('Retry-After');
@@ -251,11 +340,12 @@
   // Playback feedback is local to this host. A single failure demotes a candidate;
   // repeated failures matter more than a handful of successful starts.
   async function qualityAdjustment(id) {
-    var stats = await cacheGet('quality:' + id);
+    var stats = shared.quality(id) || await cacheGet('quality:' + id); // the community record, else this browser's own
     if (!stats) return 0;
     return Math.min(5, stats.successes || 0) * 0.04 - (stats.failures || 0) * 1.25;
   }
   async function qualityOrder(items, getId) {
+    await shared.prefetchQuality(items.map(function (item) { return getId ? getId(item) : item.id; }));
     var scored = await Promise.all(items.map(async function (item, index) {
       var id = getId ? getId(item) : item.id;
       return { item: item, index: index, score: ((item && item.quality) || 0) + await qualityAdjustment(id) };
@@ -263,8 +353,9 @@
     scored.sort(function (a, b) { return b.score - a.score || a.index - b.index; });
     return scored.map(function (x) { return x.item; });
   }
-  async function recordPlayback(id, success) {
+  async function recordPlayback(id, success, track) {
     if (!id) return;
+    shared.feedback(id, success, track); // fire and forget: counts for every host
     var key = 'quality:' + id, stats = await cacheGet(key) || { successes: 0, failures: 0 };
     if (success) { stats.successes = (stats.successes || 0) + 1; stats.lastSuccessAt = Date.now(); }
     else { stats.failures = (stats.failures || 0) + 1; stats.lastFailureAt = Date.now(); }
@@ -274,14 +365,16 @@
 
   async function cachedPoolCandidates(track) {
     var db = await openCacheDb();
-    if (!db) return [];
-    var rows = await new Promise(function (resolve) {
+    var rows = !db ? [] : await new Promise(function (resolve) {
       var tx = db.transaction(DB_STORE, 'readonly'), req = tx.objectStore(DB_STORE).index('kindUsedAt')
         .getAll(IDBKeyRange.bound(['pool', 0], ['pool', Number.MAX_SAFE_INTEGER]));
       req.onsuccess = function () { resolve(req.result || []); };
       req.onerror = function () { resolve([]); };
     });
     var candidates = [], seen = Object.create(null);
+    // Songs any host has found (shared catalogue) are as good as ones this browser found.
+    var remote = await shared.candidates(track);
+    remote.forEach(function (song) { if (song && song.id && !seen[song.id]) { seen[song.id] = true; candidates.push(song); } });
     rows.forEach(function (row) {
       (Array.isArray(row.value) ? row.value : []).forEach(function (song) {
         if (!song || !song.id || seen[song.id]) return;
@@ -303,6 +396,11 @@
     }
     // A title/artist already present in any cached genre or artist playlist is playable by ID.
     // This path deliberately runs before Search.list, so it also works after the daily search quota is gone.
+    var sharedHit = await shared.getSearch(ck);
+    if (sharedHit !== undefined) {
+      await cachePut('search:' + ck, sharedHit, 'search', sharedHit.length ? 30 : 0.25);
+      return qualityOrder(sharedHit, function (id) { return id; });
+    }
     var pooledIds = await cachedPoolCandidates(track);
     if (pooledIds.length) {
       var pooledRanked = await qualityOrder(pooledIds, function (id) { return id; });
@@ -319,6 +417,7 @@
       .map(function (x) { return x.item.id.videoId; });
     var ranked = await qualityOrder(matches, function (id) { return id; });
     await cachePut('search:' + ck, ranked, 'search', ranked.length ? 30 : 0.25);
+    shared.putSearch(ck, ranked, ranked.length ? 30 : 0.25);
     return ranked;
   }
 
@@ -350,7 +449,7 @@
     for (var i = 0; i < genres.length; i++) {
       var have = await poolGet(genres[i]) || [];
       if (!have.some(function (x) { return x.id === id || (String(x.title || '').toLowerCase() === String(song.title || '').toLowerCase() && String(x.artist || '').toLowerCase() === String(song.artist || '').toLowerCase()); })) {
-        await poolPut(genres[i], [song].concat(have).slice(0, 600));
+        await poolPut(genres[i], [song].concat(have).slice(0, 600), [genres[i]]);
       }
     }
   }
@@ -358,10 +457,16 @@
   // ---------- songs by genre (playlist reads and video details use 1 quota unit per request; search has its own daily call cap) ----------
   async function poolGet(k) {
     var hit = await cacheGet('pool:' + k);
+    if (hit === undefined) {
+      // Not found here: another host may already have paid for this playlist. Keep a local copy so the next read is instant.
+      hit = await shared.getPool(k);
+      if (hit !== undefined) await cachePut('pool:' + k, hit, 'pool', hit.length ? 30 : 0.5);
+    }
     return hit === undefined ? undefined : qualityOrder(hit);
   }
-  async function poolPut(k, tracks) {
+  async function poolPut(k, tracks, tags) {
     var saved = await cachePut('pool:' + k, tracks, 'pool', tracks.length ? 30 : 0.5);
+    shared.putPool(k, tracks, tags, tracks.length ? 30 : 0.5);
     // Re-render after the committed write. Each render invalidates older asynchronous
     // catalogue reads, so an initial read cannot overwrite this up-to-date summary.
     if (rctx && rctx.rerender) rctx.rerender();
@@ -531,9 +636,9 @@
     var hit = await poolGet(q.q);
     if (hit !== undefined) return hit;
     var pl = await playlistFor(q.q);
-    if (!pl) { await poolPut(q.q, []); return []; }
+    if (!pl) { await poolPut(q.q, [], q.tags); return []; }
     var out = await readPlaylist(pl, function (title, channel) { return parseVideo({ title: title, channel: channel }); }, 5);
-    await poolPut(q.q, out);
+    await poolPut(q.q, out, q.tags);
     return qualityOrder(out);
   }
   // Share of a named artist's words found in a channel or credit name ("DJ Crocs & Socks" vs "DJ Crocs n Socks" still matches).
@@ -691,6 +796,9 @@
           if (requestId !== catalogueRequestId || !catalogue.isConnected) return;
           if (info.mode !== 'indexeddb') catalogue.textContent = 'Catalogue feedback is temporary in this browser session. ' + (info.warning || '');
           else catalogue.textContent = 'Catalogue: ' + info.pools + ' cached pools · ' + info.poolTracks + ' tracks · ' + info.searches + ' song lookups · playback feedback for ' + info.ratedVideos + ' videos (' + info.playbackSuccesses + ' starts, ' + info.playbackFailures + ' failures).' + (info.warning ? ' ' + info.warning : '');
+          if (shared.enabled()) shared.stats().then(function (st) {
+            if (st && requestId === catalogueRequestId && catalogue.isConnected) catalogue.textContent += ' Shared by all hosts: ' + st.songs + ' songs · ' + st.pools + ' playlists · ' + st.ratedVideos + ' videos with play history.';
+          });
         });
       }
       return box;
@@ -708,6 +816,7 @@
           });
         });
         on = true; busy = false; ctx.rerender(); ctx.changed();
+        shared.importLocal().then(function (done) { if (done && rctx && rctx.rerender) rctx.rerender(); }); // once per browser: share what it learned before the server had a catalogue
       } catch (e) { busy = false; note = e.message; if (dock) dock.hidden = true; ctx.rerender(); }
     },
     pool: true, // the room's songs come from YouTube playlists for each genre; the built-in list is only a fallback
@@ -724,6 +833,10 @@
           if (out.length >= MIN_GENRE_TRACKS) break;
         }
       } catch (e) { note = e.message; if (rctx) rctx.status(e.message); }
+      // Top up with songs other hosts have found for this genre. It costs no YouTube quota and adds variety beyond the few playlists read here.
+      (await shared.genreSongs(genre)).forEach(function (t) {
+        if (out.length < MIN_GENRE_TRACKS * 3 && t.id && !seen[t.id]) { seen[t.id] = 1; out.push({ title: t.title, artist: t.artist, id: t.id, genres: [genre], quality: t.quality, artwork: artworkFor(t.id) }); }
+      });
       return qualityOrder(out);
     },
     // Era-qualified searches keep decade picks meaningful after the room expands them into genres.
@@ -756,9 +869,9 @@
       var tries = ids.slice(0, 4);
       for (var i = 0; i < tries.length; i++) {
         var r = await tryVideo(tries[i]);
-        if (r === true) { track.artwork = track.artwork || artworkFor(tries[i]); await recordPlayback(tries[i], true); await rememberPlayed(track, tries[i]); return true; }
+        if (r === true) { track.artwork = track.artwork || artworkFor(tries[i]); await recordPlayback(tries[i], true, track); await rememberPlayed(track, tries[i]); return true; }
         if (r === false) return false;
-        await recordPlayback(tries[i], false);
+        await recordPlayback(tries[i], false, track);
         await demote(track, tries[i]); // null: this video is unavailable or not embeddable, try the next one
       }
       note = '"' + track.title + '" has no playable video on YouTube, so it was skipped.';

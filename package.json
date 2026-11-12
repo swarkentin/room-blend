@@ -8,14 +8,17 @@
   "scripts": {
     "start": "node server.js",
     "typecheck": "node scripts/typecheck.js",
-    "test": "npm run typecheck --silent && node test/engine.test.js && node test/likes.test.js && node test/match.test.js && node test/pool.test.js && node test/tags.test.js && node test/genremap.test.js && node test/avatars.test.js && node test/api.test.js && node test/presence.test.js && node test/log.test.js && node test/picks.test.js && node test/requests.test.js && node test/fight.test.js && node test/fight-api.test.js && node test/musicbrainz.test.js && node test/restore.test.js && node test/longrun.test.js",
+    "test": "npm run typecheck --silent && node test/engine.test.js && node test/likes.test.js && node test/match.test.js && node test/pool.test.js && node test/tags.test.js && node test/genremap.test.js && node test/avatars.test.js && node test/api.test.js && node test/presence.test.js && node test/log.test.js && node test/picks.test.js && node test/requests.test.js && node test/fight.test.js && node test/fight-api.test.js && node test/musicbrainz.test.js && node test/restore.test.js && node test/store.test.js && node test/db-server.test.js && node test/longrun.test.js",
     "test:browser": "npm run test:browser:1 && npm run test:browser:2 && npm run test:browser:3",
     "test:browser:1": "node test/e2e.test.js && node test/e2e.test.js own && node test/e2e-sources.test.js && node test/e2e-genres.test.js",
     "test:browser:2": "node test/e2e-localfs.test.js && node test/e2e-join.test.js && node test/e2e-presence.test.js && node test/e2e-restore.test.js && node test/e2e-picks.test.js && node test/e2e-avatars.test.js && node test/e2e-fight.test.js",
-    "test:browser:3": "node test/e2e-sync.test.js && node test/e2e-played.test.js && node test/e2e-youtube.test.js"
+    "test:browser:3": "node test/e2e-sync.test.js && node test/e2e-played.test.js && node test/e2e-youtube.test.js && node test/e2e-catalog.test.js"
   },
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "pg": "^8.13.0"
   },
   "devDependencies": {
     "playwright": "^1.56.1",
