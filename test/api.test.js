@@ -253,6 +253,12 @@ function sse(path) {
   await req('DELETE', `/api/rooms/${code}/host/library`, null, H);
   const cs = await host.waitFor((x) => x.source && x.source.kind === 'curated' && x.catalogSize >= 350); ok('clearing the library returns to the built-in list');
 
+  // the host recap works without a database, from the live room
+  const rc = await req('GET', `/api/rooms/${code}/host/recap`, undefined, H);
+  assert.strictEqual(rc.status, 200); assert.strictEqual(rc.json.source, 'live');
+  assert.ok(rc.json.recap.songs >= 1 && Array.isArray(rc.json.recap.genres)); assert.strictEqual((await req('GET', `/api/rooms/${code}/host/recap`)).status, 401);
+  ok('the host recap summarises the live room, and only for the host');
+
   // multi-tenant: rooms are isolated
   const mk2 = (await req('POST', '/api/rooms')).json;
   const H2 = { 'x-host-key': mk2.hostKey };

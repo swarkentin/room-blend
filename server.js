@@ -29,6 +29,7 @@ const L = require('./lib/log');
 const { createClient } = require('./lib/musicbrainz');
 const Restore = require('./lib/restore');
 const { createStore } = require('./lib/store');
+const Recap = require('./lib/recap');
 const { createCatalog, voterFor } = require('./lib/ytcatalog');
 
 const PORT = Number(process.env.PORT || 3000);
@@ -148,6 +149,7 @@ function flushRooms() {
       for (const r of rooms.values()) {
         if (r.recoveryNeeded || checkpointed.get(r.code) === r.version || !written.has(r.code)) continue;
         const version = r.version;
+        if (r.history.length) await store.upsertPlays(Recap.roomHash(r.code, r.createdAt), Recap.playRows(r)); // the play log, before the checkpoint that marks this version done
         if (await store.saveSnapshot(r.code, getRestorer().encryptSnapshot(r.code, r.hostKey, r.snapshot()), version) !== false) checkpointed.set(r.code, version);
       }
       const gone = [...written.keys()].filter((c) => !rooms.has(c));
@@ -623,6 +625,18 @@ async function api(req, res, url) {
   if (parts[2] === 'host') {
     if (!isHost()) return sendJson(res, 401, { error: 'not the host' });
     const act = parts[3];
+    // What the room has played: totals, genre mix, best and least liked songs. `hours` limits it to a recent session (default 12, 0 = everything).
+    // From the play log when there is a database (so it reaches back beyond the room's last 400 songs), otherwise from the live room.
+    if (act === 'recap' && m === 'GET' && parts.length === 4) {
+      const hours = Math.min(8760, Math.max(0, Number(url.searchParams.get('hours') ?? 12) || 0));
+      const live = Recap.playRows(room, 400);
+      let rows = live, source = 'live';
+      if (USE_DB && dbReady) {
+        try { rows = Recap.mergeRows(await store.getPlays(Recap.roomHash(room.code, room.createdAt)), live); source = 'database'; }
+        catch (e) { L.warn('db.read_failed', { what: 'room_plays', message: String(e && e.message).slice(0, 100) }); }
+      }
+      return sendJson(res, 200, { source, hours, recap: Recap.recap(rows, { since: hours ? Date.now() - hours * 3600000 : 0 }) });
+    }
     if (act === 'advance' && m === 'POST') { room.advance(); }
     else if (act === 'opts' && m === 'POST') { room.setOpts(body); saveRooms(); }
     else if (act === 'requests' && m === 'POST') {

@@ -58,6 +58,28 @@ function req(method, p, body, headers = {}) {
   assert.strictEqual((await req('POST', `/api/rooms/${code}/guests/${joined.guestId}/here`, {}, { 'x-guest-id': joined.guestId, 'x-guest-key': guestKeyBefore })).status, 200, 'the guest key still works');
   ok('a restart restores rooms, guests and playback without the host browser');
 
+  // ---------- the play log and the host recap ----------
+  const Recap = require('../lib/recap');
+  const hostRoom = rooms.get(code), hashA = Recap.roomHash(hostRoom.code, hostRoom.createdAt);
+  const G = { 'x-guest-id': joined.guestId, 'x-guest-key': guestKeyBefore };
+  assert.strictEqual((await req('GET', `/api/rooms/${code}/host/recap`)).status, 401, 'the recap is for the host');
+  const settled = hostRoom.guests.get(joined.guestId); settled.status = 'active'; settled.arriveAt = 0; hostRoom.rebuild(null, true); // skip the few seconds a new guest takes to settle in
+  for (let i = 0; i < 3; i++) assert.strictEqual((await req('POST', `/api/rooms/${code}/host/advance`, {}, H)).status, 200);
+  assert.strictEqual((await req('POST', `/api/rooms/${code}/vote`, { v: 'up' }, G)).status, 200, 'a guest votes on the current song');
+  assert.strictEqual(await App.flushRooms(), true);
+  const logged = await store.getPlays(hashA);
+  assert.ok(logged.length >= 3, 'plays were logged: ' + logged.length);
+  assert.ok(logged.some((r) => r.up === 1), 'the vote is in the log');
+  assert.ok(!JSON.stringify(logged).includes('Persistent guest') && !JSON.stringify(logged).includes(joined.guestId) && !JSON.stringify(logged).includes(code), 'the log holds no names, guest ids or room code');
+  const recapNow = (await req('GET', `/api/rooms/${code}/host/recap`, undefined, H)).json;
+  assert.strictEqual(recapNow.source, 'database');
+  assert.ok(recapNow.recap.songs >= 3 && recapNow.recap.votes.up >= 1 && recapNow.recap.genres.length >= 1 && recapNow.recap.peakListeners >= 1, JSON.stringify(recapNow.recap));
+  assert.strictEqual((await req('GET', `/api/rooms/${code}/host/recap?hours=0`, undefined, H)).json.hours, 0);
+  const songsBefore = recapNow.recap.songs;
+  await App.restartForTest();
+  assert.strictEqual((await req('GET', `/api/rooms/${code}/host/recap`, undefined, H)).json.recap.songs, songsBefore, 'the recap survives a restart');
+  ok('every play is logged anonymously, with votes, and the host can ask for a recap');
+
   // an unreadable checkpoint (secret changed) falls back to the host's browser instead of losing the room
   await store.saveSnapshot(second.code, 'v1.AAAA.BBBB.CCCC', 9999);
   await App.restartForTest();

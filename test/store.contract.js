@@ -76,6 +76,20 @@ module.exports = async function contract(store, ok) {
   assert.ok((await store.getSearches(['old|song'], 2, now + 91 * DAY))['old|song'], 'and are renewed by a new play');
   ok('lookups: votes age out and are renewed by new plays');
 
+  // ----- play log -----
+  const row = (at, extra = {}) => ({ at, trackId: 't' + at, title: 'Song ' + at, artist: 'Artist', genres: ['rock', 'blues'], mode: 'blend', present: 3, up: 0, down: 0, skips: 0, ...extra });
+  await store.upsertPlays('hash-a', [row(now + 3000), row(now + 1000), row(now + 2000)]);
+  await store.upsertPlays('hash-b', [row(now + 500)]);
+  assert.deepStrictEqual((await store.getPlays('hash-a')).map((r) => r.at), [now + 1000, now + 2000, now + 3000], 'plays come back oldest first');
+  await store.upsertPlays('hash-a', [row(now + 3000, { up: 4, down: 1, skips: 2, present: 5 })]);
+  const rewritten = await store.getPlays('hash-a');
+  assert.strictEqual(rewritten.length, 3, 'writing a play again does not duplicate it');
+  assert.deepStrictEqual({ up: rewritten[2].up, down: rewritten[2].down, skips: rewritten[2].skips, present: rewritten[2].present }, { up: 4, down: 1, skips: 2, present: 5 }, 'later votes update the row');
+  assert.deepStrictEqual(rewritten[0].genres, ['rock', 'blues']);
+  assert.strictEqual((await store.getPlays('hash-a', 2)).length, 2); assert.strictEqual((await store.getPlays('hash-a', 2))[1].at, now + 3000, 'a limit keeps the newest');
+  assert.deepStrictEqual(await store.getPlays('hash-none'), []);
+  ok('play log: ordered, idempotent, votes update, per-room, limited');
+
   // ----- artist genres -----
   assert.strictEqual(await store.getArtistGenres('tool', now), undefined);
   await store.putArtistGenres('tool', ['metal|9', 'rock|4'], 90 * DAY, now);
@@ -90,8 +104,11 @@ module.exports = async function contract(store, ok) {
   assert.ok(before.ratedVideos >= 5 && before.playVotes >= 8 && before.confirmedLookups >= 1 && before.lookupsWithVotes >= 3, JSON.stringify(before));
   await store.sweep(now + 40 * DAY);
   assert.deepStrictEqual(await store.stats(2, now + 5), { ...before, artists: 1 }, 'recent votes stay (expired artist answers go)');
+  assert.ok((await store.getPlays('hash-a')).length === 3, 'play logs outlive vote retention');
   await store.sweep(now + 300 * DAY);
   const late = await store.stats(2, now + 300 * DAY);
   assert.ok(late.playVotes < before.playVotes && late.lookupsWithVotes === 0, 'votes older than six months are forgotten: ' + JSON.stringify(late));
-  ok('sweep: expired artist answers and stale votes only');
+  await store.sweep(now + 400 * DAY);
+  assert.deepStrictEqual(await store.getPlays('hash-a'), [], 'play logs are deleted after a year');
+  ok('sweep: expired artist answers, stale votes and year-old play logs only');
 };
