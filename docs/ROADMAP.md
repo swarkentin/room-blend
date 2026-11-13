@@ -63,3 +63,7 @@ Remembering people brings duties (in Canada, PIPEDA; elsewhere GDPR or similar).
 - The recap (phase 1) is the shareable proof of value: it is what a host shows a friend or a venue owner.
 - Standing rooms and regulars' tastes (phases 3 and 4) are what turns a one-night trick into a reason to come back.
 - Keep the hosting story free and short: a one-page deploy (Render plus Neon) is already in [SETUP.md](SETUP.md) and [DATABASE.md](DATABASE.md).
+
+
+---
+Status update: host accounts API (claim, My rooms, reclaim, per-account catalogue votes) is built behind `AUTH_PROVIDER=neon`; see docs/ACCOUNTS.md. A sign-in screen on the host page is the next UI step.

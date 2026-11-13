@@ -25,7 +25,17 @@ module.exports = async function contract(store, ok) {
   assert.strictEqual(loaded[0].snapshotVersion, 5);
   await store.deleteRooms(['ABCDE', 'OLDRM']);
   assert.deepStrictEqual(await store.loadRooms(0), []);
-  ok('rooms: identity, newest-wins checkpoints, expiry window, delete');
+  // owned rooms get their own, longer expiry
+  const base0 = { ...room, createdAt: now - 40 * DAY, touchedAt: now - 10 * DAY };
+  await store.upsertRoom({ ...base0, code: 'ANON1', ownerUserId: undefined });
+  await store.upsertRoom({ ...base0, code: 'OWNED', ownerUserId: 'user-1' });
+  await store.upsertRoom({ ...base0, code: 'LONGG', ownerUserId: 'user-1', touchedAt: now - 40 * DAY });
+  await store.deleteExpiredRooms(now - DAY, now - 30 * DAY);
+  const left = (await store.loadRooms(0)).map((r) => r.code).sort();
+  assert.deepStrictEqual(left, ['OWNED'], 'anonymous rooms expire first, owned rooms later');
+  assert.strictEqual((await store.loadRooms(0))[0].ownerUserId, 'user-1', 'the owner is stored');
+  await store.deleteRooms(['OWNED']);
+  ok('rooms: identity, newest-wins checkpoints, expiry window, owned-room expiry, delete');
 
   // ----- play votes: one standing opinion per room per video -----
   await store.recordPlay('room-a', 'vid-good', true, undefined, now);
