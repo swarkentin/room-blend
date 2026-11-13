@@ -74,12 +74,13 @@ Details on each source, how matching works, and how to add a new one are in [doc
 ## Documentation
 
 - [docs/SETUP.md](docs/SETUP.md): running it, letting phones join, connecting music, running several rooms, going online, and the [settings reference](docs/SETUP.md#settings-reference)
+- [docs/DATABASE.md](docs/DATABASE.md): optional Postgres (Neon free tier) for room persistence and a shared YouTube catalogue
 - [docs/PROVIDERS.md](docs/PROVIDERS.md): [how music sources work](docs/PROVIDERS.md#two-kinds-of-source), [adding one](docs/PROVIDERS.md#adding-a-source), and [genres](docs/PROVIDERS.md#genres)
 
 ## Free ways to run it
 
 - **Your laptop plus a Cloudflare Tunnel.** Run `node server.js`, then `cloudflared tunnel --url http://localhost:3000`, and set `PUBLIC_URL` to the tunnel address. Good for trying it with friends tonight.
-- **Render free web service.** `render.yaml` is included. The service sleeps when idle, but the host's browser keeps a snapshot and restores the room when it wakes.
+- **Render free web service.** `render.yaml` is included. The service sleeps when idle. Add a free [Neon Postgres](docs/DATABASE.md) and rooms, their checkpoints and shared YouTube song lookups and video quality live on the server side; without it, the host's browser keeps a snapshot and restores the room when the service wakes.
 - **Oracle Cloud Always Free VM.** Always on, but you manage a small Linux server.
 - **Fly.io.** `fly.toml` is included. It asks for a card and costs a few dollars a month.
 
@@ -87,7 +88,7 @@ It needs a long-running server, so serverless platforms like Vercel and Netlify 
 
 ## Privacy
 
-The server only sees song titles, artists and genres. Audio, files and music-service logins stay in the host's browser. Logs don't contain names, picks, room codes or IP addresses.
+The server only sees song titles, artists and genres. With a database, it also keeps rooms (guest data inside an encrypted checkpoint) and a shared catalogue of song-to-video lookups and playback results; see [docs/DATABASE.md](docs/DATABASE.md#how-it-behaves). Audio, files and music-service logins stay in the host's browser. Logs don't contain names, picks, room codes or IP addresses.
 
 ## Status
 

@@ -4,7 +4,9 @@
 //
 // Songs come from YouTube playlists, one per genre in the room (see poolQuery). Search requests have a separate
 // daily limit (typically 100 calls per project); playlist-item and video-detail requests use the much larger quota.
-// Search results and discovered pools are cached in the host's browser, never on the Room Blend server.
+// Search results, discovered pools and playback feedback are cached in this browser (IndexedDB). When the server has a database
+// (CONFIG.catalog), two things are also shared between hosts: which video answers a song lookup and how well a video plays, both built from
+// plays that several different rooms agree on (lib/ytcatalog.js). The API key never leaves this browser.
 // YouTube requires the player to stay visible, so it sits in a corner of the page. Free YouTube may play ads between songs.
 (function () {
   'use strict';
@@ -98,6 +100,46 @@
       return false;
     }
   }
+
+  // ---------- shared catalogue (server side, optional) ----------
+  // Two things are shared between hosts, and only these: which video answers a song lookup, and how well a video plays. Both are built
+  // from successful and failed plays reported by hosts, one vote per room, and the server trusts a lookup only once several different
+  // rooms have played the same video for the same song (see lib/ytcatalog.js). Playlists and everything else stay in this browser.
+  // Every call is best effort: if the server has no catalogue, is asleep or errors, the local cache alone carries on, and after a
+  // failure we leave the server alone for 30 seconds. Nothing here may ever block or break playback.
+  var QUALITY_FRESH_MS = 5 * 60000;
+  var shared = (function () {
+    var down = 0, mem = Object.create(null);
+    function on() { return !!C.catalog && !!window.RoomBlendHost && Date.now() >= down; }
+    function call(method, path, body) {
+      if (!on()) return Promise.resolve(null);
+      var h = window.RoomBlendHost;
+      return fetch('/api/catalog/' + path, {
+        method: method, headers: { 'Content-Type': 'application/json', 'x-room-code': h.code, 'x-host-key': h.headers['x-host-key'] },
+        body: body ? JSON.stringify(body) : undefined,
+      }).then(function (r) {
+        if (r.status >= 500) { down = Date.now() + 30000; return null; }
+        return r.ok ? r.json() : null;
+      }).catch(function () { down = Date.now() + 30000; return null; });
+    }
+    return {
+      enabled: on,
+      // Videos other rooms have confirmed for this song lookup, best first, or undefined when the community has no confirmed answer yet.
+      getSearch: async function (k) { var j = await call('POST', 'get', { searches: [k] }); return j && j.searches && j.searches[k] && j.searches[k].length ? j.searches[k] : undefined; },
+      // One play outcome. `key` is the song lookup it answers, so a successful play confirms that lookup.
+      feedback: function (id, ok, key) { delete mem[id]; return call('POST', 'feedback', { id: id, ok: ok, key: key }); },
+      // Community tally for a video (rooms where it played, rooms where it failed), or undefined when unknown.
+      quality: function (id) { var q = mem[id]; return q && !q.none && Date.now() - q.at < QUALITY_FRESH_MS ? q : undefined; },
+      prefetchQuality: async function (ids) {
+        var now = Date.now(), need = ids.filter(function (id) { return id && !(mem[id] && now - mem[id].at < QUALITY_FRESH_MS); }).slice(0, 300);
+        if (!need.length || !on()) return;
+        var j = await call('POST', 'get', { quality: need });
+        if (!j) return;
+        need.forEach(function (id) { var q = j.quality && j.quality[id]; mem[id] = q ? { successes: q.successes, failures: q.failures, at: now } : { none: true, at: now }; });
+      },
+      stats: function () { return call('GET', 'stats'); },
+    };
+  })();
 
   function retryAfterMs(response) {
     var value = response.headers && response.headers.get('Retry-After');
@@ -251,11 +293,12 @@
   // Playback feedback is local to this host. A single failure demotes a candidate;
   // repeated failures matter more than a handful of successful starts.
   async function qualityAdjustment(id) {
-    var stats = await cacheGet('quality:' + id);
+    var stats = shared.quality(id) || await cacheGet('quality:' + id); // the community record, else this browser's own
     if (!stats) return 0;
     return Math.min(5, stats.successes || 0) * 0.04 - (stats.failures || 0) * 1.25;
   }
   async function qualityOrder(items, getId) {
+    await shared.prefetchQuality(items.map(function (item) { return getId ? getId(item) : item.id; }));
     var scored = await Promise.all(items.map(async function (item, index) {
       var id = getId ? getId(item) : item.id;
       return { item: item, index: index, score: ((item && item.quality) || 0) + await qualityAdjustment(id) };
@@ -263,8 +306,9 @@
     scored.sort(function (a, b) { return b.score - a.score || a.index - b.index; });
     return scored.map(function (x) { return x.item; });
   }
-  async function recordPlayback(id, success) {
+  async function recordPlayback(id, success, track) {
     if (!id) return;
+    shared.feedback(id, success, track ? (track.title + '|' + track.artist).toLowerCase() : undefined); // fire and forget: one vote for this room
     var key = 'quality:' + id, stats = await cacheGet(key) || { successes: 0, failures: 0 };
     if (success) { stats.successes = (stats.successes || 0) + 1; stats.lastSuccessAt = Date.now(); }
     else { stats.failures = (stats.failures || 0) + 1; stats.lastFailureAt = Date.now(); }
@@ -274,14 +318,14 @@
 
   async function cachedPoolCandidates(track) {
     var db = await openCacheDb();
-    if (!db) return [];
-    var rows = await new Promise(function (resolve) {
+    var rows = !db ? [] : await new Promise(function (resolve) {
       var tx = db.transaction(DB_STORE, 'readonly'), req = tx.objectStore(DB_STORE).index('kindUsedAt')
         .getAll(IDBKeyRange.bound(['pool', 0], ['pool', Number.MAX_SAFE_INTEGER]));
       req.onsuccess = function () { resolve(req.result || []); };
       req.onerror = function () { resolve([]); };
     });
     var candidates = [], seen = Object.create(null);
+
     rows.forEach(function (row) {
       (Array.isArray(row.value) ? row.value : []).forEach(function (song) {
         if (!song || !song.id || seen[song.id]) return;
@@ -303,6 +347,11 @@
     }
     // A title/artist already present in any cached genre or artist playlist is playable by ID.
     // This path deliberately runs before Search.list, so it also works after the daily search quota is gone.
+    var sharedHit = await shared.getSearch(ck);
+    if (sharedHit !== undefined) {
+      await cachePut('search:' + ck, sharedHit, 'search', sharedHit.length ? 30 : 0.25);
+      return qualityOrder(sharedHit, function (id) { return id; });
+    }
     var pooledIds = await cachedPoolCandidates(track);
     if (pooledIds.length) {
       var pooledRanked = await qualityOrder(pooledIds, function (id) { return id; });
@@ -691,6 +740,9 @@
           if (requestId !== catalogueRequestId || !catalogue.isConnected) return;
           if (info.mode !== 'indexeddb') catalogue.textContent = 'Catalogue feedback is temporary in this browser session. ' + (info.warning || '');
           else catalogue.textContent = 'Catalogue: ' + info.pools + ' cached pools · ' + info.poolTracks + ' tracks · ' + info.searches + ' song lookups · playback feedback for ' + info.ratedVideos + ' videos (' + info.playbackSuccesses + ' starts, ' + info.playbackFailures + ' failures).' + (info.warning ? ' ' + info.warning : '');
+          if (shared.enabled()) shared.stats().then(function (st) {
+            if (st && requestId === catalogueRequestId && catalogue.isConnected) catalogue.textContent += ' Shared by all hosts: ' + st.confirmedLookups + ' confirmed song lookups · ' + st.ratedVideos + ' videos with play history.';
+          });
         });
       }
       return box;
@@ -756,9 +808,9 @@
       var tries = ids.slice(0, 4);
       for (var i = 0; i < tries.length; i++) {
         var r = await tryVideo(tries[i]);
-        if (r === true) { track.artwork = track.artwork || artworkFor(tries[i]); await recordPlayback(tries[i], true); await rememberPlayed(track, tries[i]); return true; }
+        if (r === true) { track.artwork = track.artwork || artworkFor(tries[i]); await recordPlayback(tries[i], true, track); await rememberPlayed(track, tries[i]); return true; }
         if (r === false) return false;
-        await recordPlayback(tries[i], false);
+        await recordPlayback(tries[i], false, track);
         await demote(track, tries[i]); // null: this video is unavailable or not embeddable, try the next one
       }
       note = '"' + track.title + '" has no playable video on YouTube, so it was skipped.';

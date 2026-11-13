@@ -351,6 +351,7 @@
       return;
     }
     var H = { 'x-host-key': key };
+    window.RoomBlendHost = { code: code, headers: H }; // lets the YouTube source reach the shared catalogue as this room's host
     var post = function (p, body) { return http('POST', '/api/rooms/' + code + '/host/' + p, body || {}, H); };
     var joinUrl = (C.publicUrl || location.origin) + '/' + code;
     var S = { st: null, prov: null, reup: 0, srcSig: '', playing: null, status: '', busy: false, extrasBusy: false, tried: {}, paused: false, snapshotTimer: null, snapshotBusy: false, snapshotWantedVersion: -1, snapshotSavedVersion: -1, snapshotEpoch: 0, recovering: false, snapshotUnavailable: false };

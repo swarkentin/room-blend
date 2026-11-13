@@ -1,5 +1,5 @@
 'use strict';
-// Room Blend server. No dependencies: Node 22+ only.
+// Room Blend server. Node 22+. The only runtime dependency is `pg`, and only when DATABASE_URL is set.
 //   PORT                 default 3000
 //   SPOTIFY_CLIENT_ID    from your Spotify developer app (public value, PKCE needs no secret)
 //   PUBLIC_URL           optional. Address friends should open, e.g. https://roomblend.example.com.
@@ -8,7 +8,12 @@
 //                        per-visitor limits use the real client IP
 //   MAX_ROOMS            total rooms kept at once (default 2000)
 //   ROOMS_PER_IP_HOUR    new rooms one visitor may start per hour (default 8)
-//   DATA_DIR             where room identities are kept across restarts (default ./data)
+//   DATABASE_URL         Postgres connection string (a Neon pooled URL works). When set, rooms (with encrypted checkpoints), the shared YouTube
+//                        catalogue and the artist-genre cache live in Postgres instead of rooms.json. See docs/DATABASE.md
+//   DATABASE_POOL_MAX    most simultaneous database connections (default 5; Neon's free tier is happy with that)
+//   CATALOG_MEMORY=1     serve the shared YouTube catalogue from memory without a database (development and tests)
+//   CATALOG_QUORUM       how many different rooms must have played a video for a song before it is shared as that song's answer (default 2)
+//   DATA_DIR             where room identities are kept across restarts when there is no database (default ./data)
 //   SESSION_SECRET       signs the receipts a host's browser uses to restore its room after a restart (set it on Render)
 //   RESTORE_DAYS         how long after the host last opened a room it can still be restored (default 30)
 //   MUSICBRAINZ_SEARCH_DISABLED=1 to keep artist/song searches local (offline or test use)
@@ -23,6 +28,8 @@ const { Room, rid } = require('./lib/room');
 const L = require('./lib/log');
 const { createClient } = require('./lib/musicbrainz');
 const Restore = require('./lib/restore');
+const { createStore } = require('./lib/store');
+const { createCatalog, voterFor } = require('./lib/ytcatalog');
 
 const PORT = Number(process.env.PORT || 3000);
 // Changes on every server process start, including deployments that do not provide a commit SHA.
@@ -34,6 +41,13 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const ROOM_TTL_MS = 24 * 3600 * 1000;
 const MAX_ROOMS = Number(process.env.MAX_ROOMS || 2000);
+
+// Storage (lib/store.js): Postgres when DATABASE_URL is set, otherwise memory plus the rooms.json file below.
+const store = createStore();
+const USE_DB = store.persistent;
+const catalog = createCatalog({ store, quorum: Number(process.env.CATALOG_QUORUM) || 2 });
+const CATALOG_ON = USE_DB || process.env.CATALOG_MEMORY === '1';
+let dbReady = !USE_DB; // true once migrations ran and rooms were loaded
 
 const CLIENT_CONFIG = {
   clientId: process.env.SPOTIFY_CLIENT_ID || '',
@@ -53,6 +67,8 @@ const CLIENT_CONFIG = {
   genreLegacy: Engine.LEGACY_GROUPS,
   beatMs: Number(process.env.BEAT_MS) || 60000,
   restoreDays: Math.max(1, Math.floor(Number(process.env.RESTORE_DAYS) || 30)),
+  // Hosts share one YouTube catalogue through the server only when it is backed by a database (or switched on for tests).
+  catalog: CATALOG_ON,
 };
 
 // Restore receipts (see lib/restore.js): lets a host's browser bring its room back after a restart or redeploy wipes the server.
@@ -63,6 +79,7 @@ function getRestorer() {
     restorer = Restore.create(secret, Number(process.env.RESTORE_DAYS || 30));
     if (source === 'memory') L.warn('restore.secret_ephemeral', { hint: 'Set SESSION_SECRET (or use a persistent DATA_DIR) so hosts can restore rooms after a restart' });
     else L.info('restore.ready', { secret: source, days: restorer.days });
+    if (USE_DB && source !== 'env') L.warn('restore.secret_not_durable', { hint: 'Set SESSION_SECRET: room checkpoints in the database are encrypted with it and cannot be read after a restart without it' });
   }
   return restorer;
 }
@@ -72,25 +89,32 @@ const rooms = new Map();
 const subs = new Map(); // code -> Set of {res, role, guestId}
 const musicBrainz = createClient();
 const artistLookups = new Set();
-let saveTimer = null;
 
-// ---------- persistence: only room identities, so a restart keeps codes and host keys ----------
+// ---------- persistence ----------
+// Without DATABASE_URL: only room identities, in DATA_DIR/rooms.json, so a restart keeps codes and host keys. The host's browser then
+// brings back the rest from its encrypted checkpoint (lib/restore.js).
+// With DATABASE_URL: Postgres holds identities AND an encrypted checkpoint of each live room, so a restart or redeploy restores a room
+// completely without needing the host's browser. The browser checkpoint still works as a fallback.
+function roomFromRecord(r) {
+  const room = new Room(r.code, r.hostKey, r.createdAt);
+  room.touchedAt = r.touchedAt;
+  room.name = r.name || ''; room.discoverable = r.discoverable !== false; room.netKey = r.netKey || '';
+  if (r.opts) Object.assign(room.opts, r.opts);
+  // Until a checkpoint is applied, only the identity is known. The host browser restores the encrypted live-state checkpoint.
+  room.recoveryNeeded = true;
+  return room;
+}
 function loadRooms() {
   try {
     const d = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'rooms.json'), 'utf8'));
     for (const r of d.rooms || []) {
       if (Date.now() - r.touchedAt > ROOM_TTL_MS) continue;
-      const room = new Room(r.code, r.hostKey, r.createdAt);
-      room.touchedAt = r.touchedAt;
-      room.name = r.name || ''; room.discoverable = r.discoverable !== false; room.netKey = r.netKey || '';
-      if (r.opts) Object.assign(room.opts, r.opts);
-      // The disk file preserves room identity only. The host browser restores the encrypted live-state checkpoint.
-      room.recoveryNeeded = true;
-      rooms.set(room.code, room);
+      rooms.set(r.code, roomFromRecord(r));
     }
   } catch { /* first run */ }
 }
 function writeRooms() {
+  if (USE_DB) return true; // the database flush owns persistence in that mode
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     const out = { rooms: [...rooms.values()].map((r) => ({ code: r.code, hostKey: r.hostKey, createdAt: r.createdAt, touchedAt: r.touchedAt, opts: r.opts, name: r.name, discoverable: r.discoverable, netKey: r.netKey })) };
@@ -99,9 +123,86 @@ function writeRooms() {
     return true;
   } catch (e) { L.count('errors.save'); L.error('save.failed', { message: e.message }); return false; }
 }
+
+const identityOf = (r) => ({ code: r.code, hostKey: r.hostKey, createdAt: r.createdAt, touchedAt: r.touchedAt, name: r.name, discoverable: r.discoverable, netKey: r.netKey, opts: r.opts });
+const written = new Map();      // code -> { fp, at } what the database has for the room's identity
+const checkpointed = new Map(); // code -> room.version last saved as an encrypted checkpoint
+const TOUCH_WRITE_MS = 10 * 60 * 1000; // an otherwise unchanged room refreshes its "last used" time this often
+const CHECKPOINT_MS = 15 * 1000;
+let flushing = null;
+
+// Saves what changed since the last flush. Safe to call at any time; overlapping calls share one run. Never throws.
+function flushRooms() {
+  if (!USE_DB || !dbReady) return Promise.resolve(false);
+  if (flushing) return flushing;
+  flushing = (async () => {
+    let ok = true;
+    try {
+      const now = Date.now();
+      for (const r of rooms.values()) {
+        const rec = identityOf(r), fp = JSON.stringify({ ...rec, touchedAt: 0 }), had = written.get(r.code);
+        if (had && had.fp === fp && now - had.at < TOUCH_WRITE_MS) continue;
+        await store.upsertRoom(rec);
+        written.set(r.code, { fp, at: now });
+      }
+      for (const r of rooms.values()) {
+        if (r.recoveryNeeded || checkpointed.get(r.code) === r.version || !written.has(r.code)) continue;
+        const version = r.version;
+        if (await store.saveSnapshot(r.code, getRestorer().encryptSnapshot(r.code, r.hostKey, r.snapshot()), version) !== false) checkpointed.set(r.code, version);
+      }
+      const gone = [...written.keys()].filter((c) => !rooms.has(c));
+      if (gone.length) { await store.deleteRooms(gone); for (const c of gone) { written.delete(c); checkpointed.delete(c); } }
+    } catch (e) { ok = false; L.count('errors.save'); L.error('db.flush_failed', { message: String(e && e.message).slice(0, 160) }); }
+    finally { flushing = null; }
+    return ok;
+  })();
+  return flushing;
+}
+let saveTimer = null;
 function saveRooms() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(writeRooms, 500);
+  saveTimer = setTimeout(USE_DB ? flushRooms : writeRooms, USE_DB ? 1500 : 500);
+  if (USE_DB) saveTimer.unref();
+}
+// Live room state changes without any call to saveRooms (guests joining, songs advancing), so checkpoints also run on a timer.
+if (USE_DB) setInterval(() => { flushRooms(); }, CHECKPOINT_MS).unref();
+
+// Brings the database up: migrations, then every room that was alive when the server last stopped. Retried until it works, so a
+// sleeping Neon database delays recovery instead of preventing the server from starting.
+let dbStarting = null;
+function startDb() {
+  if (!USE_DB || dbReady) return Promise.resolve(dbReady);
+  if (dbStarting) return dbStarting;
+  dbStarting = (async () => {
+    try {
+      const { applied } = (await store.init()) || {};
+      if (applied && applied.length) L.info('db.migrated', { versions: applied });
+      let restored = 0, identityOnly = 0;
+      for (const r of await store.loadRooms(Date.now() - ROOM_TTL_MS)) {
+        if (rooms.has(r.code)) continue; // a host already restored it from its browser while the database was away
+        const room = roomFromRecord(r);
+        if (r.snapshot) {
+          const snap = getRestorer().decryptSnapshot(r.code, r.hostKey, r.snapshot);
+          if (snap && room.restoreSnapshot(snap)) {
+            room.touchedAt = r.touchedAt; // reviving a room must not extend its life
+            checkpointed.set(r.code, room.version);
+            restored++;
+          } else identityOnly++; // checkpoint unreadable (SESSION_SECRET changed?): the host's browser can still restore it
+        } else identityOnly++;
+        rooms.set(r.code, room);
+        written.set(r.code, { fp: JSON.stringify({ ...identityOf(room), touchedAt: 0 }), at: Date.now() });
+        for (const guest of room.guests.values()) if (!guest.genres.length && ['idle', 'pending'].includes(guest.genreLookupStatus)) enrichGuestGenres(r.code, room, guest);
+      }
+      dbReady = true;
+      L.count('db.ready');
+      L.info('db.ready', { rooms: rooms.size, restoredFromDb: restored, needHostBrowser: identityOnly });
+    } catch (e) {
+      L.error('db.start_failed', { message: String(e && e.message).slice(0, 160), hint: 'The server keeps running and retries. Check DATABASE_URL.' });
+      setTimeout(startDb, 15000).unref();
+    } finally { dbStarting = null; }
+    return dbReady;
+  })();
+  return dbStarting;
 }
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -278,18 +379,53 @@ async function api(req, res, url) {
     }
     return sendJson(res, 200, { rooms: out.slice(0, 5) });
   }
-  // Curated artist genre lookup used by the host's local playback catalogue.
-  // MusicBrainz is rate-limited and cached by the shared client; this does not use YouTube quota.
+  // Curated artist genre lookup used by the hosts' playback catalogue.
+  // MusicBrainz is rate-limited, so answers are kept (in the database when there is one, otherwise in the shared in-memory client)
+  // and every later request for the same artist, from any host, is served without touching MusicBrainz. No YouTube quota is used.
   if (parts[0] === 'musicbrainz' && parts[1] === 'artist-genres' && parts.length === 2 && m === 'GET') {
     if (process.env.MUSICBRAINZ_SEARCH_DISABLED === '1') return sendJson(res, 503, { error: 'MusicBrainz lookups are disabled' });
     const artist = String(url.searchParams.get('artist') || '').trim().slice(0, 100);
     if (!artist) return sendJson(res, 400, { error: 'artist is required' });
+    const nameKey = Engine.normKey(artist);
+    const dbCache = USE_DB && dbReady && nameKey;
+    if (dbCache) {
+      try {
+        const hit = await store.getArtistGenres(nameKey);
+        if (hit !== undefined) return sendJson(res, 200, { genres: hit.map((x) => { const i = x.lastIndexOf('|'); return { genre: x.slice(0, i), count: Number(x.slice(i + 1)) || 0 }; }) });
+      } catch (e) { L.warn('db.read_failed', { what: 'artist_genres', message: String(e && e.message).slice(0, 100) }); }
+    }
     try {
       const genres = await musicBrainz.lookupArtist(artist);
+      if (dbCache) store.putArtistGenres(nameKey, genres.map((g) => g.genre + '|' + g.count), genres.length ? 90 * 86400000 : 7 * 86400000).catch((e) => L.warn('db.write_failed', { what: 'artist_genres', message: String(e && e.message).slice(0, 100) }));
       return sendJson(res, 200, { genres });
     } catch (e) {
       L.warn('musicbrainz.artist_genres_failed', { message: String(e && e.message || e).slice(0, 100) });
       return sendJson(res, 503, { error: 'MusicBrainz artist genres are unavailable right now' });
+    }
+  }
+
+  // ---- Shared YouTube catalogue (lib/ytcatalog.js): song lookups and video quality, built from votes. Only a host's browser may use it. ----
+  //   POST /api/catalog/get        { searches: [lookupKey], quality: [videoId] }  -> confirmed lookups and play/fail tallies (absent = not known yet)
+  //   POST /api/catalog/feedback   { id, ok, key? }   this room's report that a video played or failed; with key, a good play votes for that lookup
+  //   GET  /api/catalog/stats
+  if (parts[0] === 'catalog') {
+    if (!CATALOG_ON) return sendJson(res, 404, { error: 'The shared catalogue is not enabled on this server.' });
+    const roomCode = String(req.headers['x-room-code'] || '').toUpperCase(), hostRoom = rooms.get(roomCode);
+    if (!hostRoom || !safeEq(req.headers['x-host-key'] || '', hostRoom.hostKey)) return sendJson(res, 403, { error: 'Only a host can use the shared catalogue.' });
+    if (USE_DB && !dbReady) return sendJson(res, 503, { error: 'The catalogue database is starting. Try again shortly.' });
+    const action = parts[1] || '';
+    try {
+      if (parts.length === 2 && action === 'get' && m === 'POST') { const r = await catalog.get(await readBody(req)); L.count('catalog.get'); return sendJson(res, 200, r); }
+      if (parts.length === 2 && action === 'feedback' && m === 'POST') {
+        const ok = await catalog.feedback(await readBody(req), voterFor(hostRoom.code, hostRoom.hostKey));
+        return ok ? sendJson(res, 200, { ok: true }) : sendJson(res, 400, { error: 'bad feedback' });
+      }
+      if (parts.length === 2 && action === 'stats' && m === 'GET') return sendJson(res, 200, await catalog.stats());
+      return sendJson(res, 404, { error: 'not found' });
+    } catch (e) {
+      if (e && e.status) throw e; // body too large, bad json: handled by the caller
+      L.count('errors.catalog'); L.warn('catalog.failed', { action, message: String(e && e.message).slice(0, 140) });
+      return sendJson(res, 503, { error: 'The shared catalogue is unavailable right now.' });
     }
   }
 
@@ -621,6 +757,7 @@ function statusView() {
     guestsInRooms: guests, liveConnections: sse,
     memoryMB: { rss: Math.round(mem.rss / 1048576), heapUsed: Math.round(mem.heapUsed / 1048576) },
     eventLoopLagMs: lagMs,
+    storage: { backend: store.kind, ready: dbReady, catalog: CATALOG_ON },
     counters: snap.counters, timers: snap.timers, topGenres: snap.topGenres, topSources: snap.topSources,
   };
 }
@@ -674,18 +811,27 @@ fightClock.unref();
 
 if (require.main === module) {
   const level = L.configure();
-  loadRooms();
+  if (!USE_DB) loadRooms();
   getRestorer(); // logs now whether hosts will be able to restore rooms after a restart
+  // Listening comes first: Render needs the port open quickly, and a sleeping Neon database can take a few seconds to wake.
+  startDb().then(() => { if (USE_DB && dbReady) { setInterval(() => { store.sweep().catch((e) => L.warn('db.sweep_failed', { message: String(e && e.message).slice(0, 100) })); }, 6 * 3600 * 1000).unref(); store.sweep().catch(() => {}); } });
   server.listen(PORT, '0.0.0.0', () => {
     L.info('server.start', { port: PORT, node: process.version, rooms: rooms.size, logLevel: level, trustProxy: TRUST_PROXY, publicUrl: !!PUBLIC_URL, ownSpotifyApp: !CLIENT_CONFIG.clientId });
     // A person running this in a terminal gets a plain sentence as well as the JSON line.
     if (process.stdout.isTTY) console.log(`Room Blend listening on port ${PORT}${PUBLIC_URL ? ' (' + PUBLIC_URL + ')' : ''}${TRUST_PROXY ? ', trusting proxy' : ''}. Hosts ${CLIENT_CONFIG.clientId ? 'can use the built-in Spotify app or their own' : 'bring their own Spotify app'}.`);
   });
   // Crashes are logged before the process exits (a platform or Docker restarts it). Stopping saves the rooms first.
-  process.on('uncaughtException', (e) => { L.error('process.crash', { message: String(e && e.message), stack: String(e && e.stack || '').split('\n').slice(1, 4).join(' | ') }); writeRooms(); process.exit(1); });
+  process.on('uncaughtException', (e) => { L.error('process.crash', { message: String(e && e.message), stack: String(e && e.stack || '').split('\n').slice(1, 4).join(' | ') }); writeRooms(); Promise.race([flushRooms(), new Promise((r) => setTimeout(r, 2000))]).finally(() => process.exit(1)); });
   process.on('unhandledRejection', (e) => { L.error('process.unhandled_rejection', { message: e instanceof Error ? e.message : String(e) }); });
-  const stop = (sig) => { L.info('server.stop', { signal: sig, rooms: rooms.size }); clearTimeout(saveTimer); writeRooms(); server.close(); setTimeout(() => process.exit(0), 300).unref(); };
+  // Stopping saves the rooms first. With a database that is a network round trip, so allow a few seconds (Render waits 30 before it kills us).
+  const stop = (sig) => {
+    L.info('server.stop', { signal: sig, rooms: rooms.size });
+    clearTimeout(saveTimer); writeRooms(); server.close();
+    Promise.race([flushRooms(), new Promise((r) => setTimeout(r, 5000))]).then(() => store.close()).catch(() => {}).finally(() => process.exit(0));
+  };
   process.on('SIGTERM', () => stop('SIGTERM'));
   process.on('SIGINT', () => stop('SIGINT'));
 }
-module.exports = { server, rooms, CLIENT_CONFIG, musicBrainz };
+// Test hooks: forget everything in memory and load again from the store, as a restart would.
+async function restartForTest() { rooms.clear(); written.clear(); checkpointed.clear(); dbReady = false; return startDb(); }
+module.exports = { server, rooms, CLIENT_CONFIG, musicBrainz, store, flushRooms, startDb, restartForTest };
