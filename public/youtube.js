@@ -793,7 +793,10 @@
         if (handle) return qualityOrder((await handleSongs(name, handle)).map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: t.genres && t.genres.length ? t.genres : [genre], artwork: artworkFor(t.id) }; }));
         var got = (await poolQuery({ q: name + ' greatest hits', tags: [genre] })).filter(function (t) { return nameFit(name, t.artist) >= 0.99; });
         if (!got.length) got = await channelSongs(name);
-        return qualityOrder(got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: t.genres && t.genres.length ? t.genres : [genre], artwork: artworkFor(t.id) }; }));
+        // An artist's songs take the artist's own genres (MusicBrainz), then what each video's words say. The guest's first genre
+        // is only a last resort: it describes the guest, not the artist ("Tool" picked by a classical fan is still metal).
+        var own = (await artistGenres(name)).slice(0, 3);
+        return qualityOrder(got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: own.length ? own : t.genres && t.genres.length ? t.genres : [genre], artwork: artworkFor(t.id) }; }));
       } catch (e) { note = e.message; if (rctx) rctx.status(e.message); return []; }
     },
     ready: function () { return on; },

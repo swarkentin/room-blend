@@ -287,6 +287,16 @@ const yt = http.createServer((req, res) => {
     const djRec = await until(() => cacheRecord(host, 'pool:channel:dj crocs & socks'), 8000, 'channel pool cached'), djPool = { tracks: djRec.value };
     assert.ok(djPool && djPool.tracks.length === 3 && djPool.tracks.every((t) => t.artist === 'DJ Crocs & Socks')); ok('the channel whose name matches (not "Totally Different") gave three songs, credited to the artist as named');
     assert.ok(djPool.tracks.some((t) => t.title === 'Sock Hop Anthem') && djPool.tracks.some((t) => t.title === 'Slide Into Friday')); ok('a title with "Artist - " in front loses it; plain titles stay as they are');
+    // The artist's own genres tag their songs. The guest's first genre ("classical" here) describes the guest, so it is only a last resort.
+    await host.route('**/api/musicbrainz/artist-genres*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ genres: ['electronic', 'metal'] }) }));
+    const tagged = await host.evaluate(async () => window.Providers.get('youtube').artistTracks('DJ Crocs & Socks', 'classical'));
+    assert.ok(tagged.length >= 1 && tagged.every((t) => t.genres.join() === 'electronic,metal'), 'songs carry the artist\'s genres, not the guest\'s');
+    await host.unroute('**/api/musicbrainz/artist-genres*');
+    await host.route('**/api/musicbrainz/artist-genres*', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
+    const fallback = await host.evaluate(async () => window.Providers.get('youtube').artistTracks('DJ Crocs & Socks', 'classical'));
+    assert.ok(fallback.length >= 1 && fallback.every((t) => t.genres.length > 0), 'with no artist genres known, songs still get a genre');
+    await host.unroute('**/api/musicbrainz/artist-genres*');
+    ok('an artist\'s songs are tagged with the artist\'s genres, not the picking guest\'s first genre');
     const djSeen = await until(() => host.evaluate(async ({ c, g }) => { const r = await (await fetch('/api/rooms/' + c + '/search?q=' + encodeURIComponent('slide into friday'), { headers: { 'x-guest-id': g.guestId, 'x-guest-key': g.guestKey } })).json(); return r.songs.some((x) => x.source !== 'musicbrainz' && /Slide Into Friday/.test(x.title)) ? r : null; }, { c: codeNow, g: dj }), 10000, 'dj songs in room'); ok('the artist\'s songs are in the room, even though their genre is not the genre the guest picked');
 
     // ---- an @handle names one exact channel: looked up directly, never searched by name ----
