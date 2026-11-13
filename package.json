@@ -7,6 +7,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "start:local": "node --env-file-if-exists=.env.local server.js",
     "typecheck": "node scripts/typecheck.js",
     "test": "npm run typecheck --silent && node test/engine.test.js && node test/likes.test.js && node test/match.test.js && node test/pool.test.js && node test/tags.test.js && node test/genremap.test.js && node test/avatars.test.js && node test/api.test.js && node test/presence.test.js && node test/log.test.js && node test/picks.test.js && node test/requests.test.js && node test/fight.test.js && node test/fight-api.test.js && node test/musicbrainz.test.js && node test/restore.test.js && node test/store.test.js && node test/db-server.test.js && node test/longrun.test.js",
     "test:browser": "npm run test:browser:1 && npm run test:browser:2 && npm run test:browser:3",
