@@ -74,6 +74,7 @@ Details on each source, how matching works, and how to add a new one are in [doc
 ## Documentation
 
 - [docs/SETUP.md](docs/SETUP.md): running it, letting phones join, connecting music, running several rooms, going online, and the [settings reference](docs/SETUP.md#settings-reference)
+- [docs/ROADMAP.md](docs/ROADMAP.md): what comes next and why
 - [docs/DATABASE.md](docs/DATABASE.md): optional Postgres (Neon free tier) for room persistence and a shared YouTube catalogue
 - [docs/PROVIDERS.md](docs/PROVIDERS.md): [how music sources work](docs/PROVIDERS.md#two-kinds-of-source), [adding one](docs/PROVIDERS.md#adding-a-source), and [genres](docs/PROVIDERS.md#genres)
 
