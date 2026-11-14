@@ -29,6 +29,10 @@ const intersects = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x && a.y <
     const ana = await join('Ana', ['rock']); await join('Ben', ['blues']); await join('Cy <b>', ['country']);
     await until(async () => (await host.locator('.av').count()) === 3, 10000, 'three avatars');
     ok('each guest gets an avatar');
+    const looks = await host.locator('.av').evaluateAll((l) => l.map((a) => a.dataset.look));
+    assert.ok(looks.every((x) => x && x.length > 0)); ok('each guest wears something of their own (' + looks.join(' / ') + ')');
+    await host.waitForTimeout(1500);
+    assert.deepStrictEqual(await host.locator('.av').evaluateAll((l) => l.map((a) => a.dataset.look)), looks); ok('and keeps it: the look does not change as the room updates');
     assert.strictEqual(await host.locator('.av .av-name *').count(), 0); ok('guest names are text, never markup');
     await until(() => host.evaluate(() => [...document.querySelectorAll('.av')].every((a) => a.dataset.mood)), 5000, 'moods set');
 

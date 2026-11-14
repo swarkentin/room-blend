@@ -17,6 +17,10 @@ Room Blend only decides what plays next. The host's own music service plays the 
 
 Guests can also join from a short link, from the "Playing near you" list on the same Wi-Fi, or by typing the 5-letter room code. Once in, they can name artists and songs they like, or request a song for the host to play.
 
+### TV avatars
+
+On the TV / cast view every listener is a little avatar with a look of their own (a silly hat, glasses, baggy jeans, odd socks and more), fixed by their id so it stays the same all night. Their pose shows how the **whole night** has gone for them, not the song playing this second, and a small line under their name graphs that mood after each song. Nobody can hover on a TV, so each guest's stats card (mood, tags, overall happiness, their graph) pops up on its own, one guest at a time, in turn.
+
 ### Duels
 
 Guests who both have a song waiting can duel for its place in line. On the TV / cast view their avatars walk to the middle of the floor, with a name tag and health bar over each head, and play a few quick rounds of Strike, Feint and Guard (Strike beats Feint, Feint beats Guard, Guard beats Strike) picked secretly on their phones. Now and then a Chaos Card changes the rules for a round. The winner's request moves up 2 to 4 places; the loser's never drops.

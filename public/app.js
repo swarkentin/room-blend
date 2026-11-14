@@ -535,7 +535,7 @@
           id: g.id, name: g.name, color: COLORS[g.color % COLORS.length], requesting: !!asking[g.id],
           dancing: !!(st.now && st.now.mode === 'request' && st.now.owner === g.id),
           genres: (g.genres.length ? g.genres : g.inferred || []).map(gl), stats: stats,
-          mood: { fit: now == null ? null : now, avg: f.avg, songs: f.songs, resting: resting, restLabel: g.hostSit ? 'Sat out by the host' : g.away ? 'Stepped away' : 'Sitting this one out' },
+          mood: { fit: now == null ? null : now, avg: f.avg, songs: f.songs, trail: f.trail || [], resting: resting, restLabel: g.hostSit ? 'Sat out by the host' : g.away ? 'Stepped away' : 'Sitting this one out' },
         };
       });
     }

@@ -883,3 +883,23 @@ a.btn.primary { color: var(--on-primary, #fff); }
 .account-or { text-align: center; margin: 10px 0 0; }
 .account-rooms { list-style: none; margin: 8px 0 0; padding: 0; }
 .account-rooms li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; flex-wrap: wrap; }
+
+/* ---- TV avatars: accessories and mood over the night ---- */
+.av-acc { pointer-events: none; }
+@media (prefers-reduced-motion: no-preference) { .av-prop { animation: av-prop .35s ease-in-out infinite alternate; transform-origin: 50% 50%; } }
+@keyframes av-prop { from { transform: scaleX(1); } to { transform: scaleX(.35); } }
+.av-trend { width: calc(var(--av-w) * 1.25); height: clamp(10px, 1.1vw, 18px); margin-top: 3px; }
+.av-trend:empty { display: none; }
+.av.is-fighting .av-trend { display: none; }
+.av-trend-svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.tr-mid { stroke: rgba(220,231,255,.22); stroke-width: 1; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; }
+.tr-line { stroke: var(--tr, #8fa3c0); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.tr-dot { fill: var(--tr, #8fa3c0); }
+.av { --tr: #8fa3c0; }
+.av[data-mood="thrilled"] { --tr: #4cc98a; } .av[data-mood="happy"] { --tr: #9bd96a; }
+.av[data-mood="meh"] { --tr: #f0b43b; } .av[data-mood="grumpy"] { --tr: #ff6b6b; }
+.av-tip-trend { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(220,231,255,.14); --tr: #8fa3c0; }
+.av-tip-trend[data-trend="up"] { --tr: #4cc98a; } .av-tip-trend[data-trend="down"] { --tr: #ff6b6b; } .av-tip-trend[data-trend="steady"] { --tr: #f0b43b; }
+.av-tip-trend svg { width: 100%; height: 34px; }
+.av-tip-trend-label { margin-top: 3px; color: #b6c0d0; font-size: .85em; }
+.av.has-hat .av-hud { margin-bottom: calc(8px + var(--av-w) * .3); }
