@@ -353,6 +353,7 @@
       return;
     }
     var H = { 'x-host-key': key };
+    window.RoomBlendUI = { chipPicker: chipPicker }; // for panels in their own files (house picks)
     window.RoomBlendHost = { code: code, headers: H }; // lets the YouTube source reach the shared catalogue as this room's host
     var post = function (p, body) { return http('POST', '/api/rooms/' + code + '/host/' + p, body || {}, H); };
     var joinUrl = (C.publicUrl || location.origin) + '/' + code;
@@ -440,6 +441,7 @@
         '</section>' +
         '<aside class="side" aria-label="Tuning and results">' +
           '<div id="account-mount" data-mode="host" data-code="' + code + '"></div>' +
+          '<div id="house-mount"></div>' +
           '<div id="share-mount" data-code="' + code + '"></div>' +
           '<div id="recap-mount"></div>' +
           '<details class="panel secondary"><summary>Tuning and request limits</summary>' +
@@ -954,6 +956,7 @@
     // ----- rendering -----
     function render(st) {
       S.st = st;
+      if (window.RoomBlendHouse) window.RoomBlendHouse.update(st);
       refreshIfSafe();
       saveSnap(code, st);
       scheduleRoomSnapshot(st.version);
@@ -975,7 +978,8 @@
       var palette = castPalette(st.now ? st.now.track.genres : []);
       $('tv-cast-view').style.setProperty('--cast-a', palette[0]);
       $('tv-cast-view').style.setProperty('--cast-b', palette[1]);
-      $('tv-cast-meta').textContent = st.guests.filter(function (g) { return g.status === 'active'; }).length + ' listening · ' + (st.now ? (st.now.mode === 'rotate' ? 'taking turns' : 'blending everyone’s taste') : 'waiting for guests');
+      var listening = st.guests.filter(function (g) { return g.status === 'active'; }).length;
+      $('tv-cast-meta').textContent = !listening && st.house && st.house.playing ? 'House picks · playing the host’s choices, until guests join' : listening + ' listening · ' + (st.now ? (st.now.mode === 'rotate' ? 'taking turns' : 'blending everyone’s taste') : 'waiting for guests');
       $('tv-cast-genres').replaceChildren.apply($('tv-cast-genres'), st.now ? tagList(st.now.track.genres || []) : []);
       castAvatars.update(castEntries(st));
       castFight.update(st.fight || null);

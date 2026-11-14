@@ -709,6 +709,7 @@ async function api(req, res, url) {
     }
     if (act === 'advance' && m === 'POST') { room.advance(); }
     else if (act === 'opts' && m === 'POST') { room.setOpts(body); saveRooms(); }
+    else if (act === 'house' && m === 'POST') { room.setHouse(body); saveRooms(); }
     else if (act === 'requests' && m === 'POST') {
       if (body.remove && typeof body.id === 'string') {
         if (!room.removeRequest(body.id)) return sendJson(res, 404, { error: 'request not found' });

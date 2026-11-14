@@ -66,6 +66,7 @@ Use the play log (genres played, listener count, votes) to learn which genre com
 
 ### 7. Start music without a guest ("house picks")
 Today a room plays nothing until someone joins, so hosts add fake guests to get going. Replace that with a first-class **house profile**: the host picks genres, eras, moods or artists once (or chooses a preset such as "Friday dinner" or "Pool party") and the room blends them like a guest, labelled "House" on the screen and in recaps, with an adjustable weight, so real guests can outweigh it or it can fade out as people arrive. A standing room (item 3) keeps its house profile.
+**Built (first version):** the host sets up to 4 genres, moods or eras and up to 6 artists in a *House picks* card; the music starts with nobody in the room. The house either steps aside when a guest arrives (default) or stays as one more listener. It is never shown as a person, never counted in listeners or the recap, and is saved with the room. Not yet built: presets ("Friday dinner"), an adjustable weight, and fading out gradually.
 *Needs:* an engine input that is not a person (no avatar, no votes, no skip rights). *Done when:* a host presses Start and music plays with no guest in the room, and the recap and play log never count the house as a listener.
 
 ### 8. Guest profiles with sign-in (optional)
