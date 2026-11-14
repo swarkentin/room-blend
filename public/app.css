@@ -912,3 +912,13 @@ a.btn.primary { color: var(--on-primary, #fff); }
 .house-mode { display: block; margin: 10px 0; }
 .house-mode select { max-width: 100%; }
 .house-artists { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+/* ---- Share your room (public/share.js) ---- */
+.share-body { display: grid; gap: 10px; margin-top: 10px; }
+.share-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.share-link { margin: 0; overflow-wrap: anywhere; font-size: .9em; }
+.share-app { border-top: 1px solid rgba(128,128,128,.25); padding-top: 8px; }
+.share-app > summary { cursor: pointer; font-weight: 600; }
+.share-app ol { margin: 8px 0 8px 1.2em; padding: 0; display: grid; gap: 6px; }
+.share-app a { overflow-wrap: anywhere; }
+.share summary:focus-visible, .share-app > summary:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+/* ---- end Share your room ---- */

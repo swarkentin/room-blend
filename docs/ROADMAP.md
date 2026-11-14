@@ -86,6 +86,7 @@ One scene is fine for a minute and dull for an evening. Add selectable and rotat
 *Needs:* the scenes read the same room state the screen reads now, so mostly front-end work. *Done when:* a three-hour night does not repeat one picture, and a host can pin a scene.
 
 ### 11. Tell hosts how to share their room (Discord, Zoom, Meet, Teams and others)
+**Built (2026-11-13):** a collapsible *Share your room* panel on the host page (`public/share.js`) with copy-invite and copy-link buttons and per-app steps with official help links and a last-checked date. Still open: the stream-friendly large-QR view, and Discord's sound-sharing steps (not confirmed from official pages).
 It is not obvious how to get music and the TV view to people who are not in the room. Add a **Share your room** help panel on the host page with short, per-app steps: how to share a browser tab or window together with its sound in Discord, Zoom, Google Meet and Microsoft Teams (including the "share sound" or "share tab audio" option that people miss), plus what guests then do (scan the QR or open the link from the call chat). Include a one-click "copy invite message" and a stream-friendly view with a large QR and link. The exact menu names change between apps and versions, so each guide needs checking against the current app before it is published and a "last checked" date.
 *Done when:* a first-time host can run a Discord or Zoom session by following the panel alone.
 
