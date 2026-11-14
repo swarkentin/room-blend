@@ -387,6 +387,33 @@
       return genres;
     } catch (e) { return []; }
   }
+  // Release decades of songs, from MusicBrainz (asked through the server, which keeps every answer). Only verified songs come back
+  // with a decade; a song nobody could date stays untagged, to be tagged later, never guessed. Kept here too, so a repeat costs nothing.
+  async function songEras(songs) {
+    var ERAS = window.CONFIG.eras || [], out = {}, ask = [];
+    function eraOf(y) { y = Number(y); if (!(y >= 1950)) return ''; if (y >= 2020) return '2020s'; if (y >= 2010) return '2010s'; if (y >= 2000) return '00s'; return String(Math.floor(y / 10) % 10) + '0s'; }
+    function k(s) { return 'song-year:v1:' + String(s.title).toLowerCase() + '|' + String(s.artist).toLowerCase(); }
+    for (var i = 0; i < songs.length; i++) {
+      var c = await cacheGet(k(songs[i]));
+      if (c === undefined) ask.push(songs[i]);
+      else if (c && c.length) out[k(songs[i])] = eraOf(c[0]);
+    }
+    ask = ask.slice(0, 12);
+    if (ask.length) {
+      try {
+        var r = await fetch('/api/musicbrainz/song-years', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ songs: ask.map(function (s) { return { title: s.title, artist: s.artist }; }) }) });
+        if (r.ok) {
+          var data = await r.json();
+          for (var j = 0; j < (data.songs || []).length; j++) {
+            var d = data.songs[j];
+            await cachePut(k(d), d.year ? [String(d.year)] : [], 'artist-genres', d.year ? 365 : 14);
+            if (d.year) out[k(d)] = eraOf(d.year);
+          }
+        }
+      } catch (e) { /* offline or busy: tag later */ }
+    }
+    return songs.map(function (s) { var e = out[k(s)]; return e && (!ERAS.length || ERAS.indexOf(e) >= 0) ? [e] : []; });
+  }
   async function rememberPlayed(track, id) {
     if (!id) return;
     var GM = window.GenreMap, allowed = window.CONFIG.genres;
@@ -852,21 +879,23 @@
     // Each query is cached like every other playlist, and tags only the genre it actually searched.
     eraTracks: async function (era, genre) {
       try {
-        var got = await poolQuery({ q: era + ' ' + genre, tags: [genre] });
-        return qualityOrder(got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, genres: [genre], artwork: artworkFor(t.id) }; }));
+        var decade = { '50s': '1950s', '60s': '1960s', '70s': '1970s', '80s': '1980s', '90s': '1990s', '00s': '2000s' }[era] || era;
+        var got = await poolQuery({ q: decade + ' ' + genre + ' hits', tags: [genre] });
+        var eras = await songEras(got.slice(0, 12));
+        return qualityOrder(got.map(function (t, i) { var o = { title: t.title, artist: t.artist, id: t.id, genres: [genre], artwork: artworkFor(t.id) }; if (eras[i] && eras[i].length) o.eras = eras[i]; return o; }));
       } catch (e) { note = e.message; if (rctx) rctx.status(e.message); return []; }
     },
     // A named artist: one playlist search ("<artist> greatest hits"); the room keeps only that artist's songs.
     artistTracks: async function (name, genre) {
       try {
         var handle = handleOf(name);
-        if (handle) return qualityOrder((await handleSongs(name, handle)).map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: t.genres && t.genres.length ? t.genres : [genre], artwork: artworkFor(t.id) }; }));
+        if (handle) return qualityOrder((await handleSongs(name, handle)).map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: t.genres && t.genres.length ? t.genres : [], artwork: artworkFor(t.id) }; }));
         var got = (await poolQuery({ q: name + ' greatest hits', tags: [genre] })).filter(function (t) { return nameFit(name, t.artist) >= 0.99; });
         if (!got.length) got = await channelSongs(name);
         // An artist's songs take the artist's own genres (MusicBrainz), then what each video's words say. The guest's first genre
         // is only a last resort: it describes the guest, not the artist ("Tool" picked by a classical fan is still metal).
         var own = (await artistGenres(name)).slice(0, 3);
-        return qualityOrder(got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: own.length ? own : t.genres && t.genres.length ? t.genres : [genre], artwork: artworkFor(t.id) }; }));
+        return qualityOrder(got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: own.length ? own : t.genres && t.genres.length ? t.genres : [], artwork: artworkFor(t.id) }; }));
       } catch (e) { note = e.message; if (rctx) rctx.status(e.message); return []; }
     },
     ready: function () { return on; },

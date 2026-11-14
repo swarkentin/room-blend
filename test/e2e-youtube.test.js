@@ -120,6 +120,7 @@ const yt = http.createServer((req, res) => {
     await host.route(/^https:\/\//, (r) => r.abort());
     // Hermetic: the server must not ask the real MusicBrainz (CI has network, so its answers would re-file songs and change pool counts).
     await host.route(/\/api\/musicbrainz\/artist-genres/, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"genres":[]}' }));
+    await host.route(/\/api\/musicbrainz\/song-years/, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"songs":[]}' }));
     await host.goto(APP); await host.click('#start-room'); await host.waitForURL(/\/host\/[A-Z0-9]{5}$/);
     const nowTitle = () => host.textContent('#now-title');
 
@@ -270,7 +271,7 @@ const yt = http.createServer((req, res) => {
       return r.ok ? r.json() : null;
     }, codeNow);
     assert.ok(eraGuest && eraGuest.guestId);
-    await until(() => log.plSearches.includes('80s classic rock songs') && log.plSearches.includes('80s new wave songs'), 20000, 'era-specific playlist searches');
+    await until(() => log.plSearches.includes('1980s classic rock hits songs') && log.plSearches.includes('1980s new wave hits songs'), 20000, 'era-specific playlist searches');
     ok('an 80s pick triggers decade-qualified searches for representative genres');
 
     const emptyArtist = await host.evaluate(async () => window.Providers.get('youtube').artistTracks('No Such Artist', 'rock'));

@@ -69,6 +69,7 @@ const CLIENT_CONFIG = {
   genres: Engine.GENRES,
   genreGroups: Engine.GENRE_GROUPS,
   genreAliases: Engine.GENRE_ALIASES,
+  eras: Engine.ERAS,
   genreAliasGroups: Engine.GENRE_ALIAS_GROUPS,
   genreSynonyms: Engine.GENRE_SYNONYMS,
   genreLegacy: Engine.LEGACY_GROUPS,
@@ -429,6 +430,32 @@ async function api(req, res, url) {
     }
   }
 
+  // Release year of a song (for era picks). Cached like artist genres, in the same table under a "song:" key: a year never
+  // changes, so a hit lasts a year and a "not found" two weeks. Many songs per request, but MusicBrainz is asked only for the unknown ones.
+  if (parts[0] === 'musicbrainz' && parts[1] === 'song-years' && parts.length === 2 && m === 'POST') {
+    if (process.env.MUSICBRAINZ_SEARCH_DISABLED === '1') return sendJson(res, 503, { error: 'MusicBrainz lookups are disabled' });
+    let body = null; try { body = JSON.parse(await readBody(req)); } catch (e) { /* bad body: no songs */ }
+    const songs = (body && Array.isArray(body.songs) ? body.songs : []).slice(0, 12).filter((x) => x && typeof x.title === 'string' && typeof x.artist === 'string');
+    const dbCache = USE_DB && dbReady;
+    const out = [];
+    for (const x of songs) {
+      const title = x.title.slice(0, 100), artist = x.artist.slice(0, 100), k = 'song:' + Engine.songKey(title, artist);
+      if (k === 'song:') continue;
+      let year;
+      if (dbCache) {
+        try { const hit = await store.getArtistGenres(k); if (hit !== undefined) year = hit.length ? Number(hit[0]) : null; } catch (e) { L.warn('db.read_failed', { what: 'song_year', message: String(e && e.message).slice(0, 100) }); }
+      }
+      if (year === undefined) {
+        try {
+          year = await musicBrainz.lookupSongYear(title, artist);
+          if (dbCache) store.putArtistGenres(k, year ? [String(year)] : [], year ? 365 * 86400000 : 14 * 86400000).catch((e) => L.warn('db.write_failed', { what: 'song_year', message: String(e && e.message).slice(0, 100) }));
+        } catch (e) { L.warn('musicbrainz.song_year_failed', { message: String(e && e.message || e).slice(0, 100) }); continue; }
+      }
+      out.push({ title, artist, year: year || null });
+    }
+    return sendJson(res, 200, { songs: out });
+  }
+
   // ---- Shared YouTube catalogue (lib/ytcatalog.js): song lookups and video quality, built from votes. Only a host's browser may use it. ----
   //   POST /api/catalog/get        { searches: [lookupKey], quality: [videoId] }  -> confirmed lookups and play/fail tallies (absent = not known yet)
   //   POST /api/catalog/feedback   { id, ok, key? }   this room's report that a video played or failed; with key, a good play votes for that lookup
@@ -768,6 +795,7 @@ async function api(req, res, url) {
       notify(code); return sendJson(res, 200, { ok: true, ...r });
     }
     else if (act === 'library' && m === 'DELETE') { room.clearLibrary(); }
+    else if (act === 'eras' && m === 'POST') room.tagEras(body.songs);
     else if (act === 'extras' && m === 'POST') { if (body.reset === true) room.clearExtras(); else room.addExtras(body.genre, body.tracks, { pool: body.pool === true, source: body.source, artist: typeof body.artist === 'string' ? body.artist : undefined }); }
     else if (act === 'reset' && m === 'POST') { L.info('room.reset', { room: L.roomTag(code) }); const fresh = new Room(code, room.hostKey); fresh.opts = { ...room.opts }; fresh.ownerUserId = room.ownerUserId; fresh.version = room.version + 1; rooms.set(code, fresh); subs.get(code)?.forEach((s) => s.res.end()); }
     else return sendJson(res, 404, { error: 'unknown action' });

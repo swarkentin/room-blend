@@ -7,6 +7,8 @@ interface Track {
   artist: string;
   genres: string[];
   nid?: string;
+  /** Release decades ("70s"), set only from a verified release year. Absent until the song is dated. */
+  eras?: string[];
   /** Optional album artwork supplied by the connected music provider. */
   artwork?: string;
   /** Short list of genre tags the song is tagged with by the host's library or the service. */
@@ -27,6 +29,8 @@ interface Person {
   artists?: string[];
   /** Keys of songs this person named (see songKey). */
   songs?: string[];
+  /** Decades this person picked: songs dated to them are favoured, songs dated elsewhere held back. */
+  eras?: string[];
 }
 
 /** One slot in the queue and why it was chosen. */
