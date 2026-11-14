@@ -387,27 +387,39 @@
       return genres;
     } catch (e) { return []; }
   }
-  async function rememberPlayed(track, id, own) {
+  async function rememberPlayed(track, id) {
     if (!id) return;
-    // The artist's own genres win over the room's tag: a song a guest picked by artist carries that guest's genre, not the artist's.
-    // An artist not looked up yet is looked up in the background, and the song is filed when the answer arrives, so playback never waits.
-    if (own === undefined) {
-      var name = String(track.artist || '').trim(), hit = name ? await cacheGet('artist-genres:v2:' + name.toLowerCase()) : [];
-      if (hit === undefined) { artistGenres(name).then(function (g) { return rememberPlayed(track, id, g); }).catch(function () {}); return; }
-      own = Array.isArray(hit) ? hit : [];
-    }
     var GM = window.GenreMap, allowed = window.CONFIG.genres;
-    var genres = own.slice();
-    if (!genres.length) genres = (track.genres || []).filter(function (g) { return allowed.indexOf(g) >= 0; });
-    if (!genres.length && GM) genres = GM.classifyAll([track.title, track.artist].filter(Boolean).join(' '), 3);
-    genres = genres.filter(function (g, i) { return allowed.indexOf(g) >= 0 && genres.indexOf(g) === i; }).slice(0, 3);
-    if (!genres.length) return;
-    var song = { title: track.title, artist: track.artist, id: id, genres: genres, quality: 1 };
-    for (var i = 0; i < genres.length; i++) {
-      var have = await poolGet(genres[i]) || [];
-      if (!have.some(function (x) { return x.id === id || (String(x.title || '').toLowerCase() === String(song.title || '').toLowerCase() && String(x.artist || '').toLowerCase() === String(song.artist || '').toLowerCase()); })) {
-        await poolPut(genres[i], [song].concat(have).slice(0, 600));
+    var clean = function (list) { return list.filter(function (g, i) { return allowed.indexOf(g) >= 0 && list.indexOf(g) === i; }).slice(0, 3); };
+    var same = function (x, song) { return x.id === song.id || (String(x.title || '').toLowerCase() === String(song.title || '').toLowerCase() && String(x.artist || '').toLowerCase() === String(song.artist || '').toLowerCase()); };
+    async function file(genres) {
+      var song = { title: track.title, artist: track.artist, id: id, genres: genres, quality: 1 };
+      for (var i = 0; i < genres.length; i++) {
+        var have = await poolGet(genres[i]) || [];
+        if (!have.some(function (x) { return same(x, song); })) await poolPut(genres[i], [song].concat(have).slice(0, 600));
       }
+    }
+    // The artist's own genres win over the room's tag: a song a guest picked by artist carries that guest's genre, not the artist's.
+    // Playback never waits for a lookup: with the artist not yet known, the song is filed by its own clues at once, and moved to the
+    // artist's genres if the background lookup disagrees.
+    var name = String(track.artist || '').trim(), hit = name ? await cacheGet('artist-genres:v2:' + name.toLowerCase()) : [];
+    var own = clean(Array.isArray(hit) ? hit : []);
+    var genres = own.length ? own : clean((track.genres || []).slice());
+    if (!genres.length && GM) genres = clean(GM.classifyAll([track.title, track.artist].filter(Boolean).join(' '), 3));
+    if (!genres.length && hit === undefined) genres = clean(await artistGenres(name));
+    if (genres.length) await file(genres);
+    if (hit === undefined && !own.length && name) {
+      artistGenres(name).then(async function (found) {
+        found = clean(found);
+        if (!found.length || found.every(function (g) { return genres.indexOf(g) >= 0; }) && genres.every(function (g) { return found.indexOf(g) >= 0; })) return;
+        var song = { id: id, title: track.title, artist: track.artist };
+        for (var i = 0; i < genres.length; i++) {
+          if (found.indexOf(genres[i]) >= 0) continue;
+          var have = await poolGet(genres[i]);
+          if (have) await poolPut(genres[i], have.filter(function (x) { return !same(x, song); }));
+        }
+        await file(found);
+      }).catch(function () {});
     }
   }
 
