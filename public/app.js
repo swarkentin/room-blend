@@ -288,6 +288,7 @@
           lsSet('rb-host-' + r.data.code, r.data.hostKey); location.href = '/host/' + r.data.code;
         } })]),
       ]),
+      h('div', { id: 'account-mount', 'data-mode': 'landing' }),
     ])]));
 
     async function go(code) {
@@ -347,6 +348,7 @@
         h('h1', { text: 'This browser did not start room ' + code }),
         h('p', { class: 'lead', text: 'Only the browser that started a room can run it. Open the room on that device, or start a new one.' }),
         h('div', { class: 'row' }, [h('a', { class: 'btn primary', href: '/', text: 'Start a new room' })]),
+        h('div', { id: 'account-mount', 'data-mode': 'locked', 'data-code': code }),
       ])]));
       return;
     }
@@ -437,6 +439,7 @@
           '<div class="row"><button class="btn primary" type="submit">Add to the room</button></div><p class="hint" id="add-hint"></p></form></details>' +
         '</section>' +
         '<aside class="side" aria-label="Tuning and results">' +
+          '<div id="account-mount" data-mode="host" data-code="' + code + '"></div>' +
           '<div id="recap-mount"></div>' +
           '<details class="panel secondary"><summary>Tuning and request limits</summary>' +
           '<div class="slider"><label for="s-lambda"><span>Protect the least-happy guest</span><output id="o-lambda"></output></label><input type="range" id="s-lambda" min="0" max="100" step="5"><p class="hint">0% chases the room average. 100% only counts whoever likes the song least.</p></div>' +
