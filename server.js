@@ -30,7 +30,8 @@ const { createClient } = require('./lib/musicbrainz');
 const Restore = require('./lib/restore');
 const { createStore } = require('./lib/store');
 const Recap = require('./lib/recap');
-const { createCatalog, voterFor } = require('./lib/ytcatalog');
+const { createCatalog, voterFor, voterForUser } = require('./lib/ytcatalog');
+const { createAuth } = require('./lib/auth');
 
 const PORT = Number(process.env.PORT || 3000);
 // Changes on every server process start, including deployments that do not provide a commit SHA.
@@ -41,6 +42,9 @@ const ROOMS_PER_IP_HOUR = Number(process.env.ROOMS_PER_IP_HOUR || 8);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const ROOM_TTL_MS = 24 * 3600 * 1000;
+// A room owned by a signed-in host is kept this long after its last use, so the host can come back to it.
+const OWNED_ROOM_TTL_MS = Math.max(1, Number(process.env.OWNED_ROOM_DAYS) || 30) * 24 * 3600 * 1000;
+const ttlFor = (ownerUserId) => (ownerUserId ? OWNED_ROOM_TTL_MS : ROOM_TTL_MS);
 const MAX_ROOMS = Number(process.env.MAX_ROOMS || 2000);
 
 // Storage (lib/store.js): Postgres when DATABASE_URL is set, otherwise memory plus the rooms.json file below.
@@ -49,6 +53,8 @@ const USE_DB = store.persistent;
 const catalog = createCatalog({ store, quorum: Number(process.env.CATALOG_QUORUM) || 2 });
 const CATALOG_ON = USE_DB || process.env.CATALOG_MEMORY === '1';
 let dbReady = !USE_DB; // true once migrations ran and rooms were loaded
+// Accounts (lib/auth.js). Optional, for hosts only. Off unless AUTH_PROVIDER is set. Swappable in tests.
+let auth = createAuth(process.env, L);
 
 const CLIENT_CONFIG = {
   clientId: process.env.SPOTIFY_CLIENT_ID || '',
@@ -70,6 +76,8 @@ const CLIENT_CONFIG = {
   restoreDays: Math.max(1, Math.floor(Number(process.env.RESTORE_DAYS) || 30)),
   // Hosts share one YouTube catalogue through the server only when it is backed by a database (or switched on for tests).
   catalog: CATALOG_ON,
+  // Whether hosts can sign in to keep and reclaim rooms. Guests never sign in.
+  auth: auth.enabled,
 };
 
 // Restore receipts (see lib/restore.js): lets a host's browser bring its room back after a restart or redeploy wipes the server.
@@ -84,7 +92,7 @@ function getRestorer() {
   }
   return restorer;
 }
-const hostViewOf = (room) => Object.assign(room.hostView(), { restoreToken: getRestorer().issue(room.code, room.hostKey) });
+const hostViewOf = (room) => Object.assign(room.hostView(), { restoreToken: getRestorer().issue(room.code, room.hostKey), owned: !!room.ownerUserId });
 
 const rooms = new Map();
 const subs = new Map(); // code -> Set of {res, role, guestId}
@@ -103,13 +111,14 @@ function roomFromRecord(r) {
   if (r.opts) Object.assign(room.opts, r.opts);
   // Until a checkpoint is applied, only the identity is known. The host browser restores the encrypted live-state checkpoint.
   room.recoveryNeeded = true;
+  room.ownerUserId = r.ownerUserId || null;
   return room;
 }
 function loadRooms() {
   try {
     const d = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'rooms.json'), 'utf8'));
     for (const r of d.rooms || []) {
-      if (Date.now() - r.touchedAt > ROOM_TTL_MS) continue;
+      if (Date.now() - r.touchedAt > ttlFor(r.ownerUserId)) continue;
       rooms.set(r.code, roomFromRecord(r));
     }
   } catch { /* first run */ }
@@ -118,14 +127,14 @@ function writeRooms() {
   if (USE_DB) return true; // the database flush owns persistence in that mode
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    const out = { rooms: [...rooms.values()].map((r) => ({ code: r.code, hostKey: r.hostKey, createdAt: r.createdAt, touchedAt: r.touchedAt, opts: r.opts, name: r.name, discoverable: r.discoverable, netKey: r.netKey })) };
+    const out = { rooms: [...rooms.values()].map((r) => ({ code: r.code, hostKey: r.hostKey, createdAt: r.createdAt, touchedAt: r.touchedAt, opts: r.opts, name: r.name, discoverable: r.discoverable, netKey: r.netKey, ownerUserId: r.ownerUserId || null })) };
     fs.writeFileSync(path.join(DATA_DIR, 'rooms.json.tmp'), JSON.stringify(out));
     fs.renameSync(path.join(DATA_DIR, 'rooms.json.tmp'), path.join(DATA_DIR, 'rooms.json'));
     return true;
   } catch (e) { L.count('errors.save'); L.error('save.failed', { message: e.message }); return false; }
 }
 
-const identityOf = (r) => ({ code: r.code, hostKey: r.hostKey, createdAt: r.createdAt, touchedAt: r.touchedAt, name: r.name, discoverable: r.discoverable, netKey: r.netKey, opts: r.opts });
+const identityOf = (r) => ({ code: r.code, hostKey: r.hostKey, createdAt: r.createdAt, touchedAt: r.touchedAt, name: r.name, discoverable: r.discoverable, netKey: r.netKey, opts: r.opts, ownerUserId: r.ownerUserId || null });
 const written = new Map();      // code -> { fp, at } what the database has for the room's identity
 const checkpointed = new Map(); // code -> room.version last saved as an encrypted checkpoint
 const TOUCH_WRITE_MS = 10 * 60 * 1000; // an otherwise unchanged room refreshes its "last used" time this often
@@ -180,7 +189,10 @@ function startDb() {
       const { applied } = (await store.init()) || {};
       if (applied && applied.length) L.info('db.migrated', { versions: applied });
       let restored = 0, identityOnly = 0;
-      for (const r of await store.loadRooms(Date.now() - ROOM_TTL_MS)) {
+      const startedAt = Date.now();
+      await store.deleteExpiredRooms(startedAt - ROOM_TTL_MS, startedAt - OWNED_ROOM_TTL_MS);
+      for (const r of await store.loadRooms(startedAt - OWNED_ROOM_TTL_MS)) {
+        if (startedAt - r.touchedAt > ttlFor(r.ownerUserId)) continue;
         if (rooms.has(r.code)) continue; // a host already restored it from its browser while the database was away
         const room = roomFromRecord(r);
         if (r.snapshot) {
@@ -352,6 +364,17 @@ function push(code) {
   }
 }
 
+// Cookie-authenticated writes must come from this site. Browsers always send Origin on POST/DELETE; tools without one carry no cookie to abuse.
+function sameOrigin(req) {
+  const o = req.headers.origin;
+  if (!o) return true;
+  try {
+    const host = new URL(o).host;
+    const pub = process.env.PUBLIC_URL ? new URL(process.env.PUBLIC_URL).host : '';
+    return host === req.headers.host || (!!pub && host === pub);
+  } catch { return false; }
+}
+
 // ---------- API ----------
 async function api(req, res, url) {
   const ip = clientIp(req);
@@ -419,7 +442,7 @@ async function api(req, res, url) {
     try {
       if (parts.length === 2 && action === 'get' && m === 'POST') { const r = await catalog.get(await readBody(req)); L.count('catalog.get'); return sendJson(res, 200, r); }
       if (parts.length === 2 && action === 'feedback' && m === 'POST') {
-        const ok = await catalog.feedback(await readBody(req), voterFor(hostRoom.code, hostRoom.hostKey));
+        const ok = await catalog.feedback(await readBody(req), hostRoom.ownerUserId ? voterForUser(hostRoom.ownerUserId) : voterFor(hostRoom.code, hostRoom.hostKey));
         return ok ? sendJson(res, 200, { ok: true }) : sendJson(res, 400, { error: 'bad feedback' });
       }
       if (parts.length === 2 && action === 'stats' && m === 'GET') return sendJson(res, 200, await catalog.stats());
@@ -429,6 +452,40 @@ async function api(req, res, url) {
       L.count('errors.catalog'); L.warn('catalog.failed', { action, message: String(e && e.message).slice(0, 140) });
       return sendJson(res, 503, { error: 'The shared catalogue is unavailable right now.' });
     }
+  }
+
+  // ----- Host accounts (optional; guests never sign in) -----
+  //   /api/auth/*                          sign-in, sign-up, sign-out: proxied to the auth provider (lib/auth.js)
+  //   GET  /api/me                         who is signed in (or { user: null })
+  //   GET  /api/me/rooms                   the rooms this account keeps
+  //   POST /api/me/rooms/:code/reclaim     get a kept room back on a new device: returns its host key. { rotate: true } also replaces the key.
+  //   POST|DELETE /api/rooms/:code/host/claim   keep this room under the signed-in account, or let it go
+  if (parts[0] === 'auth') { if (!auth.enabled) return sendJson(res, 404, { error: 'Accounts are not enabled on this server.' }); if (await auth.handle(req, res, url)) return; return sendJson(res, 404, { error: 'not found' }); }
+  if (parts[0] === 'me') {
+    if (!auth.enabled) return sendJson(res, 404, { error: 'Accounts are not enabled on this server.' });
+    const user = await auth.userFromRequest(req);
+    if (parts.length === 1 && m === 'GET') return sendJson(res, 200, { user: user ? { id: user.id, name: user.name || '', email: user.email || '' } : null });
+    if (!user) return sendJson(res, 401, { error: 'Sign in first.' });
+    if (parts[1] === 'rooms' && parts.length === 2 && m === 'GET') {
+      const mine = [...rooms.values()].filter((r) => r.ownerUserId === user.id).sort((a, b) => b.touchedAt - a.touchedAt)
+        .map((r) => ({ code: r.code, name: r.name, createdAt: r.createdAt, touchedAt: r.touchedAt, people: r.active().length, expiresAt: r.touchedAt + OWNED_ROOM_TTL_MS }));
+      return sendJson(res, 200, { rooms: mine });
+    }
+    if (parts[1] === 'rooms' && parts[3] === 'reclaim' && parts.length === 4 && m === 'POST') {
+      if (!sameOrigin(req)) return sendJson(res, 403, { error: 'Cross-site request refused.' });
+      const mine = rooms.get(String(parts[2]).toUpperCase());
+      if (!mine || mine.ownerUserId !== user.id) return sendJson(res, 404, { error: 'room not found' });
+      const body = await readBody(req);
+      if (body && body.rotate === true) {
+        mine.hostKey = rid(16); // the old key, on a lost or shared device, stops working
+        checkpointed.delete(mine.code); // the checkpoint is bound to the key, so it is written again
+        mine.version++;
+        notify(mine.code); saveRooms();
+      }
+      mine.touchedAt = Date.now();
+      return sendJson(res, 200, { code: mine.code, hostKey: mine.hostKey });
+    }
+    return sendJson(res, 404, { error: 'not found' });
   }
 
   const code = (parts[1] || '').toUpperCase();
@@ -512,6 +569,19 @@ async function api(req, res, url) {
   }
 
   const body = m === 'GET' ? {} : await readBody(req, parts[2] === 'host' && parts[3] === 'library' ? 6 * 1024 * 1024 : parts[2] === 'host' && parts[3] === 'extras' ? 256 * 1024 : undefined);
+
+  // Keep (or let go of) this room under the signed-in account. Needs the host key and a session.
+  if (parts[2] === 'host' && parts[3] === 'claim' && parts.length === 4 && (m === 'POST' || m === 'DELETE')) {
+    if (!auth.enabled) return sendJson(res, 404, { error: 'Accounts are not enabled on this server.' });
+    if (!isHost()) return sendJson(res, 401, { error: 'unknown key' });
+    if (!sameOrigin(req)) return sendJson(res, 403, { error: 'Cross-site request refused.' });
+    const user = await auth.userFromRequest(req);
+    if (!user) return sendJson(res, 401, { error: 'Sign in first.' });
+    if (room.ownerUserId && room.ownerUserId !== user.id) return sendJson(res, 409, { error: 'This room already belongs to another account.' });
+    const want = m === 'POST' ? user.id : null;
+    if ((room.ownerUserId || null) !== want) { room.ownerUserId = want; room.version++; notify(code); saveRooms(); }
+    return sendJson(res, 200, { ok: true, owned: !!room.ownerUserId });
+  }
 
   // Guests
   if (parts[2] === 'guests' && parts.length === 3 && m === 'POST') {
@@ -699,7 +769,7 @@ async function api(req, res, url) {
     }
     else if (act === 'library' && m === 'DELETE') { room.clearLibrary(); }
     else if (act === 'extras' && m === 'POST') { if (body.reset === true) room.clearExtras(); else room.addExtras(body.genre, body.tracks, { pool: body.pool === true, source: body.source, artist: typeof body.artist === 'string' ? body.artist : undefined }); }
-    else if (act === 'reset' && m === 'POST') { L.info('room.reset', { room: L.roomTag(code) }); const fresh = new Room(code, room.hostKey); fresh.opts = { ...room.opts }; fresh.version = room.version + 1; rooms.set(code, fresh); subs.get(code)?.forEach((s) => s.res.end()); }
+    else if (act === 'reset' && m === 'POST') { L.info('room.reset', { room: L.roomTag(code) }); const fresh = new Room(code, room.hostKey); fresh.opts = { ...room.opts }; fresh.ownerUserId = room.ownerUserId; fresh.version = room.version + 1; rooms.set(code, fresh); subs.get(code)?.forEach((s) => s.res.end()); }
     else return sendJson(res, 404, { error: 'unknown action' });
     notify(code);
     return sendJson(res, 200, { ok: true });
@@ -810,7 +880,7 @@ const server = http.createServer(async (req, res) => {
 const clock = setInterval(() => {
   const now = Date.now();
   for (const [code, room] of rooms) {
-    if (now - room.touchedAt > ROOM_TTL_MS && !(subs.get(code) && subs.get(code).size)) { L.count('rooms.expired'); L.info('room.expired', { room: L.roomTag(code), ageHours: (now - room.createdAt) / 3600000, rooms: rooms.size - 1 }); rooms.delete(code); subs.delete(code); saveRooms(); continue; }
+    if (now - room.touchedAt > ttlFor(room.ownerUserId) && !(subs.get(code) && subs.get(code).size)) { L.count('rooms.expired'); L.info('room.expired', { room: L.roomTag(code), ageHours: (now - room.createdAt) / 3600000, rooms: rooms.size - 1 }); rooms.delete(code); subs.delete(code); saveRooms(); continue; }
     if (room.tick(now)) notify(code);
     else if ([...room.guests.values()].some((g) => g.status === 'arriving' || (!g.connected && !g.manual))) notify(code);
   }
@@ -848,4 +918,5 @@ if (require.main === module) {
 }
 // Test hooks: forget everything in memory and load again from the store, as a restart would.
 async function restartForTest() { rooms.clear(); written.clear(); checkpointed.clear(); dbReady = false; return startDb(); }
-module.exports = { server, rooms, CLIENT_CONFIG, musicBrainz, store, flushRooms, startDb, restartForTest };
+function setAuthForTest(a) { auth = a; CLIENT_CONFIG.auth = !!a.enabled; }
+module.exports = { server, rooms, CLIENT_CONFIG, musicBrainz, store, flushRooms, startDb, restartForTest, setAuthForTest };

@@ -34,5 +34,14 @@ services:
         generateValue: true   # signs room restore receipts; generated once by Render and kept across restarts and redeploys
       - key: DATABASE_URL
         sync: false   # Neon pooled connection string, e.g. postgresql://user:pass@ep-xxxx-pooler.region.aws.neon.tech/neondb?sslmode=require
+      # Optional host accounts (docs/ACCOUNTS.md). Leave AUTH_PROVIDER unset and nobody can sign in; guests never need to.
+      - key: AUTH_PROVIDER
+        value: ""        # set to "neon" to turn accounts on
+      - key: NEON_AUTH_BASE_URL
+        sync: false   # from the Neon console: Auth > Configuration (an https:// address)
+      - key: PUBLIC_URL
+        sync: false   # this service's public address, e.g. https://room-blend.onrender.com
+      - key: OWNED_ROOM_DAYS
+        value: "30"   # how long a kept room survives unused
       - key: SPOTIFY_CLIENT_ID
         sync: false   # optional; leave empty and hosts bring their own Spotify app
