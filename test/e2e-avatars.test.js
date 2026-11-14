@@ -40,13 +40,28 @@ const intersects = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x && a.y <
 
     // hover shows stats
     const first = host.locator('.av').first();
-    assert.strictEqual(await first.locator('.av-tip').evaluate((e) => getComputedStyle(e).visibility), 'hidden');
+    await until(async () => (await first.locator('.av-tip').evaluate((e) => getComputedStyle(e).visibility)) === 'hidden', 15000, 'no card showing on its own');
     await first.hover();
     await until(async () => (await first.locator('.av-tip').evaluate((e) => getComputedStyle(e).visibility)) === 'visible', 3000, 'tip visible');
     const tip = await first.locator('.av-tip').innerText();
-    assert.match(tip, /Ana|Ben|Cy/); assert.match(tip, /Own turns/); assert.match(tip, /So far/);
+    assert.match(tip, /Ana|Ben|Cy/); assert.match(tip, /Own turns/); assert.match(tip, /Overall/);
     const tb = await first.locator('.av-tip').boundingBox();
-    assert.ok(tb.x >= 0 && tb.x + tb.width <= 1920 && !intersects(tb, qr)); ok('hovering an avatar shows their stats, on screen and off the QR code');
+    assert.ok(tb.x >= 0 && tb.x + tb.width <= 1920 && !intersects(tb, qr), JSON.stringify({ tb, qr })); ok('hovering an avatar shows their stats, on screen and off the QR code');
+
+    // on a TV nobody can hover: each guest's card shows on its own, one at a time, in turn
+    await host.mouse.move(5, 5);
+    await until(async () => (await host.locator('.av-tip').evaluateAll((l) => l.every((e) => getComputedStyle(e).visibility === 'hidden'))), 15000, 'hover card gone');
+    const seen = new Set(); let simultaneous = 0;
+    await until(async () => {
+      const spots = await host.locator('.av.is-spot').all(); simultaneous = Math.max(simultaneous, spots.length);
+      for (const sp of spots) {
+        if ((await sp.locator('.av-tip').evaluate((e) => getComputedStyle(e).visibility)) !== 'visible') continue;   // still fading in
+        const text = await sp.locator('.av-tip').innerText(); assert.match(text, /Overall/); seen.add(text.split('\n')[0]);
+      }
+      return seen.size >= 2;
+    }, 40000, 'cards of two different guests shown without hovering');
+    assert.strictEqual(simultaneous, 1, 'one card at a time');
+    ok('with no mouse, each guest\'s stats card appears on its own, one guest at a time, in turn');
 
     // movement is occasional: at most one walker at a time, and standing still most of the time
     // (guests walking in when they first arrive is separate, so let those entrances finish before counting strolls)

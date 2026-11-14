@@ -1,5 +1,6 @@
 // Little animated guests for the TV / cast view: one avatar per listener, standing along the bottom of the screen.
-// Their pose follows how well the music is treating them, they only wander now and then, and hovering one shows their stats.
+// Their pose follows how the whole night has gone for them (not the song playing this second), they only wander now and then,
+// and on a TV, where nobody can hover, each guest's stats pop up on their own in turn.
 // Works in the browser (window.Avatars) and in Node (tests, for the mood logic).
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -8,10 +9,10 @@
   'use strict';
 
   var LABELS = {
-    thrilled: 'Loving this one',
-    happy: 'Enjoying it',
+    thrilled: 'Loving the night',
+    happy: 'Having a good time',
     meh: 'It is just okay',
-    grumpy: 'Not feeling this',
+    grumpy: 'Not feeling it',
     waiting: 'Waiting for music',
     resting: 'Taking a break',
   };
@@ -25,15 +26,16 @@
   }
 
   /**
-   * How a guest is feeling, from how well the song now playing fits them (0 to 1) and how well the room has
-   * served them so far (average fit over the songs they have heard).
+   * How a guest is feeling overall: how well the room has served them across the songs they have heard (average fit),
+   * not how well the song playing this second suits them. Only before they have heard a whole song does the current fit
+   * stand in, so the first song does not leave them blank.
    * input: { fit, avg, songs, resting, restLabel }
    */
   function mood(input) {
     var i = input || {};
     if (i.resting) return { key: 'resting', label: i.restLabel || LABELS.resting, score: null };
-    var fit = num(i.fit), avg = num(i.avg), hist = avg !== null && i.songs >= 2;
-    var score = fit !== null ? (hist ? 0.6 * fit + 0.4 * avg : fit) : hist ? avg : null;
+    var fit = num(i.fit), avg = num(i.avg), heard = avg !== null && i.songs >= 1;
+    var score = heard ? avg : fit;
     var key = score === null ? 'waiting' : score >= 0.72 ? 'thrilled' : score >= 0.5 ? 'happy' : score >= 0.3 ? 'meh' : 'grumpy';
     return { key: key, label: LABELS[key], score: score };
   }
@@ -97,6 +99,7 @@
   function create(stage, opts) {
     opts = opts || {};
     var recs = new Map(), timer = null, avW = 0, enabled = opts.enabled !== false, fight = null;
+    var spotT = null, spotRec = null, spotNext = 0;   // the guest whose card is showing on its own, and who is next
 
     function reduced() { return !!(opts.reduced && opts.reduced()); }
     function visible() { return stage.getClientRects().length > 0; }
@@ -181,6 +184,23 @@
         }
       });
       applyFight();
+    }
+
+    // On a TV nobody can hover, so each guest's card (mood, tags, stats) appears on its own, one guest at a time, in turn:
+    // a few seconds on, a short pause, the next guest. Never during a duel, or while a hovering mouse already shows one.
+    function hideSpot() { if (spotRec) { spotRec.el.classList.remove('is-spot'); spotRec = null; } }
+    function spotlight() {
+      clearTimeout(spotT);
+      hideSpot();
+      var show = opts.spotlight !== false ? opts.spotlightMs || 6500 : 0, gap = opts.spotlightGapMs || 4500;
+      if (!show) return;
+      var ok = enabled && !fight && visible() && !(typeof document !== 'undefined' && document.hidden);
+      var list = [];
+      recs.forEach(function (r) { if (r.placed && !r.hovered && !r.fighting) list.push(r); });
+      if (!ok || !list.length) { spotT = setTimeout(spotlight, 2000); return; }
+      var rec = list[spotNext++ % list.length];
+      rec.el.classList.add('is-spot'); spotRec = rec; placeTip(rec);
+      spotT = setTimeout(function () { hideSpot(); spotT = setTimeout(spotlight, gap); }, show);
     }
 
     // Now and then one guest takes a short stroll. Never while hovered, resting, or while someone else is already walking.
@@ -368,7 +388,8 @@
       window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(layout, 150); });
     }
     schedule();
-    return { update: update, layout: layout, setEnabled: setEnabled, setFight: setFight };
+    spotT = setTimeout(spotlight, opts.spotlightFirstMs || 5000);
+    return { update: update, layout: layout, setEnabled: setEnabled, setFight: setFight, spotlight: spotlight };
   }
 
   return { mood: mood, create: create, LABELS: LABELS, isWeenArtist: isWeenArtist, hpTone: hpTone, fightStatus: fightStatus };
