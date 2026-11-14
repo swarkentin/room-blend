@@ -871,3 +871,11 @@ a.btn.primary { color: var(--on-primary, #fff); }
 .recap-bar u { display: block; height: 100%; background: var(--ink); text-decoration: none; }
 .recap-actions { gap: 6px; flex-wrap: wrap; }
 /* ---- recap.js (end) ---- */
+
+/* ---- Host account (public/account.js) ---- */
+.account { margin-top: 18px; }
+.account input { display: block; width: 100%; margin: 8px 0; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line, #444); background: transparent; color: inherit; font: inherit; }
+.account .btn { margin: 4px 8px 4px 0; }
+.account-or { text-align: center; margin: 10px 0 0; }
+.account-rooms { list-style: none; margin: 8px 0 0; padding: 0; }
+.account-rooms li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; flex-wrap: wrap; }

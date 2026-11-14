@@ -28,7 +28,19 @@ Keep `NEON_AUTH_BASE_URL` in Render's environment only, never in the repository.
 
 The ownership logic is tested against a fake provider, and the proxy against a fake upstream. It has **not** been run against the real Neon Auth service: the first deploy is the first real test. If sign-in misbehaves, the usual causes are a missing trusted domain, a wrong `PUBLIC_URL`, or an unverified email.
 
-The host page has no sign-in screen yet; the API is in place for it.
+## What hosts see
+
+An optional "Host account" card, shown only when the server has accounts on (`AUTH_PROVIDER` set). Guest pages never include it.
+
+- **Landing page:** sign in (email and password, or Continue with Google), then **My rooms** lists kept rooms; **Open** puts that room's host key in this browser and opens it.
+- **Host page:** **Keep this room** / **Stop keeping this room**.
+- **"This browser did not start room X" page:** an owner can sign in and **Take over** the room on this device.
+
+Google sign-in returns to the site with a one-time `neon_auth_session_verifier` that the page exchanges for a session through this server (`GET /api/auth/get-session?neon_auth_session_verifier=...`), then removes from the address bar. Neon's docs describe the verifier only briefly, so **this exchange is the least certain part**: if "Continue with Google" returns signed out, that is where to look. Email and password uses documented endpoints (`/sign-up/email`, `/sign-in/email`).
+
+For Google, register `{NEON_AUTH_BASE_URL}/callback/google` as the redirect URI in Google Cloud (not your own site's address), and add your site to Neon Auth's trusted domains. Until you add your own Google credentials, Neon's shared development ones work but show Neon's name and are not for production.
+
+Browser tests use a stand-in provider (`lib/auth-fake.js`), enabled only when both `AUTH_PROVIDER=fake` and `ALLOW_FAKE_AUTH=1` are set. Never set these in production.
 
 ## Settings
 
