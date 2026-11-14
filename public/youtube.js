@@ -387,11 +387,17 @@
       return genres;
     } catch (e) { return []; }
   }
-  async function rememberPlayed(track, id) {
+  async function rememberPlayed(track, id, own) {
     if (!id) return;
-    var GM = window.GenreMap, allowed = window.CONFIG.genres;
     // The artist's own genres win over the room's tag: a song a guest picked by artist carries that guest's genre, not the artist's.
-    var genres = await artistGenres(track.artist);
+    // An artist not looked up yet is looked up in the background, and the song is filed when the answer arrives, so playback never waits.
+    if (own === undefined) {
+      var name = String(track.artist || '').trim(), hit = name ? await cacheGet('artist-genres:v2:' + name.toLowerCase()) : [];
+      if (hit === undefined) { artistGenres(name).then(function (g) { return rememberPlayed(track, id, g); }).catch(function () {}); return; }
+      own = Array.isArray(hit) ? hit : [];
+    }
+    var GM = window.GenreMap, allowed = window.CONFIG.genres;
+    var genres = own.slice();
     if (!genres.length) genres = (track.genres || []).filter(function (g) { return allowed.indexOf(g) >= 0; });
     if (!genres.length && GM) genres = GM.classifyAll([track.title, track.artist].filter(Boolean).join(' '), 3);
     genres = genres.filter(function (g, i) { return allowed.indexOf(g) >= 0 && genres.indexOf(g) === i; }).slice(0, 3);
