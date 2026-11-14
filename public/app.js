@@ -440,6 +440,7 @@
         '</section>' +
         '<aside class="side" aria-label="Tuning and results">' +
           '<div id="account-mount" data-mode="host" data-code="' + code + '"></div>' +
+          '<div id="share-mount" data-code="' + code + '"></div>' +
           '<div id="recap-mount"></div>' +
           '<details class="panel secondary"><summary>Tuning and request limits</summary>' +
           '<div class="slider"><label for="s-lambda"><span>Protect the least-happy guest</span><output id="o-lambda"></output></label><input type="range" id="s-lambda" min="0" max="100" step="5"><p class="hint">0% chases the room average. 100% only counts whoever likes the song least.</p></div>' +

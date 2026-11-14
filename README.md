@@ -27,6 +27,10 @@ Guests who both have a song waiting can duel for its place in line. On the TV / 
 
 To keep it fair, each guest can declare only a few challenges per window of time, nobody can be pulled into back-to-back duels, and the room runs one duel at a time. The host sets the allowance and window (or turns duels off) under **Duels** in the host console, and can call off a duel in progress.
 
+### Sharing your room
+
+Hosting for people on a call? Open **Share your room** on the host page. It copies an invite message or the join link in one click and gives short steps for sharing the TV / cast view, with its sound, on Discord, Zoom, Google Meet and Microsoft Teams. The music plays on the host's computer, so that is the sound to share. Each guide links to the app's official help and shows when it was last checked.
+
 ## What it looks like
 
 <table>
