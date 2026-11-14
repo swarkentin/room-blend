@@ -527,15 +527,15 @@
       return st.guests.filter(function (g) { return g.status !== 'arriving'; }).map(function (g) {
         var f = fair[g.id] || { avg: 0, songs: 0, own: 0 }, now = fits[g.id], resting = g.status === 'sitting' || !!g.away;
         var stats = [];
-        if (st.now) stats.push(['This song', now == null ? 'n/a' : pct(now) + '% fit']);
-        stats.push(['So far', f.songs ? pct(f.avg) + '% over ' + f.songs + (f.songs === 1 ? ' song' : ' songs') : 'Not heard yet']);
+        stats.push(['Overall', f.songs ? pct(f.avg) + '% happy over ' + f.songs + (f.songs === 1 ? ' song' : ' songs') : 'Not heard yet']);
         stats.push(['Own turns', String(f.own)]);
+        if (st.now) stats.push(['This song', now == null ? 'n/a' : pct(now) + '% fit']);
         if (g.picks) stats.push(['Named', g.artistCount + (g.artistCount === 1 ? ' artist, ' : ' artists, ') + g.songCount + (g.songCount === 1 ? ' song' : ' songs')]);
         return {
           id: g.id, name: g.name, color: COLORS[g.color % COLORS.length], requesting: !!asking[g.id],
           dancing: !!(st.now && st.now.mode === 'request' && st.now.owner === g.id),
           genres: (g.genres.length ? g.genres : g.inferred || []).map(gl), stats: stats,
-          mood: { fit: now == null ? null : now, avg: f.avg, songs: f.songs, resting: resting, restLabel: g.hostSit ? 'Sat out by the host' : g.away ? 'Stepped away' : 'Sitting this one out' },
+          mood: { fit: now == null ? null : now, avg: f.avg, songs: f.songs, trail: f.trail || [], resting: resting, restLabel: g.hostSit ? 'Sat out by the host' : g.away ? 'Stepped away' : 'Sitting this one out' },
         };
       });
     }
