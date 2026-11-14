@@ -390,17 +390,36 @@
   async function rememberPlayed(track, id) {
     if (!id) return;
     var GM = window.GenreMap, allowed = window.CONFIG.genres;
-    var genres = (track.genres || []).filter(function (g) { return allowed.indexOf(g) >= 0; });
-    if (!genres.length && GM) genres = GM.classifyAll([track.title, track.artist].filter(Boolean).join(' '), 3);
-    if (!genres.length) genres = await artistGenres(track.artist);
-    genres = genres.filter(function (g, i) { return allowed.indexOf(g) >= 0 && genres.indexOf(g) === i; }).slice(0, 3);
-    if (!genres.length) return;
-    var song = { title: track.title, artist: track.artist, id: id, genres: genres, quality: 1 };
-    for (var i = 0; i < genres.length; i++) {
-      var have = await poolGet(genres[i]) || [];
-      if (!have.some(function (x) { return x.id === id || (String(x.title || '').toLowerCase() === String(song.title || '').toLowerCase() && String(x.artist || '').toLowerCase() === String(song.artist || '').toLowerCase()); })) {
-        await poolPut(genres[i], [song].concat(have).slice(0, 600));
+    var clean = function (list) { return list.filter(function (g, i) { return allowed.indexOf(g) >= 0 && list.indexOf(g) === i; }).slice(0, 3); };
+    var same = function (x, song) { return x.id === song.id || (String(x.title || '').toLowerCase() === String(song.title || '').toLowerCase() && String(x.artist || '').toLowerCase() === String(song.artist || '').toLowerCase()); };
+    async function file(genres) {
+      var song = { title: track.title, artist: track.artist, id: id, genres: genres, quality: 1 };
+      for (var i = 0; i < genres.length; i++) {
+        var have = await poolGet(genres[i]) || [];
+        if (!have.some(function (x) { return same(x, song); })) await poolPut(genres[i], [song].concat(have).slice(0, 600));
       }
+    }
+    // The artist's own genres win over the room's tag: a song a guest picked by artist carries that guest's genre, not the artist's.
+    // Playback never waits for a lookup: with the artist not yet known, the song is filed by its own clues at once, and moved to the
+    // artist's genres if the background lookup disagrees.
+    var name = String(track.artist || '').trim(), hit = name ? await cacheGet('artist-genres:v2:' + name.toLowerCase()) : [];
+    var own = clean(Array.isArray(hit) ? hit : []);
+    var genres = own.length ? own : clean((track.genres || []).slice());
+    if (!genres.length && GM) genres = clean(GM.classifyAll([track.title, track.artist].filter(Boolean).join(' '), 3));
+    if (!genres.length && hit === undefined) genres = clean(await artistGenres(name));
+    if (genres.length) await file(genres);
+    if (hit === undefined && !own.length && name) {
+      artistGenres(name).then(async function (found) {
+        found = clean(found);
+        if (!found.length || found.every(function (g) { return genres.indexOf(g) >= 0; }) && genres.every(function (g) { return found.indexOf(g) >= 0; })) return;
+        var song = { id: id, title: track.title, artist: track.artist };
+        for (var i = 0; i < genres.length; i++) {
+          if (found.indexOf(genres[i]) >= 0) continue;
+          var have = await poolGet(genres[i]);
+          if (have) await poolPut(genres[i], have.filter(function (x) { return !same(x, song); }));
+        }
+        await file(found);
+      }).catch(function () {});
     }
   }
 
@@ -415,6 +434,56 @@
     // catalogue reads, so an initial read cannot overwrite this up-to-date summary.
     if (rctx && rctx.rerender) rctx.rerender();
     return saved;
+  }
+  // One-time migration: songs filed under a genre their artist does not play (an artist a classical fan picked, tagged "classical")
+  // move to the artist's own genres. Uses artist genres already known (this browser's cache, then the server's shared artist cache);
+  // songs whose artist is unknown stay where they are. Bounded per run, and retried on later loads until every artist is resolved.
+  var retagPromise = null, RETAG_KEY = 'rb-yt-genre-retag-v1', RETAG_LOOKUPS = 30;
+  async function retagCatalogue() {
+    if (lsGet(RETAG_KEY) === 'done') return { skipped: true, moved: 0 };
+    if (retagPromise) return retagPromise;
+    retagPromise = (async function () {
+      var allowed = window.CONFIG.genres, db = await openCacheDb();
+      if (!db) return { skipped: true, moved: 0 };
+      var rows = await new Promise(function (resolve) {
+        var req = db.transaction(DB_STORE, 'readonly').objectStore(DB_STORE).getAll();
+        req.onsuccess = function () { resolve((req.result || []).filter(function (r) { return r.kind === 'pool' && r.expiresAt > Date.now() && Array.isArray(r.value) && allowed.indexOf(String(r.id).slice(5)) >= 0; })); };
+        req.onerror = function () { resolve([]); };
+      });
+      var known = Object.create(null), lookups = 0, unresolved = 0;
+      async function genresOf(artist) {
+        var k = String(artist || '').trim().toLowerCase(); if (!k) return null;
+        if (k in known) return known[k];
+        var cached = await cacheGet('artist-genres:v2:' + k);
+        if (cached === undefined) {
+          if (lookups >= RETAG_LOOKUPS) { unresolved++; return (known[k] = null); }
+          lookups++; cached = await artistGenres(artist);
+          if (!cached.length && (await cacheGet('artist-genres:v2:' + k)) === undefined) { unresolved++; return (known[k] = null); } // lookup failed: try again later
+        }
+        return (known[k] = Array.isArray(cached) && cached.length ? cached.slice(0, 3) : null);
+      }
+      var moves = Object.create(null), keep = Object.create(null), moved = 0;
+      for (var r = 0; r < rows.length; r++) {
+        var genre = String(rows[r].id).slice(5), stay = [];
+        for (var i = 0; i < rows[r].value.length; i++) {
+          var song = rows[r].value[i], own = song && song.id ? await genresOf(song.artist) : null;
+          if (!own || own.indexOf(genre) >= 0) { stay.push(song); continue; }
+          moved++;
+          own.forEach(function (g) { (moves[g] = moves[g] || []).push({ title: song.title, artist: song.artist, id: song.id, genres: own, quality: song.quality || 1 }); });
+        }
+        if (stay.length !== rows[r].value.length) keep[genre] = stay;
+      }
+      for (var g1 in keep) await poolPut(g1, keep[g1]);
+      for (var g2 in moves) {
+        var have = await poolGet(g2) || [], ids = Object.create(null);
+        have.forEach(function (x) { if (x.id) ids[x.id] = true; });
+        var fresh = moves[g2].filter(function (x) { if (ids[x.id]) return false; ids[x.id] = true; return true; });
+        if (fresh.length) await poolPut(g2, fresh.concat(have).slice(0, 600));
+      }
+      if (!unresolved) lsSet(RETAG_KEY, 'done');
+      return { skipped: false, moved: moved, unresolved: unresolved };
+    })().finally(function () { retagPromise = null; });
+    return retagPromise;
   }
   // One-time, local-only migration: blend genre-labelled cached playlists and clearly classifiable
   // search results into canonical genre pools. No YouTube API requests are made here.
@@ -764,6 +833,7 @@
     },
     pool: true, // the room's songs come from YouTube playlists for each genre; the built-in list is only a fallback
     canExtras: function () { return on; },
+    retagCatalogue: retagCatalogue, // internal migration hook (also run once after enrichment)
     enrichCatalogue: enrichCatalogue, // internal migration hook; normal users never need to invoke this
     cacheInfo: async function () { var db = await openCacheDb(); if (!db) return { mode: 'memory', warning: cacheWarning }; return new Promise(function (resolve) { var tx = db.transaction(DB_STORE, 'readonly'), req = tx.objectStore(DB_STORE).getAll(); req.onsuccess = function () { var rows = req.result.filter(function (x) { return x.expiresAt > Date.now(); }), pools = rows.filter(function (x) { return x.kind === 'pool'; }), feedback = rows.filter(function (x) { return x.kind === 'quality'; }); resolve({ mode: 'indexeddb', pools: pools.length, poolTracks: pools.reduce(function (n, x) { return n + (Array.isArray(x.value) ? x.value.length : 0); }, 0), searches: rows.filter(function (x) { return x.kind === 'search'; }).length, ratedVideos: feedback.length, playbackSuccesses: feedback.reduce(function (n, x) { return n + (x.value.successes || 0); }, 0), playbackFailures: feedback.reduce(function (n, x) { return n + (x.value.failures || 0); }, 0), warning: cacheWarning }); }; req.onerror = function () { resolve({ mode: 'indexeddb', warning: cacheWarning }); }; }); },
     extras: async function (genre, partners) {
@@ -793,7 +863,10 @@
         if (handle) return qualityOrder((await handleSongs(name, handle)).map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: t.genres && t.genres.length ? t.genres : [genre], artwork: artworkFor(t.id) }; }));
         var got = (await poolQuery({ q: name + ' greatest hits', tags: [genre] })).filter(function (t) { return nameFit(name, t.artist) >= 0.99; });
         if (!got.length) got = await channelSongs(name);
-        return qualityOrder(got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: t.genres && t.genres.length ? t.genres : [genre], artwork: artworkFor(t.id) }; }));
+        // An artist's songs take the artist's own genres (MusicBrainz), then what each video's words say. The guest's first genre
+        // is only a last resort: it describes the guest, not the artist ("Tool" picked by a classical fan is still metal).
+        var own = (await artistGenres(name)).slice(0, 3);
+        return qualityOrder(got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, quality: t.quality, genres: own.length ? own : t.genres && t.genres.length ? t.genres : [genre], artwork: artworkFor(t.id) }; }));
       } catch (e) { note = e.message; if (rctx) rctx.status(e.message); return []; }
     },
     ready: function () { return on; },
@@ -831,6 +904,11 @@
   Promise.resolve().then(function () {
     return enrichCatalogue(function (done, total, added) {
       if (rctx && rctx.status) rctx.status('Enriching your cached music catalogue: ' + done + ' of ' + total + ' genres (' + added + ' tracks added)');
+    });
+  }).then(function (result) {
+    return retagCatalogue().then(function (moved) {
+      if (moved && moved.moved && rctx && rctx.status) rctx.status('Corrected the genre of ' + moved.moved + ' cached songs');
+      return result;
     });
   }).then(function (result) {
     if (!result.skipped && rctx && rctx.status) rctx.status('Music catalogue enrichment complete: ' + result.added + ' tracks added locally');

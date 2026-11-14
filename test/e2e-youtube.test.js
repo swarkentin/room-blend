@@ -118,6 +118,8 @@ const yt = http.createServer((req, res) => {
     const toApp = []; host.on('request', (r) => { if (r.url().startsWith(APP)) toApp.push(r.url() + ' ' + (r.postData() || '') + JSON.stringify(r.headers())); });
     host.on('pageerror', (e) => errors.push(e.message)); host.on('console', (m) => { if (m.type() === 'error' && !/fonts|ERR_|Failed to load resource|qrcode|400|403/.test(m.text())) errors.push(m.text()); });
     await host.route(/^https:\/\//, (r) => r.abort());
+    // Hermetic: the server must not ask the real MusicBrainz (CI has network, so its answers would re-file songs and change pool counts).
+    await host.route(/\/api\/musicbrainz\/artist-genres/, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"genres":[]}' }));
     await host.goto(APP); await host.click('#start-room'); await host.waitForURL(/\/host\/[A-Z0-9]{5}$/);
     const nowTitle = () => host.textContent('#now-title');
 
@@ -287,6 +289,50 @@ const yt = http.createServer((req, res) => {
     const djRec = await until(() => cacheRecord(host, 'pool:channel:dj crocs & socks'), 8000, 'channel pool cached'), djPool = { tracks: djRec.value };
     assert.ok(djPool && djPool.tracks.length === 3 && djPool.tracks.every((t) => t.artist === 'DJ Crocs & Socks')); ok('the channel whose name matches (not "Totally Different") gave three songs, credited to the artist as named');
     assert.ok(djPool.tracks.some((t) => t.title === 'Sock Hop Anthem') && djPool.tracks.some((t) => t.title === 'Slide Into Friday')); ok('a title with "Artist - " in front loses it; plain titles stay as they are');
+    // The artist's own genres tag their songs. The guest's first genre ("classical" here) describes the guest, so it is only a last resort.
+    await host.route('**/api/musicbrainz/artist-genres*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ genres: ['electronic', 'metal'] }) }));
+    await host.evaluate(async () => {
+      const request = indexedDB.open('room-blend-youtube', 2);
+      const db = await new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+      await new Promise((resolve) => { const tx = db.transaction('entries', 'readwrite'); tx.objectStore('entries').delete('artist-genres:v2:dj crocs & socks'); tx.oncomplete = resolve; });
+      db.close();
+    });
+    const tagged = await host.evaluate(async () => window.Providers.get('youtube').artistTracks('DJ Crocs & Socks', 'classical'));
+    assert.ok(tagged.length >= 1 && tagged.every((t) => t.genres.join() === 'electronic,metal'), 'songs carry the artist\'s genres, not the guest\'s');
+    await host.unroute('**/api/musicbrainz/artist-genres*');
+    await host.route('**/api/musicbrainz/artist-genres*', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
+    const fallback = await host.evaluate(async () => window.Providers.get('youtube').artistTracks('DJ Crocs & Socks', 'classical'));
+    assert.ok(fallback.length >= 1 && fallback.every((t) => t.genres.length > 0), 'with no artist genres known, songs still get a genre');
+    await host.unroute('**/api/musicbrainz/artist-genres*');
+    ok('an artist\'s songs are tagged with the artist\'s genres, not the picking guest\'s first genre');
+
+    // Songs filed under the wrong genre by the old behaviour move to their artist's genres; right ones stay; unknown artists are left alone.
+    await host.evaluate(async () => {
+      const request = indexedDB.open('room-blend-youtube', 2);
+      const db = await new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+      await new Promise((resolve) => {
+        const tx = db.transaction('entries', 'readwrite'), store = tx.objectStore('entries'), now = Date.now(), ttl = now + 30 * 86400000;
+        store.put({ id: 'pool:classical', kind: 'pool', value: [
+          { title: 'Smack My Bitch Up', artist: 'The Prodigy', id: 'prodigy0001', genres: ['classical'] },
+          { title: 'Clair de Lune', artist: 'Debussy', id: 'debussy0001', genres: ['classical'] },
+          { title: 'Mystery Tune', artist: 'Unknown Band', id: 'mystery0001', genres: ['classical'] }], at: now, usedAt: now, expiresAt: ttl });
+        store.put({ id: 'artist-genres:v2:the prodigy', kind: 'artist-genres', value: ['electronic'], at: now, usedAt: now, expiresAt: ttl });
+        store.put({ id: 'artist-genres:v2:debussy', kind: 'artist-genres', value: ['classical'], at: now, usedAt: now, expiresAt: ttl });
+        store.put({ id: 'artist-genres:v2:unknown band', kind: 'artist-genres', value: [], at: now, usedAt: now, expiresAt: ttl });
+        tx.oncomplete = resolve;
+      });
+      db.close();
+      localStorage.removeItem('rb-yt-genre-retag-v1');
+    });
+    const retag = await host.evaluate(async () => window.Providers.get('youtube').retagCatalogue());
+    assert.strictEqual(retag.moved, 1, 'only the song whose artist is known not to play that genre moves');
+    const classicalPool = await cacheRecord(host, 'pool:classical'), electronicPool = await cacheRecord(host, 'pool:electronic');
+    assert.deepStrictEqual(classicalPool.value.map((x) => x.id).sort(), ['debussy0001', 'mystery0001']);
+    assert.ok(electronicPool.value.some((x) => x.id === 'prodigy0001'));
+    const again = await host.evaluate(async () => window.Providers.get('youtube').retagCatalogue());
+    assert.ok(again.skipped || again.moved === 0, 'running again moves nothing');
+    assert.strictEqual((await cacheRecord(host, 'pool:classical')).value.length, 2);
+    ok('cached songs filed under the wrong genre move to their artist\'s genres; the rest stay');
     const djSeen = await until(() => host.evaluate(async ({ c, g }) => { const r = await (await fetch('/api/rooms/' + c + '/search?q=' + encodeURIComponent('slide into friday'), { headers: { 'x-guest-id': g.guestId, 'x-guest-key': g.guestKey } })).json(); return r.songs.some((x) => x.source !== 'musicbrainz' && /Slide Into Friday/.test(x.title)) ? r : null; }, { c: codeNow, g: dj }), 10000, 'dj songs in room'); ok('the artist\'s songs are in the room, even though their genre is not the genre the guest picked');
 
     // ---- an @handle names one exact channel: looked up directly, never searched by name ----
