@@ -118,6 +118,8 @@ const yt = http.createServer((req, res) => {
     const toApp = []; host.on('request', (r) => { if (r.url().startsWith(APP)) toApp.push(r.url() + ' ' + (r.postData() || '') + JSON.stringify(r.headers())); });
     host.on('pageerror', (e) => errors.push(e.message)); host.on('console', (m) => { if (m.type() === 'error' && !/fonts|ERR_|Failed to load resource|qrcode|400|403/.test(m.text())) errors.push(m.text()); });
     await host.route(/^https:\/\//, (r) => r.abort());
+    // Hermetic: the server must not ask the real MusicBrainz (CI has network, so its answers would re-file songs and change pool counts).
+    await host.route(/\/api\/musicbrainz\/artist-genres/, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"genres":[]}' }));
     await host.goto(APP); await host.click('#start-room'); await host.waitForURL(/\/host\/[A-Z0-9]{5}$/);
     const nowTitle = () => host.textContent('#now-title');
 
@@ -289,6 +291,12 @@ const yt = http.createServer((req, res) => {
     assert.ok(djPool.tracks.some((t) => t.title === 'Sock Hop Anthem') && djPool.tracks.some((t) => t.title === 'Slide Into Friday')); ok('a title with "Artist - " in front loses it; plain titles stay as they are');
     // The artist's own genres tag their songs. The guest's first genre ("classical" here) describes the guest, so it is only a last resort.
     await host.route('**/api/musicbrainz/artist-genres*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ genres: ['electronic', 'metal'] }) }));
+    await host.evaluate(async () => {
+      const request = indexedDB.open('room-blend-youtube', 2);
+      const db = await new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+      await new Promise((resolve) => { const tx = db.transaction('entries', 'readwrite'); tx.objectStore('entries').delete('artist-genres:v2:dj crocs & socks'); tx.oncomplete = resolve; });
+      db.close();
+    });
     const tagged = await host.evaluate(async () => window.Providers.get('youtube').artistTracks('DJ Crocs & Socks', 'classical'));
     assert.ok(tagged.length >= 1 && tagged.every((t) => t.genres.join() === 'electronic,metal'), 'songs carry the artist\'s genres, not the guest\'s');
     await host.unroute('**/api/musicbrainz/artist-genres*');
