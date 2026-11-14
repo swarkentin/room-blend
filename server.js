@@ -78,7 +78,14 @@ const CLIENT_CONFIG = {
   catalog: CATALOG_ON,
   // Whether hosts can sign in to keep and reclaim rooms. Guests never sign in.
   auth: auth.enabled,
+  // Which sign-in methods the page offers when auth is on: AUTH_METHODS, a comma list of google and email (default google).
+  authMethods: parseAuthMethods(process.env.AUTH_METHODS),
 };
+
+function parseAuthMethods(v) {
+  if (v == null || String(v).trim() === '') return ['google'];
+  return [...new Set(String(v).split(',').map((x) => x.trim().toLowerCase()).filter((x) => x === 'google' || x === 'email'))];
+}
 
 // Restore receipts (see lib/restore.js): lets a host's browser bring its room back after a restart or redeploy wipes the server.
 let restorer = null;

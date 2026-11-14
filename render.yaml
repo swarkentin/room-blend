@@ -37,6 +37,8 @@ services:
       # Optional host accounts (docs/ACCOUNTS.md). Leave AUTH_PROVIDER unset and nobody can sign in; guests never need to.
       - key: AUTH_PROVIDER
         value: ""        # set to "neon" to turn accounts on
+      - key: AUTH_METHODS
+        value: "google"  # sign-in buttons to offer: google, email, or google,email
       - key: NEON_AUTH_BASE_URL
         sync: false   # from the Neon console: Auth > Configuration (an https:// address)
       - key: PUBLIC_URL

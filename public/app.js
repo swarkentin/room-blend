@@ -268,7 +268,10 @@
     var nearby = h('div', { class: 'card', id: 'nearby', hidden: 'hidden' });
     var mine = h('div', { class: 'card', id: 'mine', hidden: 'hidden' });
     app.replaceChildren(h('div', { class: 'wrap' }, [h('div', { class: 'hero' }, [
-      h('a', { class: 'brand', href: '/', 'aria-label': 'Room Blend home' }, [h('img', { src: '/brand-mark.svg', alt: '' }), h('span', null, ['room ', h('b', { text: 'blend' })])]),
+      h('div', { class: 'acct-bar' }, [
+        h('a', { class: 'brand', href: '/', 'aria-label': 'Room Blend home' }, [h('img', { src: '/brand-mark.svg', alt: '' }), h('span', null, ['room ', h('b', { text: 'blend' })])]),
+        h('div', { id: 'account-mount', 'data-mode': 'landing' }),
+      ]),
       h('h1', { text: 'Music that fits the whole room.' }),
       h('p', { class: 'lead', text: 'Everyone picks the genres they like. Room Blend finds the songs in the overlap, and takes turns when there is none. No accounts for guests.' }),
       nearby, mine,
@@ -288,7 +291,6 @@
           lsSet('rb-host-' + r.data.code, r.data.hostKey); location.href = '/host/' + r.data.code;
         } })]),
       ]),
-      h('div', { id: 'account-mount', 'data-mode': 'landing' }),
     ])]));
 
     async function go(code) {
@@ -410,10 +412,10 @@
     var wrap = app.firstChild;
     wrap.innerHTML =
       '<header class="roomhead">' +
-        '<div class="rh-brand"><a class="brand" href="/" aria-label="Room Blend home"><img src="/brand-mark.svg" alt=""><span>room <b>blend</b></span></a></div>' +
+        '<div class="rh-brand"><a class="brand" href="/" aria-label="Room Blend home"><img src="/brand-mark.svg" alt=""><span>room <b>blend</b></span></a><div id="account-mount" data-mode="host" data-code="' + code + '"></div></div>' +
         '<div class="rh-left"><small>Room code</small><div class="roomcode" id="rc"></div>' +
           '<input type="text" id="room-name" class="roomname" maxlength="30" placeholder="Name your room (optional)" aria-label="Room name" autocomplete="off">' +
-          '<label class="disc"><input type="checkbox" id="disc"> Show to people on this Wi-Fi so they can tap to join</label></div>' +
+          '<label class="disc"><input type="checkbox" id="disc"> Show to people on this Wi-Fi so they can tap to join</label><div class="keep-row" id="keep-mount" data-code="' + code + '"></div></div>' +
         '<div class="joinbox"><div id="qr" role="img" aria-label="QR code to join this room"></div><div><small>Friends scan, or open</small><div class="link" id="jl"></div>' +
         '<div class="row" style="margin-top:8px"><button class="btn small" id="jc" type="button">Copy</button><button class="btn small" id="js" type="button" hidden>Share</button>' +
         '<a class="btn small" id="jtv" target="_blank" rel="noopener" title="Open a separate join-code display without music playback">QR screen</a>' +
@@ -439,7 +441,6 @@
           '<div class="row"><button class="btn primary" type="submit">Add to the room</button></div><p class="hint" id="add-hint"></p></form></details>' +
         '</section>' +
         '<aside class="side" aria-label="Tuning and results">' +
-          '<div id="account-mount" data-mode="host" data-code="' + code + '"></div>' +
           '<div id="share-mount" data-code="' + code + '"></div>' +
           '<div id="recap-mount"></div>' +
           '<details class="panel secondary"><summary>Tuning and request limits</summary>' +
