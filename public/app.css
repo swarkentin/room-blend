@@ -903,3 +903,14 @@ a.btn.primary { color: var(--on-primary, #fff); }
 .av-tip-trend svg { width: 100%; height: 34px; }
 .av-tip-trend-label { margin-top: 3px; color: #b6c0d0; font-size: .85em; }
 .av.has-hat .av-hud { margin-bottom: calc(8px + var(--av-w) * .3); }
+
+/* ---- Share your room (public/share.js) ---- */
+.share-body { display: grid; gap: 10px; margin-top: 10px; }
+.share-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.share-link { margin: 0; overflow-wrap: anywhere; font-size: .9em; }
+.share-app { border-top: 1px solid rgba(128,128,128,.25); padding-top: 8px; }
+.share-app > summary { cursor: pointer; font-weight: 600; }
+.share-app ol { margin: 8px 0 8px 1.2em; padding: 0; display: grid; gap: 6px; }
+.share-app a { overflow-wrap: anywhere; }
+.share summary:focus-visible, .share-app > summary:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+/* ---- end Share your room ---- */
