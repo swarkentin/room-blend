@@ -39,6 +39,31 @@ Optional saved taste for guests (account or device-bound id) and a venue-level p
 Use the play log (genres played, listener count, votes) to learn which genre combinations the room accepts or skips, and feed that into how the blend is built. Start with aggregate analysis offline; only then change behaviour.
 *Needs:* a few weeks of logged data from real rooms. *Done when:* a measurable drop in skip-votes for blended songs.
 
+### 6. Song-level metadata: genres, eras, moods and more
+**Where we are.** Almost nothing is known about a *song*. A song carries at most three genre tags, and since the artist-genre fix those come from the *artist* (MusicBrainz), so a jazz artist's one rock song is filed as jazz. Eras (`80s`) and moods (`party`, `focus`) are not tags on songs at all: they are lists of genres (`GENRE_ALIASES` in `lib/engine.js`), so "80s" means "classic rock, new wave, synth pop..." whatever year a song came out. The shared database holds only song lookups, video quality and artist genres. That is too sparse to blend well, to explain a blend, or to learn from.
+
+**Proposed model.** One row per song, many tagged facets per song:
+
+- `songs`: a track identity (the MusicBrainz recording id when known, otherwise a normalised `artist|title` key; see "Track identity across sources" below), plus title, artist, release year.
+- `song_tags(song, facet, value, source, weight)`, with facets `genre`, `era` (the real release decade), `mood` / `activity` (party, focus, dinner...), and later `energy`, `tempo`, `language`, `explicit`.
+- **Sources, ranked by trust:** (1) MusicBrainz recording and release-group data, including its release dates and tags; (2) votes from rooms (a tag counts only after several different rooms or accounts agree, the same rule as the shared catalogue); (3) observed listening (a song that listeners in "party" rooms keep and skip rarely earns `party`); (4) title and artist wording, as today. The more specific and trusted source wins, and artist-level genres remain only as the fallback.
+- **Eras come from the release date**, not from genre lists, so "80s" can include a 2019 synthwave song and exclude a 1995 re-release's wrong year. Mood and activity are inferred and labelled as such (a `source` and a `weight`), never presented as fact.
+
+**How the blend changes.** The engine matches a guest's picks against song tags facet by facet: an `80s` pick matches songs from that decade, a `focus` pick matches songs tagged `focus` (and falls back to today's genre list for songs with no mood data). Songs with richer, agreeing tags rank higher, and the host can see why a song was chosen.
+
+**Build in steps.**
+1. Schema and store for songs and tags (additive migration; `artist_genres` stays). A background job fills it from MusicBrainz at its limit of about one request a second, caches misses, and never blocks a room.
+2. Hosts read song tags in batches like catalogue lookups, and use them for tagging and for the era facet.
+3. Teach the engine facets (eras from real dates first, as the least ambiguous).
+4. Votes and observed listening, once real rooms have produced data (this is the same data as item 5).
+
+**Open questions.**
+- Mood, energy and tempo have no free, authoritative source we have confirmed. Spotify's audio features and AcousticBrainz are not dependable for new projects as far as we know (to be checked before relying on either). Last.fm's tags would work but need an API key and agreement to its terms. Which are you willing to use?
+- How many tags per facet to keep per song, and how long unconfirmed tags live.
+- Whether tags are shared across all hosts from the start or only after quorum (recommended: quorum, so nobody can tag songs into a mood).
+
+*Needs:* items 2 and the play log for the learning steps; step 1 can start now. *Done when:* an `80s` pick returns songs from the 1980s, and a song's genres can differ from its artist's.
+
 ## Later
 
 - **Juke box.** Song requests, play-time credits and a durable ledger. Needs durable identity (phase 2) so credits belong to someone; design the abuse model first.
@@ -67,3 +92,5 @@ Remembering people brings duties (in Canada, PIPEDA; elsewhere GDPR or similar).
 
 ---
 Status update: host accounts API (claim, My rooms, reclaim, per-account catalogue votes) is built behind `AUTH_PROVIDER=neon`; see docs/ACCOUNTS.md. A sign-in screen on the host page is the next UI step.
+
+Status update: host account screens (sign in, keep a room, My rooms, take over) are in PR #65. Song-level metadata (item 6) is proposed above, not started.
