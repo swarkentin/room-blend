@@ -877,12 +877,54 @@ a.btn.primary { color: var(--on-primary, #fff); }
 /* ---- recap.js (end) ---- */
 
 /* ---- Host account (public/account.js) ---- */
-.account { margin-top: 18px; }
-.account input { display: block; width: 100%; margin: 8px 0; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line, #444); background: transparent; color: inherit; font: inherit; }
-.account .btn { margin: 4px 8px 4px 0; }
-.account-or { text-align: center; margin: 10px 0 0; }
-.account-rooms { list-style: none; margin: 8px 0 0; padding: 0; }
-.account-rooms li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; flex-wrap: wrap; }
+.acct-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 2px; }
+.rh-brand { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+#account-mount:empty { display: none; }
+.acct-btn { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 6px 14px; border-radius: 999px; font-size: 14px; font-weight: 600; white-space: nowrap; }
+.acct-btn.chip { border: 1px solid var(--line); background: var(--surface); padding: 4px 12px 4px 4px; }
+.acct-btn.chip:hover { border-color: var(--ink); }
+.acct-av { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--ink); color: var(--bg); font-size: 13px; font-weight: 700; }
+.acct-name { max-width: 12ch; overflow: hidden; text-overflow: ellipsis; }
+.keep-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.keep-row:empty { display: none; }
+.keep-chip { border-radius: 999px; padding: 5px 12px; }
+.keep-hint { max-width: 30ch; }
+.acct-layer { position: fixed; inset: 0; z-index: 60; }
+.acct-layer.modal { display: grid; place-items: center; padding: 16px; background: rgba(0,0,0,.5); }
+.acct-panel { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 14px; padding: 18px; width: min(400px, 100%); max-height: calc(100vh - 32px); overflow: auto; box-shadow: 0 16px 50px rgba(0,0,0,.35); display: grid; gap: 12px; align-content: start; }
+.acct-layer.menu .acct-panel { position: absolute; width: min(360px, calc(100vw - 32px)); }
+.acct-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.acct-head h2 { font-size: 18px; margin: 0; }
+.acct-x { border: 0; background: transparent; font-size: 24px; line-height: 1; width: 32px; height: 32px; border-radius: 8px; color: var(--muted); }
+.acct-x:hover { color: var(--ink); background: var(--soft); }
+.acct-why, .acct-who { font-size: 13px; }
+.acct-methods { display: grid; gap: 10px; }
+.acct-method, .acct-go { width: 100%; padding: 10px 12px; }
+.acct-or { text-align: center; }
+.acct-form { display: grid; gap: 6px; }
+.acct-form label { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.acct-form input { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: inherit; font-size: 16px; }
+.acct-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border-radius: 10px; background: var(--soft); }
+.acct-tab { border: 0; border-radius: 8px; padding: 7px 8px; background: transparent; color: var(--muted); font-weight: 600; font-size: 14px; }
+.acct-tab.on { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
+.acct-err { color: var(--warn); font-size: 13px; margin: 0; min-height: 0; }
+.acct-err:empty { display: none; }
+.acct-confirm { margin: 0; padding: 12px; border-radius: 10px; background: var(--soft); font-size: 14px; }
+.acct-confirm .btn { margin-top: 10px; }
+.acct-sub { font-size: 13px; margin: 0; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+.account-rooms { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.account-rooms li { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.acct-room { display: grid; min-width: 0; }
+.acct-room b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.acct-room small { color: var(--muted); font-size: 12px; }
+.acct-here { font-size: 12px; font-weight: 600; color: var(--good); }
+.acct-out { justify-self: start; }
+.acct-locked { border: 1px solid var(--warn); background: var(--surface); border-radius: 14px; padding: 18px; display: grid; gap: 12px; justify-items: start; }
+.acct-locked h2 { font-size: 20px; margin: 0; }
+.acct-locked p { margin: 0; }
+.acct-link { border: 0; background: transparent; color: var(--muted); text-decoration: underline; padding: 0; }
+@media (max-width: 520px) { .keep-hint { max-width: none; } .acct-name { max-width: 9ch; } }
+/* ---- end Host account ---- */
 
 /* ---- TV avatars: accessories and mood over the night ---- */
 .av-acc { pointer-events: none; }
