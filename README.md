@@ -21,6 +21,10 @@ Guests can also join from a short link, from the "Playing near you" list on the 
 
 On the TV / cast view every listener is a little avatar with a look of their own (a silly hat, glasses, baggy jeans, odd socks and more), fixed by their id so it stays the same all night. Their pose shows how the **whole night** has gone for them, not the song playing this second, and a small line under their name graphs that mood after each song. Nobody can hover on a TV, so each guest's stats card (mood, tags, overall happiness, their graph) pops up on its own, one guest at a time, in turn.
 
+### House picks
+
+A room can play before anyone has joined. In the host page's **House picks** card, choose up to four genres, moods or eras and up to six artists, and turn it on: the music starts with no guest (and no pretend guest). By default the house steps aside as soon as a real guest joins and comes back if the room empties; choose "keep playing as one more listener" to blend it with the guests. The house is never shown as a person and is not counted as a listener.
+
 ### Duels
 
 Guests who both have a song waiting can duel for its place in line. On the TV / cast view their avatars walk to the middle of the floor, with a name tag and health bar over each head, and play a few quick rounds of Strike, Feint and Guard (Strike beats Feint, Feint beats Guard, Guard beats Strike) picked secretly on their phones. Now and then a Chaos Card changes the rules for a round. The winner's request moves up 2 to 4 places; the loser's never drops.

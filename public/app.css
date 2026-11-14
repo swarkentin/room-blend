@@ -903,3 +903,12 @@ a.btn.primary { color: var(--on-primary, #fff); }
 .av-tip-trend svg { width: 100%; height: 34px; }
 .av-tip-trend-label { margin-top: 3px; color: #b6c0d0; font-size: .85em; }
 .av.has-hat .av-hud { margin-bottom: calc(8px + var(--av-w) * .3); }
+
+/* ---- House picks (public/house.js) ---- */
+.house-badge { font-weight: 400; opacity: .75; }
+.house-badge.on { color: var(--accent, #6fd3a0); opacity: 1; }
+.house-body fieldset { margin: 10px 0; }
+.house-on { display: block; margin: 8px 0; }
+.house-mode { display: block; margin: 10px 0; }
+.house-mode select { max-width: 100%; }
+.house-artists { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
