@@ -99,6 +99,28 @@ Let each guest choose where *their* sound plays: "the room's speakers", "my devi
 Each source (YouTube, Spotify, local files, a music server) searches on its own, so a guest or host looking for one song has to know which source has it. Add one search box that asks every connected source, merges the answers into one list with a small source badge, and picks a playable source for the room automatically (the host's connected sources, in the host's chosen order), falling back to the next source when one cannot play it. Today's room search already merges songs and MusicBrainz artists; this extends it to every provider and to the host page.
 *Needs:* a common result shape across providers, quota awareness (YouTube searches are the scarce resource, see DATABASE.md), and the track identity work under "Later". *Done when:* typing one song name finds it whichever source holds it, and playing it never needs the person to choose a source.
 
+### 14. A shared YouTube key, a quota budget, and keeping the cache warm
+**The problem.** Today every host needs their own YouTube API key, and a key's free allowance (10,000 units a day by default, where a search costs 100 units and most other lookups cost 1, so roughly 100 searches a day; check the current figures in Google's console) is easy to spend. The shared catalogue (DATABASE.md) already spares searches that another room paid for, and it gets better as it fills.
+
+**A shared key for hosts who have none.** Keep the key on the server only; hosts never see it. Their searches go through the server, which first answers from the shared catalogue and only then spends quota. Spend is limited at three levels:
+- **Per room and per account:** a small bucket (for example a few searches an hour) that refills slowly, and accounts (item 2) get a larger one than anonymous rooms.
+- **Global daily budget:** a fixed share of the day's units, with a reserve so one busy hour cannot starve the evening. The allowance resets at midnight Pacific time, so the budget is paced against that clock, not ours.
+- **A circuit breaker:** when the budget is spent or YouTube returns a quota error, the server stops asking and answers "not available right now" so hosts fall back to their own key or to cached songs.
+Hosts who add their own key keep using it and spend nothing from the shared budget.
+
+**Spend less per song.** Prefer the 1-unit lookups (confirming a video is playable and embeddable) over the 100-unit search wherever we already know candidate video ids, and let votes in the catalogue confirm answers so a song is searched once for everyone. Applying to Google for a higher quota is free and worth doing once there are real users.
+
+**Warming the cache in the background.** When the day's budget has leftovers (or just before the midnight reset, when unused units are lost anyway), spend them looking up the songs rooms are most likely to ask for next: the most-played songs in the play log, and the songs of artists guests recently picked. This uses the official API and the same budget, so it is safe and honest about its cost.
+**We should not scrape YouTube's pages or results.** It breaks YouTube's terms of service (automated access outside the API), puts the key and the service at risk of being blocked, and is fragile. Third-party mirrors that wrap YouTube carry the same risk. Other sources that are meant to be queried (MusicBrainz for metadata, as item 6 proposes) are fine within their rate limits.
+
+**Waking a sleeping server.** On Render's free plan the service stops after about 15 minutes without traffic, so a background job cannot run while it is asleep. Options, simplest first, each needing a check against the current Render and Neon plans:
+1. **A scheduled ping from outside.** A free scheduler (a GitHub Actions workflow on a schedule, or a free cron service) calls a protected `/tasks/warm` endpoint with a secret. Waking is just the first request; the endpoint runs the warming work and returns. Cheap, and the secret lives only in the scheduler and in Render's environment.
+2. **Render's own cron job** service, which is a paid feature, running the same task without the web server.
+3. **A webhook from Neon to Render.** Neon (as far as we know) does not call out to a web address when data changes, so this would need a small bridge we run ourselves, which is more moving parts than option 1. We would only choose it if a data change must trigger work immediately.
+Whichever is used, the task is idempotent, bounded in time and spend, and refuses to run without the secret.
+
+*Needs:* the quota ledger (a table of units spent per day and per room), a server-side search proxy, and a protected task endpoint. *Done when:* a host with no key can search within a stated allowance, the server never exceeds the day's budget, and popular songs are already cached before the first guest asks for them.
+
 ## Later
 
 - **Juke box.** Song requests, play-time credits and a durable ledger. Needs durable identity (phase 2) so credits belong to someone; design the abuse model first.
@@ -131,3 +153,5 @@ Status update: host accounts API (claim, My rooms, reclaim, per-account catalogu
 Status update: host account screens (sign in, keep a room, My rooms, take over) are in PR #65. Song-level metadata (item 6) is proposed above, not started.
 
 Status update: items 7 to 13 added from the owner's list (house picks, guest profiles, casting, TV scenes, sharing help, remote guests, cross-provider search). None started.
+
+Status update: item 14 (shared YouTube key, quota budget, cache warming) added. Scraping is deliberately excluded; see the item.
