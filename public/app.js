@@ -1589,7 +1589,7 @@
       requests.forEach(function (x) { rq.appendChild(h('li', { class: 'nextrow' }, [document.createTextNode(x.title + ' '), h('span', { text: x.artist + ' · ' + (x.mine ? 'your request' : 'requested by ' + x.requester) + ' · about ' + x.position + (x.position === 1 ? ' song away' : ' songs away') })])); });
       if (!requests.length) rq.appendChild(h('li', { class: 'nextrow', text: 'No requests waiting.' }));
       if (requestDetails) requestDetails.open = requests.length > 0;
-      var rh = $('guest-request-hint'); if (rh) { var limit = Number.isInteger(s.requestLimit) ? s.requestLimit : (s.requestLimitEnabled === false ? 0 : 2); rh.textContent = limit === 0 ? (s.myRequestCount || 0) + ' requests waiting for you. There is no per-guest limit.' : (s.myRequestCount || 0) + ' of ' + limit + ' requests waiting for you.'; }
+      var rh = $('guest-request-hint'); if (rh) { var limit = Number.isInteger(s.requestLimit) ? s.requestLimit : (s.requestLimitEnabled === false ? 0 : 2); rh.textContent = limit === 0 ? (s.myRequestCount || 0) + ' outstanding requests. There is no per-guest limit.' : (s.myRequestCount || 0) + ' of ' + limit + ' outstanding requests.'; }
       var me = s.me;
       if (me && reg && typeof me.lookupGenres === 'boolean' && me.lookupGenres !== !!reg.lookupGenres) { reg.lookupGenres = me.lookupGenres; saveReg(); if (picksSection.refresh) picksSection.refresh(); }
       if (me && Array.isArray(me.artists) && reg) { var ch = JSON.stringify([me.artists, me.songs, me.genres]) !== JSON.stringify([reg.artists || [], reg.songs || [], reg.genres || []]); if (ch) { reg.artists = me.artists; reg.songs = me.songs; reg.genres = me.genres || []; saveReg(); if (picksSection.refresh) picksSection.refresh(); } }
