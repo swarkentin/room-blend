@@ -27,17 +27,29 @@ ok('release years map to decades; before 1950 has no era pick');
   assert.strictEqual(unk.length, 0); ok('songs dated to another decade are held back while enough of the picked decade exists');
 }
 
-// Dating songs later (tagEras) changes what plays.
+// Dating songs later (tagSongs) changes what plays.
 {
   const r = mk(); const g = r.addGuest('Bo', ['70s'], { immediate: true }, T0); g.connected = true;
   const all = [];
   for (let i = 0; i < 14; i++) all.push(song('Disco ' + i, 'Band ' + i, ['disco']));
   r.addExtras('disco', all, { pool: true });
-  const n1 = r.tagEras(all.slice(0, 7).map((s) => ({ title: s.title, artist: s.artist, eras: ['70s'] })).concat(all.slice(7).map((s) => ({ title: s.title, artist: s.artist, eras: ['00s'] }))));
+  const n1 = r.tagSongs(all.slice(0, 7).map((s) => ({ title: s.title, artist: s.artist, eras: ['70s'] })).concat(all.slice(7).map((s) => ({ title: s.title, artist: s.artist, eras: ['00s'] }))));
   assert.strictEqual(n1, 14);
   assert.ok(r.queue.slice(0, 5).every((q) => Number(q.track.title.split(' ')[1]) < 7), r.queue.map((q) => q.track.title).join());
   ok('dating songs afterwards re-plans the queue toward the picked decade');
-  assert.strictEqual(r.tagEras([{ title: 'Disco 0', artist: 'Band 0', eras: ['1970s', 'bogus'] }]), 0); ok('made-up decades are ignored');
+  assert.strictEqual(r.tagSongs([{ title: 'Disco 0', artist: 'Band 0', eras: ['1970s', 'bogus'] }]), 0); ok('made-up decades are ignored');
+}
+
+// A song's own genres replace the artist-derived guess: a jazz artist's one rock song is rock.
+{
+  const r = mk(); const g = r.addGuest('Di', ['rock'], { immediate: true }, T0); g.connected = true;
+  const jazz = []; for (let i = 0; i < 10; i++) jazz.push(song('Cool ' + i, 'Quartet ' + i, ['jazz']));
+  r.addExtras('jazz', jazz, { pool: true });
+  assert.ok(!r.queue.some((q) => q.track.title === 'Cool 3'), 'a jazz song is not planned for a rock fan');
+  assert.strictEqual(r.tagSongs([{ title: 'Cool 3', artist: 'Quartet 3', genres: ['rock', 'not-a-genre'] }]), 1);
+  assert.deepStrictEqual(r.extra.find((x) => x.title === 'Cool 3').genres, ['rock']);
+  assert.ok(r.queue.slice(0, 3).some((q) => q.track.title === 'Cool 3'), r.queue.map((q) => q.track.title).join());
+  ok("a song's own genre from MusicBrainz replaces its artist's, and the song now fits the rock fan");
 }
 
 // A named artist's songs that nothing could tag stay untagged, not given the guest's genre.
@@ -59,5 +71,14 @@ ok('release years map to decades; before 1950 has no era pick');
   if (!mb.lookupSongYear) throw new Error('no lookupSongYear');
   assert.strictEqual(await mb.lookupSongYear('Hound Dog', 'Elvis Presley'), 1956);
   ok('the year is the earliest recording with the same title and credited artist');
+  const calls = [];
+  const mb2 = createClient({ fetchImpl: async (u) => { calls.push(String(u)); return { ok: true, status: 200, json: async () => String(u).includes('/recording/1111') ? { genres: [{ name: 'hard rock', count: 4 }, { name: 'zzz nothing', count: 9 }] } : { recordings: [{ id: '11111111-2222-3333-4444-555555555555', title: 'Hound Dog', score: 100, 'first-release-date': '1956', 'artist-credit': [{ name: 'Elvis Presley' }] }] } }; }, intervalMs: 0 });
+  const plain = await mb2.lookupSong('Hound Dog', 'Elvis Presley');
+  assert.ok(plain.year === 1956 && plain.detail === false && plain.genres.length === 0 && calls.length === 1, JSON.stringify([plain, calls]));
+  const full = await mb2.lookupSong('Hound Dog', 'Elvis Presley', { detail: true });
+  assert.ok(full.detail && full.genres.length && full.genres[0].genre === 'hard rock' && calls.length === 2, JSON.stringify(full));
+  await mb2.lookupSong('Hound Dog', 'Elvis Presley', { detail: true });
+  assert.strictEqual(calls.length, 2);
+  ok("the recording's own genres cost one extra request only when asked for, and repeats cost none");
   console.log(n + ' checks passed');
 })().catch((e) => { console.error(e); process.exit(1); });

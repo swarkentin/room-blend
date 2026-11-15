@@ -437,28 +437,30 @@ async function api(req, res, url) {
     }
   }
 
-  // Release year of a song (for era picks). Cached like artist genres, in the same table under a "song:" key: a year never
-  // changes, so a hit lasts a year and a "not found" two weeks. Many songs per request, but MusicBrainz is asked only for the unknown ones.
-  if (parts[0] === 'musicbrainz' && parts[1] === 'song-years' && parts.length === 2 && m === 'POST') {
+  // What is known about songs: release year (for era picks) and, when asked, the song's own genres (a song can differ from its artist).
+  // Answers are kept in the songs table: a hit for a year, a miss for two weeks. MusicBrainz is asked only for what is not known,
+  // about one request a second, so a batch is small. Without the database the lookups still work, just not remembered.
+  if (parts[0] === 'songs' && parts[1] === 'meta' && parts.length === 2 && m === 'POST') {
     if (process.env.MUSICBRAINZ_SEARCH_DISABLED === '1') return sendJson(res, 503, { error: 'MusicBrainz lookups are disabled' });
-    let body = null; try { body = JSON.parse(await readBody(req)); } catch (e) { /* bad body: no songs */ }
+    let body = null; try { body = await readBody(req); } catch (e) { /* bad body: no songs */ }
     const songs = (body && Array.isArray(body.songs) ? body.songs : []).slice(0, 12).filter((x) => x && typeof x.title === 'string' && typeof x.artist === 'string');
-    const dbCache = USE_DB && dbReady;
-    const out = [];
+    const dbCache = USE_DB && dbReady, out = [];
     for (const x of songs) {
-      const title = x.title.slice(0, 100), artist = x.artist.slice(0, 100), k = 'song:' + Engine.songKey(title, artist);
-      if (k === 'song:') continue;
-      let year;
+      const title = x.title.slice(0, 100), artist = x.artist.slice(0, 100), k = Engine.songKey(title, artist), detail = !!x.detail;
+      if (!k) continue;
+      let meta;
       if (dbCache) {
-        try { const hit = await store.getArtistGenres(k); if (hit !== undefined) year = hit.length ? Number(hit[0]) : null; } catch (e) { L.warn('db.read_failed', { what: 'song_year', message: String(e && e.message).slice(0, 100) }); }
+        try { meta = await store.getSongMeta(k); } catch (e) { L.warn('db.read_failed', { what: 'song_meta', message: String(e && e.message).slice(0, 100) }); }
+        if (meta && detail && !meta.detail && meta.year !== null) meta = undefined; // dated before, but its own genres were never read
       }
-      if (year === undefined) {
+      if (!meta) {
         try {
-          year = await musicBrainz.lookupSongYear(title, artist);
-          if (dbCache) store.putArtistGenres(k, year ? [String(year)] : [], year ? 365 * 86400000 : 14 * 86400000).catch((e) => L.warn('db.write_failed', { what: 'song_year', message: String(e && e.message).slice(0, 100) }));
-        } catch (e) { L.warn('musicbrainz.song_year_failed', { message: String(e && e.message || e).slice(0, 100) }); continue; }
+          const r = await musicBrainz.lookupSong(title, artist, { detail });
+          meta = { year: r.year, tags: r.genres.map((g) => ({ facet: 'genre', value: g.genre, source: 'musicbrainz', weight: g.count })), detail: r.detail };
+          if (dbCache) store.putSongMeta(k, { title, artist, ...meta }, meta.year || meta.tags.length ? 365 * 86400000 : 14 * 86400000).catch((e) => L.warn('db.write_failed', { what: 'song_meta', message: String(e && e.message).slice(0, 100) }));
+        } catch (e) { L.warn('musicbrainz.song_failed', { message: String(e && e.message || e).slice(0, 100) }); continue; }
       }
-      out.push({ title, artist, year: year || null });
+      out.push({ title, artist, year: meta.year, genres: meta.tags.filter((t) => t.facet === 'genre').map((t) => t.value) });
     }
     return sendJson(res, 200, { songs: out });
   }
@@ -803,7 +805,7 @@ async function api(req, res, url) {
       notify(code); return sendJson(res, 200, { ok: true, ...r });
     }
     else if (act === 'library' && m === 'DELETE') { room.clearLibrary(); }
-    else if (act === 'eras' && m === 'POST') room.tagEras(body.songs);
+    else if (act === 'songmeta' && m === 'POST') room.tagSongs(body.songs);
     else if (act === 'extras' && m === 'POST') { if (body.reset === true) room.clearExtras(); else room.addExtras(body.genre, body.tracks, { pool: body.pool === true, source: body.source, artist: typeof body.artist === 'string' ? body.artist : undefined }); }
     else if (act === 'reset' && m === 'POST') { L.info('room.reset', { room: L.roomTag(code) }); const fresh = new Room(code, room.hostKey); fresh.opts = { ...room.opts }; fresh.ownerUserId = room.ownerUserId; fresh.version = room.version + 1; rooms.set(code, fresh); subs.get(code)?.forEach((s) => s.res.end()); }
     else return sendJson(res, 404, { error: 'unknown action' });

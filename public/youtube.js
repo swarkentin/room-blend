@@ -387,32 +387,55 @@
       return genres;
     } catch (e) { return []; }
   }
-  // Release decades of songs, from MusicBrainz (asked through the server, which keeps every answer). Only verified songs come back
-  // with a decade; a song nobody could date stays untagged, to be tagged later, never guessed. Kept here too, so a repeat costs nothing.
-  async function songEras(songs) {
-    var ERAS = window.CONFIG.eras || [], out = {}, ask = [];
+  // What MusicBrainz knows about songs (asked through the server, which keeps every answer): the release decade, and with `detail`
+  // the song's own genres. Only verified facts come back; a song nobody could date or tag stays untagged, to be tagged later,
+  // never guessed. Remembered here too, so a repeat costs nothing. Returns one { eras, genres } per song, in order.
+  var metaBusy = null;
+  async function songMeta(songs, detail) {
+    var ERAS = window.CONFIG.eras || [], found = {}, ask = [];
     function eraOf(y) { y = Number(y); if (!(y >= 1950)) return ''; if (y >= 2020) return '2020s'; if (y >= 2010) return '2010s'; if (y >= 2000) return '00s'; return String(Math.floor(y / 10) % 10) + '0s'; }
-    function k(s) { return 'song-year:v1:' + String(s.title).toLowerCase() + '|' + String(s.artist).toLowerCase(); }
+    function k(s) { return 'song-meta:v1:' + String(s.title).toLowerCase() + '|' + String(s.artist).toLowerCase(); }
+    function pack(year, genres, det) { return [year ? 'y' + year : ''].concat(genres.map(function (g) { return 'g' + g; }), det ? ['D'] : []); }
+    function unpack(v) { var y = (v[0] || '').slice(1); return { year: y ? Number(y) : null, genres: v.filter(function (x) { return x.charAt(0) === 'g'; }).map(function (x) { return x.slice(1); }), detail: v.indexOf('D') >= 0 }; }
     for (var i = 0; i < songs.length; i++) {
       var c = await cacheGet(k(songs[i]));
-      if (c === undefined) ask.push(songs[i]);
-      else if (c && c.length) out[k(songs[i])] = eraOf(c[0]);
+      if (c !== undefined && (!detail || unpack(c).detail || !unpack(c).year)) found[k(songs[i])] = unpack(c);
+      else ask.push(songs[i]);
     }
     ask = ask.slice(0, 12);
     if (ask.length) {
       try {
-        var r = await fetch('/api/musicbrainz/song-years', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ songs: ask.map(function (s) { return { title: s.title, artist: s.artist }; }) }) });
+        var r = await fetch('/api/songs/meta', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ songs: ask.map(function (s) { return { title: s.title, artist: s.artist, detail: !!detail }; }) }) });
         if (r.ok) {
           var data = await r.json();
           for (var j = 0; j < (data.songs || []).length; j++) {
-            var d = data.songs[j];
-            await cachePut(k(d), d.year ? [String(d.year)] : [], 'artist-genres', d.year ? 365 : 14);
-            if (d.year) out[k(d)] = eraOf(d.year);
+            var d = data.songs[j], gs = Array.isArray(d.genres) ? d.genres : [];
+            await cachePut(k(d), pack(d.year, gs, !!detail), 'artist-genres', d.year || gs.length ? 365 : 14);
+            found[k(d)] = { year: d.year, genres: gs, detail: !!detail };
           }
         }
       } catch (e) { /* offline or busy: tag later */ }
     }
-    return songs.map(function (s) { var e = out[k(s)]; return e && (!ERAS.length || ERAS.indexOf(e) >= 0) ? [e] : []; });
+    return songs.map(function (s) {
+      var m = found[k(s)], e = m && m.year ? eraOf(m.year) : '';
+      return { eras: e && (!ERAS.length || ERAS.indexOf(e) >= 0) ? [e] : [], genres: m ? m.genres : [] };
+    });
+  }
+  // Date and (for songs that play) tag songs in the background; one batch at a time so MusicBrainz is never hammered.
+  // Resolves to [{ title, artist, eras, genres }] for the songs that learned something.
+  async function enrich(tracks, detail) {
+    while (metaBusy) await metaBusy.catch(function () {});
+    var todo = (tracks || []).filter(function (t) { return t && t.title && t.artist; }).slice(0, 12), out = [];
+    var run = (async function () {
+      var metas = await songMeta(todo, detail);
+      todo.forEach(function (t, i) { if (metas[i].eras.length || metas[i].genres.length) out.push({ title: t.title, artist: t.artist, eras: metas[i].eras, genres: metas[i].genres }); });
+    })();
+    metaBusy = run; try { await run; } finally { if (metaBusy === run) metaBusy = null; }
+    return out;
+  }
+  // A song that plays is worth reading in full: its own genres as well as its year. The host page listens and tells the room.
+  function playedMeta(track) {
+    enrich([track], true).then(function (list) { if (list.length) window.dispatchEvent(new CustomEvent('rb-song-meta', { detail: list })); }).catch(function () {});
   }
   async function rememberPlayed(track, id) {
     if (!id) return;
@@ -860,6 +883,7 @@
     },
     pool: true, // the room's songs come from YouTube playlists for each genre; the built-in list is only a fallback
     canExtras: function () { return on; },
+    enrich: enrich, // dates songs and, with detail, reads their own genres (MusicBrainz via the server)
     retagCatalogue: retagCatalogue, // internal migration hook (also run once after enrichment)
     enrichCatalogue: enrichCatalogue, // internal migration hook; normal users never need to invoke this
     cacheInfo: async function () { var db = await openCacheDb(); if (!db) return { mode: 'memory', warning: cacheWarning }; return new Promise(function (resolve) { var tx = db.transaction(DB_STORE, 'readonly'), req = tx.objectStore(DB_STORE).getAll(); req.onsuccess = function () { var rows = req.result.filter(function (x) { return x.expiresAt > Date.now(); }), pools = rows.filter(function (x) { return x.kind === 'pool'; }), feedback = rows.filter(function (x) { return x.kind === 'quality'; }); resolve({ mode: 'indexeddb', pools: pools.length, poolTracks: pools.reduce(function (n, x) { return n + (Array.isArray(x.value) ? x.value.length : 0); }, 0), searches: rows.filter(function (x) { return x.kind === 'search'; }).length, ratedVideos: feedback.length, playbackSuccesses: feedback.reduce(function (n, x) { return n + (x.value.successes || 0); }, 0), playbackFailures: feedback.reduce(function (n, x) { return n + (x.value.failures || 0); }, 0), warning: cacheWarning }); }; req.onerror = function () { resolve({ mode: 'indexeddb', warning: cacheWarning }); }; }); },
@@ -881,8 +905,7 @@
       try {
         var decade = { '50s': '1950s', '60s': '1960s', '70s': '1970s', '80s': '1980s', '90s': '1990s', '00s': '2000s' }[era] || era;
         var got = await poolQuery({ q: decade + ' ' + genre + ' hits', tags: [genre] });
-        var eras = await songEras(got.slice(0, 12));
-        return qualityOrder(got.map(function (t, i) { var o = { title: t.title, artist: t.artist, id: t.id, genres: [genre], artwork: artworkFor(t.id) }; if (eras[i] && eras[i].length) o.eras = eras[i]; return o; }));
+        return qualityOrder(got.map(function (t) { return { title: t.title, artist: t.artist, id: t.id, genres: [genre], artwork: artworkFor(t.id) }; }));
       } catch (e) { note = e.message; if (rctx) rctx.status(e.message); return []; }
     },
     // A named artist: one playlist search ("<artist> greatest hits"); the room keeps only that artist's songs.
@@ -910,7 +933,7 @@
       var tries = ids.slice(0, 4);
       for (var i = 0; i < tries.length; i++) {
         var r = await tryVideo(tries[i]);
-        if (r === true) { track.artwork = track.artwork || artworkFor(tries[i]); await recordPlayback(tries[i], true, track); await rememberPlayed(track, tries[i]); return true; }
+        if (r === true) { track.artwork = track.artwork || artworkFor(tries[i]); await recordPlayback(tries[i], true, track); await rememberPlayed(track, tries[i]); playedMeta(track); return true; }
         if (r === false) return false;
         await recordPlayback(tries[i], false, track);
         await demote(track, tries[i]); // null: this video is unavailable or not embeddable, try the next one
