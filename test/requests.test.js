@@ -41,7 +41,7 @@ const legacySnapshot = { ...room.snapshot(), requestLimit: undefined, requestLim
 const legacyRestored = new Room('JUKE2', 'l'.repeat(32));
 assert.equal(legacyRestored.restoreSnapshot(legacySnapshot), true);
 assert.equal(legacyRestored.requestLimit, 0, 'older unlimited room snapshots remain unlimited');
-restored.setOpts({ requestLimit: 3 });
+restored.setOpts({ requestLimit: 4 });
 assert.equal(restored.addRequest(guest.id, 'Fourth Song', 'Fourth Artist').ok, true);
 assert.equal(restored.addRequest(guest.id, 'Fifth Song', 'Fifth Artist').ok, false, 'configured limit is enforced per guest');
 restored.setOpts({ requestLimit: 0 });
