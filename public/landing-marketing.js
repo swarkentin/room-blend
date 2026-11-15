@@ -77,7 +77,9 @@
     copy.append(el('p', 'landing-eyebrow', 'BETTER NIGHTS SOUND LIKE EVERYONE'));
     copy.append(heading, lead, actions);
     if (note) copy.appendChild(note);
-    copy.append(el('a', 'landing-explore', 'Explore what makes it different ↓'));
+    var explore = el('a', 'landing-explore', 'Explore what makes it different ↓');
+    explore.href = '#landing-features';
+    copy.appendChild(explore);
     main.append(copy, makeArtwork());
 
     var howSection = el('section', 'landing-how');
