@@ -280,18 +280,19 @@
           if (!r.ok) { msg.textContent = (r.data && r.data.error) || 'Could not start a room. Try again in a moment.'; return; }
           lsSet('rb-host-' + r.data.code, r.data.hostKey); location.href = '/host/' + r.data.code;
         } }),
-        h('a', { class: 'btn big', href: '#demo', text: 'Try the demo' }),
+        h('a', { class: 'btn big', href: '/demo', text: 'See how it blends' }),
       ]),
       h('p', { class: 'hint cta-note', text: 'Free. About a minute to set up. Plays from your own music files, YouTube or Spotify.' }),
+      h('ol', { class: 'how-line' }, [
+        h('li', { text: 'Start a room' }), h('li', { text: 'Friends scan the QR code' }), h('li', { text: 'The music blends' }),
+      ]),
       nearby, mine,
-      h('form', { class: 'card joincard', id: 'join-form' }, [
-        h('h2', { text: 'Got a code? Join a room' }),
-        h('p', { class: 'hint', text: 'Type the 5-letter code, or paste the link. Or just scan the QR code on the host\'s screen.' }),
+      h('form', { class: 'joinline', id: 'join-form' }, [
+        h('label', { for: 'join-code', text: 'Got a code?' }),
         codeIn,
-        h('div', { class: 'row' }, [h('button', { class: 'btn', type: 'submit', text: 'Join' })]),
+        h('button', { class: 'btn', type: 'submit', text: 'Join' }),
         msg,
       ]),
-      h('div', { id: 'landing-more' }),
     ])]));
 
     async function go(code) {
@@ -1692,7 +1693,17 @@
     else if ((m = p.match(/^\/screen\/([A-Za-z0-9]{5})$/))) screenView(m[1].toUpperCase());
     else if ((m = p.match(/^\/([A-Za-z0-9]{5})$/))) { history.replaceState(null, '', '/r/' + m[1].toUpperCase()); guestView(m[1].toUpperCase()); }
     else if ((m = p.match(/^\/r\/([A-Za-z0-9]{5})$/))) guestView(m[1].toUpperCase());
+    else if (p === '/demo') demoPage();
     else landing();
+  }
+  function demoPage() {
+    app.replaceChildren(h('div', { class: 'wrap' }, [h('div', { class: 'hero' }, [
+      h('a', { class: 'back', href: '/', text: '\u2190 Back' }),
+      h('h1', { text: 'See how it blends' }),
+      h('p', { class: 'lead', text: 'Tap people in and out of the room, or add your own taste. These are the songs Room Blend would line up.' }),
+      h('div', { id: 'demo-mount' }),
+      h('div', { class: 'cta-row' }, [h('a', { class: 'btn primary big', href: '/', text: 'Start a room' })]),
+    ])]));
   }
   route();
 })();

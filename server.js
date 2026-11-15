@@ -843,7 +843,7 @@ function serveStatic(req, res, url) {
   }
   // single-page routes (a bare 5-character code is a short join link)
   const short = /^\/([A-Za-z0-9]{5})$/.exec(p), joinCode = short ? short[1].toUpperCase() : (/^\/r\/([A-Za-z0-9]{5})$/.exec(p) || [])[1];
-  if (p === '/' || p.startsWith('/host/') || p.startsWith('/r/') || p.startsWith('/screen/') || p === '/callback' || short) {
+  if (p === '/' || p === '/demo' || p.startsWith('/host/') || p.startsWith('/r/') || p.startsWith('/screen/') || p === '/callback' || short) {
     const room = joinCode && rooms.get(joinCode.toUpperCase());
     return fs.readFile(path.join(PUBLIC_DIR, 'index.html'), 'utf8', (err, html) => {
       if (err) { res.writeHead(404); return res.end('Not found'); }
