@@ -16,6 +16,8 @@ const intersects = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x && a.y <
   const browser = await chromium.launch(); const errors = [];
   try {
     const ctx = await browser.newContext({ viewport: { width: 1920, height: 1080 }, reducedMotion: 'no-preference' });
+    // Shorten the on-TV card timings so the test does not wait for the real 5s-every-20s rhythm.
+    await ctx.addInitScript(() => { window.__rbAvatarOptions = { spotlightFirstMs: 800, spotlightMs: 1200, spotlightGapMs: 800 }; });
     const host = await ctx.newPage();
     host.on('pageerror', (e) => errors.push(e.message)); host.on('console', (m) => { if (m.type() === 'error' && !/fonts|ERR_|Failed to load resource/.test(m.text())) errors.push(m.text()); });
     await host.route(/^https:\/\//, (r) => r.abort());
@@ -52,20 +54,27 @@ const intersects = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x && a.y <
     const tb = await first.locator('.av-tip').boundingBox();
     assert.ok(tb.x >= 0 && tb.x + tb.width <= 1920 && !intersects(tb, qr), JSON.stringify({ tb, qr })); ok('hovering an avatar shows their stats, on screen and off the QR code');
 
-    // on a TV nobody can hover: each guest's card shows on its own, one at a time, in turn
+    // on a TV nobody can hover: now and then one guest's small card shows on its own, one at a time, clear of the music text and the QR code
     await host.mouse.move(5, 5);
     await until(async () => (await host.locator('.av-tip').evaluateAll((l) => l.every((e) => getComputedStyle(e).visibility === 'hidden'))), 15000, 'hover card gone');
-    const seen = new Set(); let simultaneous = 0;
+    assert.strictEqual(await host.locator('.av .av-trend, .av .av-trend-svg').count(), 0); ok('no mood graph under the names');
+    const seen = new Set(); let simultaneous = 0; const avoidSel = ['.tv-cast-join', '#tv-cast-title', '#tv-cast-artist', '#tv-cast-next'];
     await until(async () => {
       const spots = await host.locator('.av.is-spot').all(); simultaneous = Math.max(simultaneous, spots.length);
       for (const sp of spots) {
-        if ((await sp.locator('.av-tip').evaluate((e) => getComputedStyle(e).visibility)) !== 'visible') continue;   // still fading in
-        const text = await sp.locator('.av-tip').innerText(); assert.match(text, /Overall/); seen.add(text.split('\n')[0]);
+        const tipEl = sp.locator('.av-tip');
+        if ((await tipEl.evaluate((e) => getComputedStyle(e).visibility)) !== 'visible') continue;   // still fading in
+        const text = await tipEl.innerText(); assert.match(text, /Overall/); assert.doesNotMatch(text, /Own turns|This song/, 'the TV card is one short stat line');
+        assert.ok(text.split('\n').length <= 4, 'compact card: ' + text);
+        const tbox = await tipEl.boundingBox();
+        for (const sel of avoidSel) { const box = await host.locator(sel).boundingBox(); if (box) assert.ok(!intersects(tbox, box), 'card covers ' + sel); }
+        assert.ok(tbox.x >= 0 && tbox.x + tbox.width <= 1920 && tbox.y >= 0);
+        seen.add(text.split('\n')[0]);
       }
       return seen.size >= 2;
-    }, 40000, 'cards of two different guests shown without hovering');
+    }, 30000, 'cards of two different guests shown without hovering');
     assert.strictEqual(simultaneous, 1, 'one card at a time');
-    ok('with no mouse, each guest\'s stats card appears on its own, one guest at a time, in turn');
+    ok('with no mouse, a small card appears on its own, one guest at a time, in turn, off the text and QR');
 
     // movement is occasional: at most one walker at a time, and standing still most of the time
     // (guests walking in when they first arrive is separate, so let those entrances finish before counting strolls)
