@@ -451,7 +451,7 @@
           '<details class="panel secondary"><summary>Tuning and request limits</summary>' +
           '<div class="slider"><label for="s-lambda"><span>Protect the least-happy guest</span><output id="o-lambda"></output></label><input type="range" id="s-lambda" min="0" max="100" step="5"><p class="hint">0% chases the room average. 100% only counts whoever likes the song least.</p></div>' +
           '<div class="slider"><label for="s-tau"><span>Blend only above overlap</span><output id="o-tau"></output></label><input type="range" id="s-tau" min="0.2" max="0.9" step="0.05"><p class="hint">Below this, songs rotate between guests instead.</p></div>' +
-          '<div class="slider"><label for="s-settle"><span>New guest counts after</span><output id="o-settle"></output></label><input type="range" id="s-settle" min="0" max="30" step="1"><p class="hint">Stops a passer-by from reshuffling the room.</p></div><div class="slider"><label for="s-doze"><span>Keep a guest counted after their phone locks</span><output id="o-doze"></output></label><input type="range" id="s-doze" min="5" max="120" step="5"><p class="hint">A locked phone cannot say it is still here, so it is trusted for this long, then they are dropped until they open the page again.</p></div><label class="disc"><input type="checkbox" id="request-limit" checked> Limit each guest to 2 outstanding song requests</label><p class="hint">Turn this off to let guests request as many songs as they like.</p></details>' +
+          '<div class="slider"><label for="s-settle"><span>New guest counts after</span><output id="o-settle"></output></label><input type="range" id="s-settle" min="0" max="30" step="1"><p class="hint">Stops a passer-by from reshuffling the room.</p></div><div class="slider"><label for="s-doze"><span>Keep a guest counted after their phone locks</span><output id="o-doze"></output></label><input type="range" id="s-doze" min="5" max="120" step="5"><p class="hint">A locked phone cannot say it is still here, so it is trusted for this long, then they are dropped until they open the page again.</p></div><div class="slider"><label for="s-request-limit"><span>Outstanding song requests per guest</span><output id="o-request-limit">2 requests</output></label><input type="range" id="s-request-limit" min="1" max="11" step="1" value="2"><p class="hint">Choose a fixed limit, or move all the way right for unlimited requests. Requests currently playing still count.</p></div></details>' +
           '<details class="panel secondary" id="duel-panel"><summary>Duels</summary>' +
           '<p class="hint">Guests with a song waiting can challenge each other on the TV view. The winner’s song moves up the request list; the loser’s never drops.</p>' +
           '<label class="disc"><input type="checkbox" id="duel-on" checked> Allow duels in this room</label>' +
@@ -624,7 +624,10 @@
     }
     function outputs(o) { $('o-lambda').textContent = pct(o.lambda) + '%'; $('o-tau').textContent = Number(o.tau).toFixed(2); $('o-settle').textContent = o.settle + ' s'; if ($('o-doze')) $('o-doze').textContent = (o.doze || 30) + ' min'; }
     slider('s-lambda', 'lambda', 100); slider('s-tau', 'tau', 1); slider('s-settle', 'settle', 1); slider('s-doze', 'doze', 1);
-    $('request-limit').addEventListener('change', function () { post('opts', { requestLimitEnabled: this.checked }); });
+    function requestLimitValue() { var value = Number($('s-request-limit').value); return value === 11 ? 0 : value; }
+    function requestLimitLabel(value) { return value === 0 ? 'Unlimited' : value + (value === 1 ? ' request' : ' requests'); }
+    $('s-request-limit').addEventListener('input', function () { $('o-request-limit').textContent = requestLimitLabel(requestLimitValue()); });
+    $('s-request-limit').addEventListener('change', function () { post('opts', { requestLimit: requestLimitValue() }); });
     // Duel settings: on or off, how many challenges a guest may declare, and how long the window is.
     function duelOutputs(n, w) { $('o-duel-n').textContent = n + (n === 1 ? ' challenge' : ' challenges'); $('o-duel-w').textContent = w + ' min'; }
     function duelSettings(st) {
@@ -1016,7 +1019,10 @@
       if (document.activeElement !== $('s-tau')) $('s-tau').value = st.opts.tau;
       if (document.activeElement !== $('s-settle')) $('s-settle').value = st.opts.settle;
       if (document.activeElement !== $('s-doze')) $('s-doze').value = st.opts.doze || 30;
-      outputs(st.opts); $('request-limit').checked = st.requestLimitEnabled !== false;
+      outputs(st.opts);
+      var requestLimit = Number.isInteger(st.requestLimit) ? st.requestLimit : (st.requestLimitEnabled === false ? 0 : 2);
+      if (document.activeElement !== $('s-request-limit')) $('s-request-limit').value = requestLimit === 0 ? 11 : requestLimit;
+      $('o-request-limit').textContent = requestLimitLabel(requestLimit);
       duelSettings(st);
       var blockedList = $('blocked-list'); blockedList.replaceChildren();
       (st.blockedArtists || []).forEach(function (artist) {
@@ -1583,7 +1589,7 @@
       requests.forEach(function (x) { rq.appendChild(h('li', { class: 'nextrow' }, [document.createTextNode(x.title + ' '), h('span', { text: x.artist + ' · ' + (x.mine ? 'your request' : 'requested by ' + x.requester) + ' · about ' + x.position + (x.position === 1 ? ' song away' : ' songs away') })])); });
       if (!requests.length) rq.appendChild(h('li', { class: 'nextrow', text: 'No requests waiting.' }));
       if (requestDetails) requestDetails.open = requests.length > 0;
-      var rh = $('guest-request-hint'); if (rh) rh.textContent = s.requestLimitEnabled === false ? 'There is no per-guest request limit.' : (s.myRequestCount || 0) + ' of 2 requests waiting for you.';
+      var rh = $('guest-request-hint'); if (rh) { var limit = Number.isInteger(s.requestLimit) ? s.requestLimit : (s.requestLimitEnabled === false ? 0 : 2); rh.textContent = limit === 0 ? (s.myRequestCount || 0) + ' requests waiting for you. There is no per-guest limit.' : (s.myRequestCount || 0) + ' of ' + limit + ' requests waiting for you.'; }
       var me = s.me;
       if (me && reg && typeof me.lookupGenres === 'boolean' && me.lookupGenres !== !!reg.lookupGenres) { reg.lookupGenres = me.lookupGenres; saveReg(); if (picksSection.refresh) picksSection.refresh(); }
       if (me && Array.isArray(me.artists) && reg) { var ch = JSON.stringify([me.artists, me.songs, me.genres]) !== JSON.stringify([reg.artists || [], reg.songs || [], reg.genres || []]); if (ch) { reg.artists = me.artists; reg.songs = me.songs; reg.genres = me.genres || []; saveReg(); if (picksSection.refresh) picksSection.refresh(); } }
