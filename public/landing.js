@@ -1,5 +1,4 @@
-// The landing page's "explain it and let me try it" half: how it works in three steps, a live demo of the blend, what you need.
-// Mounts into #landing-more (drawn by landing() in app.js). Guests never see this: they arrive through the QR code, not the landing page.
+// The live demo of the blend, on its own page (/demo), mounted into #demo-mount. Guests never see this: they arrive by QR code.
 // The demo asks POST /api/demo/blend, which runs the real engine on a throwaway room; nothing is stored.
 (function () {
   'use strict';
@@ -12,22 +11,9 @@
   ];
   var YOU_CHOICES = ['rock', 'pop', 'jazz', 'blues', 'hip hop', 'country', 'electronic', 'classical', 'metal', 'folk', 'r&b', 'reggae'];
 
-  function steps() {
-    var sec = el('section', 'land-sec'); sec.setAttribute('aria-labelledby', 'how-h');
-    var h = el('h2', null, 'How it works'); h.id = 'how-h'; sec.appendChild(h);
-    var ol = el('ol', 'how');
-    [['Start a room', 'Pick where the music comes from: a folder of your own music, YouTube or Spotify. Setup takes about a minute.'],
-     ['Friends scan the QR code', 'They choose a few genres on their phone. No app, no account, nothing to install.'],
-     ['The music blends', 'Room Blend plays what the room has in common. When there is nothing in common, it takes turns so everyone gets their songs.']]
-      .forEach(function (s, i) {
-        var li = el('li'); li.append(el('span', 'how-n', String(i + 1)), el('div', null)); li.lastChild.append(el('strong', null, s[0]), el('p', null, s[1])); ol.appendChild(li);
-      });
-    sec.appendChild(ol); return sec;
-  }
-
   function demo() {
-    var sec = el('section', 'land-sec demo'); sec.id = 'demo'; sec.setAttribute('aria-labelledby', 'demo-h');
-    var h = el('h2', null, 'Try it: who is in the room?'); h.id = 'demo-h';
+    var sec = el('section', 'demo'); sec.setAttribute('aria-labelledby', 'demo-h');
+    var h = el('h2', null, 'Who is in the room?'); h.id = 'demo-h';
     sec.append(h, el('p', 'hint', 'Tap people in and out, or add your own taste. The songs below are what Room Blend would line up, live.'));
     var people = PEOPLE.map(function (p) { return { name: p.name, genres: p.genres.slice(), on: p.on }; });
     var you = [];
@@ -85,26 +71,13 @@
     return sec;
   }
 
-  function needs() {
-    var sec = el('section', 'land-sec'); sec.setAttribute('aria-labelledby', 'need-h');
-    var h = el('h2', null, 'What you need'); h.id = 'need-h'; sec.appendChild(h);
-    var g = el('div', 'need');
-    [['A way to play music', 'The quickest is a folder of your own music files: no sign-in. YouTube needs a free Google key (no Premium). Spotify needs Premium. A Navidrome or Subsonic server works too.'],
-     ['A screen or speaker', 'Run the host page on a laptop or phone connected to speakers, or put the TV view on a big screen.'],
-     ['Friends with phones', 'They scan the QR code. That is all. Guests never sign in.']]
-      .forEach(function (n) { var c = el('div', 'need-card'); c.append(el('strong', null, n[0]), el('p', null, n[1])); g.appendChild(c); });
-    sec.appendChild(g); return sec;
-  }
-
-  function mount() {
-    var box = document.getElementById('landing-more'); if (!box || box.getAttribute('data-ready')) return;
+  // The demo lives on its own page (/demo): the landing page stays short. app.js calls this with the page's container.
+  function mount(box) {
+    if (!box || box.getAttribute('data-ready')) return;
     box.setAttribute('data-ready', '1');
-    var cta = el('section', 'land-sec land-cta'); cta.append(el('h2', null, 'Ready? Start the music in about a minute.'));
-    var go = el('button', 'btn primary big', 'Start a room'); go.type = 'button';
-    go.addEventListener('click', function () { var b = document.getElementById('start-room'); if (b) b.click(); });
-    cta.appendChild(go);
-    box.append(steps(), demo(), needs(), cta);
+    box.appendChild(demo());
   }
-  new MutationObserver(mount).observe(document.documentElement, { childList: true, subtree: true });
-  mount();
+  function scan() { var b = document.getElementById('demo-mount'); if (b) mount(b); }
+  new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true });
+  scan();
 })();
