@@ -20,11 +20,13 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     await p.route(/^https:\/\//, (r) => r.abort());
     await p.goto(APP);
     assert.match(await p.textContent('h1'), /Music that fits the whole room/);
-    assert.ok(await p.locator('#start-room').isVisible()); assert.ok(await p.locator('a[href="#demo"]').isVisible());
-    assert.match(await p.textContent('.lead'), /QR code/); ok('the landing page says what it is, and offers Start a room and Try the demo up front');
+    assert.ok(await p.locator('#start-room').isVisible()); assert.ok(await p.locator('a[href="/demo"]').isVisible());
+    assert.match(await p.textContent('.lead'), /QR code/); ok('the landing page says what it is, and offers Start a room and the demo up front');
 
-    assert.strictEqual(await p.locator('.how li').count(), 3); ok('how it works is three steps');
+    assert.strictEqual(await p.locator('.how-line li').count(), 3); assert.strictEqual(await p.locator('.demo').count(), 0);
+    assert.ok(await p.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight * 1.5)); ok('the landing page is short: three steps in one line, and the demo is not crammed onto it');
 
+    await p.click('a[href="/demo"]'); await p.waitForURL(/\/demo$/);
     await p.waitForSelector('.demo-songs li');
     assert.match(await p.textContent('.demo-line'), /likes blues/); assert.ok(await p.locator('.demo-songs li').count() >= 3);
     assert.strictEqual(await p.locator('.demo-person[aria-pressed="true"]').count(), 2); ok('the demo opens with two people who share a genre, and shows songs from the overlap');
@@ -48,8 +50,9 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     assert.ok(await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)); ok('no sideways scrolling on a phone');
     await p.setViewportSize({ width: 1280, height: 900 });
 
-    // the join code still works
-    assert.ok(await p.locator('#join-form #join-code').isVisible()); ok('joining with a code is still on the page');
+    // the demo page links back, and the join code still works on the landing page
+    await p.click('.back'); await p.waitForURL(APP + '/');
+    assert.ok(await p.locator('#join-form #join-code').isVisible()); ok('the demo links back, and joining with a code is still on the landing page');
 
     // host page opens with the checklist
     await p.click('#start-room'); await p.waitForURL(/\/host\/[A-Z0-9]{5}$/);

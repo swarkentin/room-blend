@@ -981,15 +981,15 @@ a.btn.primary { color: var(--on-primary, #fff); }
 .cta-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
 .btn.big { font-size: 17px; padding: 12px 22px; border-radius: 12px; text-decoration: none; display: inline-flex; align-items: center; }
 .cta-note { margin: -8px 0 0; }
-.hero .joincard { padding: 14px 16px; }
-.hero .joincard .code-input { font-size: 18px; }
-.land-sec { display: grid; gap: 14px; margin-top: 18px; padding-top: 28px; border-top: 1px solid var(--line); }
-.land-sec h2 { font-size: clamp(22px, 3.4vw, 28px); letter-spacing: -0.02em; margin: 0; }
-.how { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
-.how li { display: grid; grid-template-columns: 40px 1fr; gap: 14px; align-items: start; }
-.how-n { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--ink); color: var(--bg); font: 600 18px var(--font-display); }
-.how strong { font-size: 17px; }
-.how p, .need-card p { margin: 4px 0 0; color: var(--muted); }
+.how-line { list-style: none; counter-reset: s; display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 0; padding: 0; color: var(--muted); font-size: 15px; }
+.how-line li { counter-increment: s; }
+.how-line li::before { content: counter(s); display: inline-grid; place-items: center; width: 22px; height: 22px; margin-right: 8px; border-radius: 50%; background: var(--ink); color: var(--bg); font: 600 12px var(--font-display); }
+.joinline { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+.joinline .code-input { width: 9em; font-size: 16px; padding: 8px 10px; }
+.joinline .hint, .joinline p { flex-basis: 100%; margin: 0; }
+.back { color: var(--muted); text-decoration: none; font-size: 14px; }
+.demo { display: grid; gap: 14px; }
+.demo h2 { font-size: 20px; margin: 0; }
 .demo-people { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
 .demo-person { text-align: left; display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); background: var(--surface); border-radius: 12px; color: var(--ink); }
 .demo-person span { color: var(--muted); font-size: 13px; }
@@ -1006,9 +1006,6 @@ a.btn.primary { color: var(--on-primary, #fff); }
 .demo-song span { color: var(--muted); font-size: 13px; }
 .demo-why { font: 500 12px var(--font-mono); color: var(--good); }
 .demo-why.turn { color: var(--warn); }
-.need { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
-.need-card { border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 14px; }
-.land-cta { justify-items: start; padding-bottom: 40px; }
 
 /* ---- host: get going checklist ---- */
 .onboard { border: 1px solid var(--line); background: var(--surface); border-radius: 14px; padding: 14px 16px; margin-bottom: 16px; display: grid; gap: 10px; }
