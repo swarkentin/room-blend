@@ -188,7 +188,8 @@
   .landing-person { gap: 6px; padding: 7px; }
   .landing-person-avatar { flex-basis: 28px; width: 28px; height: 28px; font-size: 12px; }
   .landing-person-copy strong { font-size: 11px; }
-  .landing-person-copy small { font-size: 9px; }
+  .landing-person-copy { min-width: 0; }
+  .landing-person-copy small { font-size: 9px; white-space: normal; overflow-wrap: anywhere; }
   .landing-mix-card { padding: 20px 18px 14px; }
   .landing-mix-title { font-size: 22px; }
   .landing-art-queue { width: 94%; }
