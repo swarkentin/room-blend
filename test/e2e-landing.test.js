@@ -19,12 +19,26 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     const p = await ctx.newPage(); p.on('pageerror', (e) => errors.push(e.message));
     await p.route(/^https:\/\//, (r) => r.abort());
     await p.goto(APP);
+    await p.waitForSelector('.landing-art .landing-wave');
     assert.match(await p.textContent('h1'), /Music that fits the whole room/);
     assert.ok(await p.locator('#start-room').isVisible()); assert.ok(await p.locator('a[href="/demo"]').isVisible());
-    assert.match(await p.textContent('.lead'), /QR code/); ok('the landing page says what it is, and offers Start a room and the demo up front');
+    assert.match(await p.textContent('.lead'), /QR code/); ok('the landing page leads with the product promise and clear start/demo actions');
 
-    assert.strictEqual(await p.locator('.how-line li').count(), 3); assert.strictEqual(await p.locator('.demo').count(), 0);
-    assert.ok(await p.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight * 1.5)); ok('the landing page is short: three steps in one line, and the demo is not crammed onto it');
+    assert.strictEqual(await p.locator('.how-line li').count(), 3);
+    assert.strictEqual(await p.locator('.landing-feature').count(), 6);
+    assert.ok(await p.locator('.landing-art').isVisible());
+    assert.ok(await p.locator('.landing-wave i').count() >= 20);
+    assert.ok(await p.locator('.landing-explore').getAttribute('href') === '#landing-features');
+    const animation = await p.locator('.landing-wave i').first().evaluate((node) => getComputedStyle(node).animationName);
+    assert.strictEqual(animation, 'landing-wave');
+    ok('the animated hero explains how individual tastes feed a shared room mix, followed by discoverable steps and differentiating features');
+
+    await p.click('.landing-explore');
+    assert.ok(await p.locator('#landing-features').isVisible());
+    assert.match(await p.textContent('#landing-features'), /fair turn|fairly/i);
+    assert.match(await p.textContent('#landing-features'), /Spotify/);
+    assert.match(await p.textContent('#landing-features'), /avatars/);
+    ok('feature navigation exposes fair blending, host music sources, and the live TV experience');
 
     await p.click('a[href="/demo"]'); await p.waitForURL(/\/demo$/);
     await p.waitForSelector('.demo-songs li');
@@ -41,27 +55,22 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     await p.click('.demo-you .chip:text-is("pop")');
     await until(async () => /Nobody is in the room/.test(await p.textContent('.demo-out')), 5000, 'empty'); ok('with nobody in, the demo says so instead of showing songs');
 
-    // the demo endpoint is stateless and tolerant
     const bad = await p.evaluate(async () => { const r = await fetch('/api/demo/blend', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ people: [{ name: '<b>x</b>', genres: ['rock', 'nonsense'] }, null, 5] }) }); return { status: r.status, body: await r.json() }; });
     assert.strictEqual(bad.status, 200); assert.ok(!/<b>/.test(JSON.stringify(bad.body))); ok('the demo endpoint ignores junk and strips markup from names');
 
-    // phone width: no sideways scroll
     await p.setViewportSize({ width: 390, height: 844 });
     assert.ok(await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)); ok('no sideways scrolling on a phone');
     await p.setViewportSize({ width: 1280, height: 900 });
 
-    // the demo page links back, and the join code still works on the landing page
     await p.click('.back'); await p.waitForURL(APP + '/');
-    assert.ok(await p.locator('#join-form #join-code').isVisible()); ok('the demo links back, and joining with a code is still on the landing page');
+    assert.ok(await p.locator('#join-form #join-code').isVisible()); ok('the demo links back, and joining with a code still works on the landing page');
 
-    // host page opens with the checklist
     await p.click('#start-room'); await p.waitForURL(/\/host\/[A-Z0-9]{5}$/);
     await p.waitForSelector('.onboard');
     const steps = await p.locator('.onboard-steps li').count(); assert.strictEqual(steps, 3);
     assert.ok(await p.locator('.onboard-steps li.next').count() === 1 && /Choose the music/.test(await p.textContent('.onboard-steps li.next')));
     ok('a new host page opens with a three-step checklist, with the next step highlighted');
 
-    // a guest joins: step 2 completes
     const code = p.url().split('/').pop();
     await p.evaluate(async (c) => { await fetch('/api/rooms/' + c + '/guests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Ana', genres: ['jazz'] }) }); }, code);
     await until(async () => /1 person has joined/.test(await p.textContent('.onboard')), 10000, 'joined');
