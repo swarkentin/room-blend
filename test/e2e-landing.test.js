@@ -29,6 +29,7 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     assert.ok(await p.locator('.landing-art').isVisible());
     assert.ok(await p.locator('.landing-wave i').count() >= 20);
     assert.ok(await p.locator('.landing-explore').getAttribute('href') === '#landing-features');
+    await p.waitForFunction(() => getComputedStyle(document.querySelector('.landing-wave i')).animationName === 'landing-wave');
     const animation = await p.locator('.landing-wave i').first().evaluate((node) => getComputedStyle(node).animationName);
     assert.strictEqual(animation, 'landing-wave');
     ok('the animated hero explains how individual tastes feed a shared room mix, followed by discoverable steps and differentiating features');
