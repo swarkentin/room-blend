@@ -29,14 +29,23 @@ assert.equal(room.setBlock('artist', 'Persisted Band').ok, true);
 room.rebuild('test rebuild', false);
 assert.equal(room.requestQueue.length, 2);
 
-// The two-request limit is a host setting and survives room snapshots.
-room.setOpts({ requestLimitEnabled: false });
+// The host can choose a numeric limit or unlimited; it survives room snapshots.
+room.setOpts({ requestLimit: 0 });
 assert.equal(room.addRequest(guest.id, 'Third Song', 'Third Artist').ok, true);
 assert.equal(room.addRequest(other.id, 'Other Guest Song', 'Other Artist').ok, true);
 const restored = new Room('JUKE1', 'h'.repeat(32));
 assert.equal(restored.restoreSnapshot(room.snapshot()), true);
-assert.equal(restored.requestLimitEnabled, false);
+assert.equal(restored.requestLimit, 0);
 assert.equal(restored.requestQueue.length, 4);
+const legacySnapshot = { ...room.snapshot(), requestLimit: undefined, requestLimitEnabled: false };
+const legacyRestored = new Room('JUKE2', 'l'.repeat(32));
+assert.equal(legacyRestored.restoreSnapshot(legacySnapshot), true);
+assert.equal(legacyRestored.requestLimit, 0, 'older unlimited room snapshots remain unlimited');
+restored.setOpts({ requestLimit: 4 });
+assert.equal(restored.addRequest(guest.id, 'Fourth Song', 'Fourth Artist').ok, true);
+assert.equal(restored.addRequest(guest.id, 'Fifth Song', 'Fifth Artist').ok, false, 'configured limit is enforced per guest');
+restored.setOpts({ requestLimit: 0 });
+assert.equal(restored.addRequest(guest.id, 'Fifth Song', 'Fifth Artist').ok, true);
 assert.deepEqual(restored.blockedArtists, room.blockedArtists);
 assert.deepEqual(restored.blockedSongs, room.blockedSongs);
 
