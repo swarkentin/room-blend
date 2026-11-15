@@ -27,10 +27,15 @@ assert.strictEqual(A.isWeenArtist('Queen'), false); ok('similar artist names do 
 
 // Every guest gets their own look, fixed by their id.
 assert.deepStrictEqual(A.outfitFor('guest-1'), A.outfitFor('guest-1')); ok('a guest keeps the same look every time');
-const kinds = { hat: new Set(), face: new Set(), neck: new Set(), legs: new Set() };
-for (let i = 0; i < 300; i++) { const o = A.outfitFor('g' + i); for (const k in kinds) kinds[k].add(o[k]); }
+const kinds = { hat: new Set(), face: new Set(), neck: new Set(), legs: new Set() }, worn = { hat: 0, face: 0, neck: 0 };
+const N = 1000;
+for (let i = 0; i < N; i++) { const o = A.outfitFor('g' + i); for (const k in kinds) kinds[k].add(o[k]); for (const k in worn) if (o[k]) worn[k]++; }
 assert.ok(kinds.hat.size >= 8 && kinds.face.size >= 6 && kinds.neck.size >= 4 && kinds.legs.size >= 4); ok('hats, face pieces, neckwear and trousers all vary across guests');
 assert.ok(kinds.hat.has(null) && kinds.face.has(null) && kinds.neck.has(null)); ok('some guests go without, so the room is not uniform');
+const within = (n, p) => Math.abs(n / N - p) < 0.06;
+assert.ok(within(worn.hat, 0.45) && within(worn.face, 0.25) && within(worn.neck, 0.15), JSON.stringify(worn)); ok('accessories are a light touch: about 45% hats, 25% face pieces, 15% neckwear');
+let costumed = 0; for (let i = 0; i < N; i++) { const o = A.outfitFor('r' + i); if (o.hat && o.face && o.neck) costumed++; }
+assert.ok(costumed / N < 0.04); ok('almost nobody wears all three at once');
 assert.ok(A.LOOKS.legs.includes('baggy jeans') && A.LOOKS.hats.includes('party hat')); ok('the fun pieces are there (baggy jeans, party hat)');
 assert.ok(A.svgFor(A.outfitFor('x')).startsWith('<svg') && !/<script|on\w+=/i.test(A.svgFor(A.outfitFor('x')))); ok('the drawing is plain, script-free SVG');
 // Mood over the night.

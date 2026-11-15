@@ -512,11 +512,13 @@
     wrap.appendChild(tvCastView);
     // Little avatars for the guests, who mostly stand still and only wander now and then. They keep clear of the QR code and the video.
     var avatarsOn = lsGet('rb-tv-avatars') !== 'off';   // remembered per browser; on by default
-    var castAvatars = window.Avatars ? window.Avatars.create($('tv-cast-avatars'), {
+    var castAvatars = window.Avatars ? window.Avatars.create($('tv-cast-avatars'), Object.assign({
       enabled: avatarsOn,
       avoid: function () { return [tvCastView.querySelector('.tv-cast-join'), $('yt-dock')]; },
+      // The guest cards also keep off the text column: title, artist, genres and the up-next list.
+      spotAvoid: function () { return ['tv-cast-title', 'tv-cast-artist', 'tv-cast-meta', 'tv-cast-genres', 'tv-cast-next'].map($); },
       reduced: function () { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; },
-    }) : { update: function () {}, layout: function () {}, setEnabled: function () {}, setFight: function () {} };
+    }, window.__rbAvatarOptions || {})) : { update: function () {}, layout: function () {}, setEnabled: function () {}, setFight: function () {} };
     // Duels: the overlay on the cast view (round clock, Chaos Cards, move reveal). The fighters' health bars and name tags live on the avatars.
     var castFight = window.FightUI ? window.FightUI.createTV($('tv-cast-fight'), {
       avatars: castAvatars, view: tvCastView,

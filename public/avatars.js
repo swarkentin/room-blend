@@ -1,6 +1,6 @@
 // Little animated guests for the TV / cast view: one avatar per listener, standing along the bottom of the screen.
 // Their pose follows how the whole night has gone for them (not the song playing this second), they only wander now and then,
-// and on a TV, where nobody can hover, each guest's stats pop up on their own in turn.
+// and on a TV, where nobody can hover, one guest at a time gets a small, calm card now and then (never over the music).
 // Works in the browser (window.Avatars) and in Node (tests, for the mood logic).
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -114,7 +114,7 @@
   /** A guest's random look, fixed by their id: { hat, face, neck, legs, colors } (a missing piece is null). */
   function outfitFor(id) {
     var r = rng(hash('look:' + id)), col = function () { return PALETTE[Math.floor(r() * PALETTE.length)]; };
-    var o = { hat: r() < 0.8 ? pickFrom(r, HATS) : null, face: r() < 0.5 ? pickFrom(r, FACES) : null, neck: r() < 0.4 ? pickFrom(r, NECKS) : null, legs: pickFrom(r, LEGS), colors: [col(), col()] };
+    var o = { hat: r() < 0.45 ? pickFrom(r, HATS) : null, face: r() < 0.25 ? pickFrom(r, FACES) : null, neck: r() < 0.15 ? pickFrom(r, NECKS) : null, legs: pickFrom(r, LEGS), colors: [col(), col()] };
     if (o.colors[0] === o.colors[1]) o.colors[1] = PALETTE[(PALETTE.indexOf(o.colors[0]) + 3) % PALETTE.length];
     return o;
   }
@@ -168,6 +168,8 @@
     return d > 0.06 ? 'up' : d < -0.06 ? 'down' : 'steady';
   }
 
+  var CROWD = 8;   // more listeners than this and the stage quiets down
+
   function create(stage, opts) {
     opts = opts || {};
     var recs = new Map(), timer = null, avW = 0, enabled = opts.enabled !== false, fight = null;
@@ -175,8 +177,8 @@
 
     function reduced() { return !!(opts.reduced && opts.reduced()); }
     function visible() { return stage.getClientRects().length > 0; }
-    function avoidRects() {
-      var els = opts.avoid ? opts.avoid() : [];
+    function avoidRects(extra) {
+      var els = (opts.avoid ? opts.avoid() : []).concat(extra || []);
       return els.filter(function (el) { return el && !el.hidden; }).map(function (el) { return el.getBoundingClientRect(); })
         .filter(function (r) { return r.width > 0 && r.height > 0; });
     }
@@ -258,20 +260,27 @@
       applyFight();
     }
 
-    // On a TV nobody can hover, so each guest's card (mood, tags, stats) appears on its own, one guest at a time, in turn:
-    // a few seconds on, a short pause, the next guest. Never during a duel, or while a hovering mouse already shows one.
+    // On a TV nobody can hover, so now and then one guest gets a small card: about 5 seconds every ~20. One guest at a time,
+    // never during a duel or while a mouse already shows a card, and never on top of the now-playing text, the QR code or the up-next list
+    // (opts.spotAvoid): the card goes on a side with room, and if there is none this round is skipped.
     function hideSpot() { if (spotRec) { spotRec.el.classList.remove('is-spot'); spotRec = null; } }
     function spotlight() {
       clearTimeout(spotT);
       hideSpot();
-      var show = opts.spotlight !== false ? opts.spotlightMs || 6500 : 0, gap = opts.spotlightGapMs || 4500;
+      var show = opts.spotlight !== false ? opts.spotlightMs || 5000 : 0, gap = opts.spotlightGapMs || 15000;
       if (!show) return;
       var ok = enabled && !fight && visible() && !(typeof document !== 'undefined' && document.hidden);
       var list = [];
-      recs.forEach(function (r) { if (r.placed && !r.hovered && !r.fighting) list.push(r); });
+      recs.forEach(function (r) { if (r.placed && !r.hovered && !r.fighting && !r.el.hidden) list.push(r); });
       if (!ok || !list.length) { spotT = setTimeout(spotlight, 2000); return; }
-      var rec = list[spotNext++ % list.length];
-      rec.el.classList.add('is-spot'); spotRec = rec; placeTip(rec);
+      var start = spotNext, rec = null;
+      for (var k = 0; k < list.length && !rec; k++) {
+        var c = list[(start + k) % list.length];
+        c.el.classList.add('is-spot');
+        if (placeTip(c, true)) { rec = c; spotNext = start + k + 1; } else c.el.classList.remove('is-spot');
+      }
+      if (!rec) { spotT = setTimeout(spotlight, Math.min(gap, 4000)); return; }   // nowhere calm to put a card: skip, try again soon
+      spotRec = rec;
       spotT = setTimeout(function () { hideSpot(); spotT = setTimeout(spotlight, gap); }, show);
     }
 
@@ -293,15 +302,17 @@
     }
     function schedule() { clearTimeout(timer); timer = setTimeout(stroll, 8000 + Math.random() * 9000); }
 
-    function placeTip(rec) {
-      var tip = rec.tip, avoid = avoidRects(), vw = window.innerWidth, choice = null;
+    // Pick the side of the avatar where the card fits on screen and clear of what must stay readable. Returns false (strict only) if none does.
+    function placeTip(rec, strict) {
+      var tip = rec.tip, avoid = avoidRects(strict && opts.spotAvoid ? opts.spotAvoid() : null), vw = window.innerWidth, vh = window.innerHeight, choice = null;
       ['top', 'right', 'left'].forEach(function (p) {
         if (choice) return;
         tip.setAttribute('data-place', p);
         var r = tip.getBoundingClientRect();
-        if (r.left >= 8 && r.right <= vw - 8 && r.top >= 8 && !avoid.some(function (a) { return overlaps(r, a, 6); })) choice = p;
+        if (r.left >= 8 && r.right <= vw - 8 && r.top >= 8 && r.bottom <= vh - 8 && !avoid.some(function (a) { return overlaps(r, a, 6); })) choice = p;
       });
       tip.setAttribute('data-place', choice || 'top');
+      return !!choice;
     }
 
     function fillTip(rec, e, m) {
@@ -316,10 +327,12 @@
         e.genres.forEach(function (g) { var t = document.createElement('span'); t.textContent = g; tags.appendChild(t); });
         tip.appendChild(tags);
       }
+      var first = (e.stats || [])[0];   // the one line the TV card shows; the full list is for hovering
+      if (first) { var line = document.createElement('div'); line.className = 'av-tip-line'; line.textContent = first[0] + ' ' + first[1]; tip.appendChild(line); }
       var tr = e.mood && e.mood.trail;
       if (tr && tr.length >= 2) {
         var box = document.createElement('div'); box.className = 'av-tip-trend'; box.setAttribute('data-trend', trendDir(tr));
-        box.innerHTML = trendSVG(tr, 120, 34);   // numbers only
+        box.innerHTML = trendSVG(tr, 120, 26);   // numbers only
         var cap = document.createElement('div'); cap.className = 'av-tip-trend-label';
         cap.textContent = { up: 'Getting happier', down: 'Cooling off', steady: 'Steady mood' }[trendDir(tr)] + ' · ' + tr.length + ' songs';
         box.appendChild(cap); tip.appendChild(box);
@@ -337,7 +350,7 @@
       el.style.setProperty('--d', (-Math.random() * 4).toFixed(2) + 's');
       var flip = document.createElement('div'); flip.className = 'av-flip'; var look = outfitFor(e.id); flip.innerHTML = svgFor(look);   // markup built from constants only, no user text
       el.setAttribute('data-look', [look.hat, look.face, look.neck, look.legs].filter(Boolean).join(', '));
-      if (look.hat) el.classList.add('has-hat');   // the name tag rides higher so tall hats do not cover it
+      if (look.hat) el.classList.add('has-hat');   // the name tag rides a little higher so hats do not cover it
       var fx = document.createElement('div'); fx.className = 'av-fx'; fx.setAttribute('aria-hidden', 'true');
       fx.innerHTML = '<span class="fx-note n1">♪</span><span class="fx-note n2">♫</span><span class="fx-cloud"><i></i><i></i></span><span class="fx-z z1">z</span><span class="fx-z z2">Z</span>';
       var tip = document.createElement('div'); tip.className = 'av-tip'; tip.setAttribute('aria-hidden', 'true'); tip.setAttribute('data-place', 'top');
@@ -347,11 +360,10 @@
       var nameEl = document.createElement('div'); nameEl.className = 'av-name';
       var hp = document.createElement('div'); hp.className = 'av-hp'; hp.setAttribute('data-tone', 'ok');
       var hpFill = document.createElement('i'), hpNum = document.createElement('b'); hp.appendChild(hpFill); hp.appendChild(hpNum);
-      var trend = document.createElement('div'); trend.className = 'av-trend';   // happiness over the night, always showing once there are two songs
-      hud.appendChild(statusEl); hud.appendChild(nameEl); hud.appendChild(trend); hud.appendChild(hp);
+      hud.appendChild(statusEl); hud.appendChild(nameEl); hud.appendChild(hp);
       el.appendChild(fx); el.appendChild(flip); el.appendChild(hud); el.appendChild(tip);
       var rec = { id: e.id, el: el, tip: tip, x: 0, placed: false, walking: false, hovered: false, mood: '', dancing: false, sig: '',
-        nameEl: nameEl, nameText: '', trend: trend, trendSig: '', statusEl: statusEl, hp: hp, hpFill: hpFill, hpNum: hpNum,
+        nameEl: nameEl, nameText: '', statusEl: statusEl, hp: hp, hpFill: hpFill, hpNum: hpNum,
         fighting: false, inRing: false, faceAfter: null, lastRound: 0, moveT: null };
       function over() { rec.hovered = true; placeTip(rec); }
       function out() { rec.hovered = false; }
@@ -428,7 +440,7 @@
       });
     }
     /** The public duel the server sends the TV, or null when there is none. */
-    function setFight(f) { fight = f || null; applyFight(); }
+    function setFight(f) { fight = f || null; if (fight) hideSpot(); applyFight(); }
 
     /** entries: [{ id, name, color, requesting, genres: [label], stats: [[label, value]], mood: {fit, avg, songs, resting, restLabel} }] */
     function update(entries) {
@@ -445,8 +457,8 @@
         if (rec.dancing && rec.walking) stopWalking(rec);
         rec.el.style.setProperty('--av', e.color);
         rec.el.setAttribute('aria-label', e.name + ': ' + m.label);
-        var trail = e.mood && e.mood.trail || [], tsig = trail.join(',');
-        if (tsig !== rec.trendSig) { rec.trendSig = tsig; rec.trend.innerHTML = trendSVG(trail, 100, 22); rec.el.setAttribute('data-trend', trendDir(trail)); }
+        var trail = e.mood && e.mood.trail || [];
+        rec.el.setAttribute('data-trend', trendDir(trail));
         var sig = JSON.stringify([e.name, e.color, e.genres, e.stats, m.label, trail]);
         if (sig !== rec.sig) { rec.sig = sig; fillTip(rec, e, m); }
       });
@@ -457,6 +469,7 @@
         setTimeout(function () { rec.el.remove(); }, 600);
       });
       stage.hidden = !enabled || recs.size === 0;
+      stage.classList.toggle('is-crowded', recs.size > CROWD);   // a big room: smaller guests, names only on the spotlighted one
       layout();
     }
 
@@ -473,7 +486,7 @@
       window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(layout, 150); });
     }
     schedule();
-    spotT = setTimeout(spotlight, opts.spotlightFirstMs || 5000);
+    spotT = setTimeout(spotlight, opts.spotlightFirstMs || 12000);
     return { update: update, layout: layout, setEnabled: setEnabled, setFight: setFight, spotlight: spotlight };
   }
 
