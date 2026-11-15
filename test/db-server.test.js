@@ -156,6 +156,21 @@ function req(method, p, body, headers = {}) {
   assert.ok(a2.status === 200);
   ok('artist genres are fetched once and then served from storage');
 
+  // ---------- song metadata is looked up once, for everyone ----------
+  let songLookups = 0;
+  App.musicBrainz.lookupSong = async (title, artist, o = {}) => { songLookups++; return { year: 1993, mbid: null, genres: o.detail ? [{ genre: 'metal', count: 5 }] : [], detail: !!o.detail }; };
+  const sm = (songs) => req('POST', '/api/songs/meta', { songs }, auth);
+  const first = await sm([{ title: 'Sober', artist: 'Tool' }, { title: 'Sober', artist: 'TOOL' }]); let r1 = first.json; assert.strictEqual(first.status, 200);
+  assert.strictEqual(r1.songs[0].year, 1993); assert.deepStrictEqual(r1.songs[0].genres, []);
+  assert.strictEqual(songLookups, 1, 'the same song is asked of MusicBrainz once');
+  await sm([{ title: 'Sober', artist: 'Tool' }]); assert.strictEqual(songLookups, 1, 'a known song is served from storage');
+  r1 = (await sm([{ title: 'Sober', artist: 'Tool', detail: true }])).json;
+  assert.deepStrictEqual(r1.songs[0].genres, ['metal']); assert.strictEqual(songLookups, 2, 'its own genres are read once, when asked for');
+  await sm([{ title: 'Sober', artist: 'Tool', detail: true }]); await sm([{ title: 'Sober', artist: 'Tool' }]);
+  assert.strictEqual(songLookups, 2);
+  assert.strictEqual((await req('POST', '/api/songs/meta', { songs: 'nope' }, auth)).status, 200);
+  ok('song metadata is fetched once, read in full only when asked, then served from storage');
+
   // ---------- storage trouble never takes rooms down ----------
   const realPut = store.recordPlay; store.recordPlay = async () => { throw new Error('database is asleep'); };
   assert.strictEqual((await req('POST', '/api/catalog/feedback', { id: 'abcDEF12345', ok: true }, auth)).status, 503, 'catalogue failures are a soft 503');

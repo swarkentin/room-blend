@@ -120,7 +120,13 @@ const yt = http.createServer((req, res) => {
     await host.route(/^https:\/\//, (r) => r.abort());
     // Hermetic: the server must not ask the real MusicBrainz (CI has network, so its answers would re-file songs and change pool counts).
     await host.route(/\/api\/musicbrainz\/artist-genres/, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"genres":[]}' }));
-    await host.route(/\/api\/musicbrainz\/song-years/, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"songs":[]}' }));
+    // MusicBrainz via the server is stubbed: every song is from 1985 and rock. The host should ask once per batch and tell the room.
+    log.metaAsked = 0; log.metaTold = [];
+    await host.route(/\/api\/songs\/meta/, (route) => {
+      const songs = (JSON.parse(route.request().postData() || '{}').songs || []).map((x) => ({ title: x.title, artist: x.artist, year: 1985, genres: x.detail ? ['rock'] : [] }));
+      log.metaAsked++; route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ songs }) });
+    });
+    host.on('request', (rq) => { if (/\/host\/songmeta$/.test(rq.url()) && rq.method() === 'POST') log.metaTold.push(JSON.parse(rq.postData() || '{}')); });
     await host.goto(APP); await host.click('#start-room'); await host.waitForURL(/\/host\/[A-Z0-9]{5}$/);
     const nowTitle = () => host.textContent('#now-title');
 
@@ -273,6 +279,8 @@ const yt = http.createServer((req, res) => {
     assert.ok(eraGuest && eraGuest.guestId);
     await until(() => log.plSearches.includes('1980s classic rock hits songs') && log.plSearches.includes('1980s new wave hits songs'), 20000, 'era-specific playlist searches');
     ok('an 80s pick triggers decade-qualified searches for representative genres');
+    await until(() => log.metaAsked > 0 && log.metaTold.some((b) => (b.songs || []).some((x) => x.eras && x.eras[0] === '80s')), 20000, 'songs dated in the background and the room told');
+    ok('songs the room learns about are dated (1985 -> 80s) in the background and the host tells the room');
 
     const emptyArtist = await host.evaluate(async () => window.Providers.get('youtube').artistTracks('No Such Artist', 'rock'));
     assert.deepStrictEqual(emptyArtist, []);

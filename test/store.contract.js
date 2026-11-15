@@ -109,6 +109,15 @@ module.exports = async function contract(store, ok) {
   assert.deepStrictEqual(await store.getArtistGenres('nobody', now), [], 'an empty answer is remembered too');
   ok('artist genres: stored, expire, empty answers kept');
 
+  // ----- song metadata -----
+  assert.strictEqual(await store.getSongMeta('tool|sober', now), undefined);
+  await store.putSongMeta('tool|sober', { title: 'Sober', artist: 'Tool', year: 1993, tags: [{ facet: 'genre', value: 'metal', source: 'musicbrainz', weight: 5 }], detail: true }, 365 * DAY, now);
+  assert.deepStrictEqual(await store.getSongMeta('tool|sober', now + DAY), { year: 1993, tags: [{ facet: 'genre', value: 'metal', source: 'musicbrainz', weight: 5 }], detail: true });
+  await store.putSongMeta('x|unknown', { title: 'Unknown', artist: 'X', year: null, tags: [], detail: false }, 14 * DAY, now);
+  assert.deepStrictEqual(await store.getSongMeta('x|unknown', now), { year: null, tags: [], detail: false }, 'a miss is remembered too');
+  assert.strictEqual(await store.getSongMeta('x|unknown', now + 15 * DAY), undefined);
+  ok('song metadata: year and tagged facets stored, expire, misses kept');
+
   // ----- housekeeping -----
   const before = await store.stats(2, now + 5);
   assert.ok(before.ratedVideos >= 5 && before.playVotes >= 8 && before.confirmedLookups >= 1 && before.lookupsWithVotes >= 3, JSON.stringify(before));

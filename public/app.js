@@ -889,6 +889,12 @@
       return out;
     }
 
+    // Date the songs the room just learned about (and tag those that play) from MusicBrainz, in the background: the room never waits.
+    function dateSongs(P, tracks) {
+      if (!P || !P.enrich || !tracks || !tracks.length) return;
+      P.enrich(tracks, false).then(function (list) { if (list.length) return post('songmeta', { songs: list }); }).catch(function () {});
+    }
+    window.addEventListener('rb-song-meta', function (e) { var list = e.detail; if (list && list.length) post('songmeta', { songs: list }).catch(function () {}); });
     async function maybeExtras() {
       var st = S.st, P = S.prov;
       if (!st || !P.canExtras || !P.canExtras() || (st.source && st.source.kind === 'library')) return;
@@ -940,14 +946,17 @@
           var eraTracks = [];
           try { eraTracks = await P.eraTracks(task.era, task.genre) || []; } catch (e) { eraTracks = []; }
           await post('extras', { genre: task.genre, tracks: eraTracks, pool: !!P.pool && eraTracks.length > 0, source: P.id });
+          dateSongs(P, eraTracks);
         } else if (task.type === 'artist') {
           var found = [];
           try { found = await P.artistTracks(task.artist.name, task.artist.genre) || []; } catch (e) { found = []; }
           await post('extras', { genre: task.artist.genre, artist: task.artist.name, tracks: found, pool: false, source: P.id });
+          dateSongs(P, found);
         } else {
           var tracks = [];
           try { tracks = await P.extras(task.genre, partnersOf(st)) || []; } catch (e) { tracks = []; }
           await post('extras', { genre: task.genre, tracks: tracks, pool: !!P.pool && tracks.length > 0, source: P.id });
+          dateSongs(P, tracks);
         }
       } finally {
         S.extrasBusy = false;
