@@ -164,10 +164,10 @@ function sse(path) {
   assert.strictEqual((await req('POST', `/api/rooms/${code}/request`, { title: 'Third song', artist: 'Third artist' }, A)).status, 400, 'default per-guest limit is two');
   const requestState = await host.waitFor((s) => s.requests && s.requests.length === 2);
   assert.strictEqual(requestState.requests[0].requester, 'Mayab');
-  assert.strictEqual((await req('POST', `/api/rooms/${code}/host/opts`, { requestLimitEnabled: false }, H)).status, 200);
+  assert.strictEqual((await req('POST', `/api/rooms/${code}/host/opts`, { requestLimit: 0 }, H)).status, 200);
   assert.strictEqual((await req('POST', `/api/rooms/${code}/request`, { title: 'Third song', artist: 'Third artist' }, A)).status, 200);
   const unlimited = await host.waitFor((s) => s.requests && s.requests.length === 3);
-  assert.strictEqual(unlimited.requestLimitEnabled, false);
+  assert.strictEqual(unlimited.requestLimit, 0);
   assert.strictEqual((await req('POST', `/api/rooms/${code}/host/requests`, { remove: true, id: rq1.json.request.id }, H)).status, 200);
   const hostAdded = await req('POST', `/api/rooms/${code}/host/requests`, { title: 'Host selection', artist: 'Host artist' }, H);
   assert.strictEqual(hostAdded.status, 200);
