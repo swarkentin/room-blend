@@ -437,6 +437,25 @@ async function api(req, res, url) {
     }
   }
 
+  // The landing page demo: the real blend engine on a throwaway room, no storage, nothing kept. People in, songs and reasons out.
+  if (parts[0] === 'demo' && parts[1] === 'blend' && parts.length === 2 && m === 'POST') {
+    let body = null; try { body = await readBody(req); } catch (e) { /* bad body: nobody in the room */ }
+    const people = (body && Array.isArray(body.people) ? body.people : []).slice(0, 5).map((p, i) => ({
+      name: String(p && p.name || 'Guest ' + (i + 1)).replace(/[<>]/g, '').slice(0, 20) || 'Guest ' + (i + 1),
+      genres: [...new Set((p && Array.isArray(p.genres) ? p.genres : []).filter((g) => typeof g === 'string' && Engine.isPick(g)))].slice(0, 4),
+    })).filter((p) => p.genres.length);
+    if (!people.length) return sendJson(res, 200, { mode: 'empty', queue: [], shared: [] });
+    const now = Date.now(), demo = new Room('DEMO0', 'demo', now); demo.opts.settle = 0;
+    const names = new Map();
+    for (const p of people) { const g = demo.addGuest(p.name, p.genres, { immediate: true }, now); g.connected = true; names.set(g.id, p.name); }
+    const v = demo.hostView(), count = new Map();
+    for (const p of people) for (const g of p.genres) count.set(g, (count.get(g) || 0) + 1);
+    const shared = people.length > 1 ? [...count].filter(([, n]) => n === people.length).map(([g]) => g) : []; // liked by everyone in the room
+    const row = (q) => ({ title: q.track.title, artist: q.track.artist, genres: q.track.genres.slice(0, 3), mode: q.mode, owner: q.owner ? names.get(q.owner) || null : null, fits: (q.fits || []).map((f) => ({ name: names.get(f.id) || '', fit: Math.round(f.fit * 100) / 100 })) });
+    // The "now playing" song was fixed when the first person joined, so the demo shows the plan built for everyone: the queue.
+    return sendJson(res, 200, { mode: v.mode, shared, queue: v.queue.filter((q) => q && q.track).slice(0, 7).map(row) });
+  }
+
   // What is known about songs: release year (for era picks) and, when asked, the song's own genres (a song can differ from its artist).
   // Answers are kept in the songs table: a hit for a year, a miss for two weeks. MusicBrainz is asked only for what is not known,
   // about one request a second, so a batch is small. Without the database the lookups still work, just not remembered.
