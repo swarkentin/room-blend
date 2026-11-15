@@ -41,6 +41,14 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     assert.match(await p.textContent('#landing-features'), /avatars/);
     ok('feature navigation exposes fair blending, host music sources, and the live TV experience');
 
+    await p.emulateMedia({ reducedMotion: 'reduce' });
+    assert.strictEqual(await p.locator('.landing-wave i').first().evaluate((node) => getComputedStyle(node).animationName), 'none');
+    await p.emulateMedia({ reducedMotion: 'no-preference' });
+    await p.setViewportSize({ width: 390, height: 844 });
+    assert.ok(await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+    await p.setViewportSize({ width: 1280, height: 900 });
+    ok('the landing page respects reduced-motion preferences and fits a phone viewport');
+
     await p.click('a[href="/demo"]'); await p.waitForURL(/\/demo$/);
     await p.waitForSelector('.demo-songs li');
     assert.match(await p.textContent('.demo-line'), /likes blues/); assert.ok(await p.locator('.demo-songs li').count() >= 3);
