@@ -273,24 +273,25 @@
         h('div', { id: 'account-mount', 'data-mode': 'landing' }),
       ]),
       h('h1', { text: 'Music that fits the whole room.' }),
-      h('p', { class: 'lead', text: 'Everyone picks the genres they like. Room Blend finds the songs in the overlap, and takes turns when there is none. No accounts for guests.' }),
+      h('p', { class: 'lead', text: 'Everyone scans a QR code and picks a few genres. Room Blend plays what the room has in common, and takes turns when there is none. No app to install, no accounts for guests.' }),
+      h('div', { class: 'cta-row' }, [
+        h('button', { class: 'btn primary big', id: 'start-room', type: 'button', text: 'Start a room', onclick: async function () {
+          var r = await http('POST', '/api/rooms');
+          if (!r.ok) { msg.textContent = (r.data && r.data.error) || 'Could not start a room. Try again in a moment.'; return; }
+          lsSet('rb-host-' + r.data.code, r.data.hostKey); location.href = '/host/' + r.data.code;
+        } }),
+        h('a', { class: 'btn big', href: '#demo', text: 'Try the demo' }),
+      ]),
+      h('p', { class: 'hint cta-note', text: 'Free. About a minute to set up. Plays from your own music files, YouTube or Spotify.' }),
       nearby, mine,
-      h('form', { class: 'card', id: 'join-form' }, [
-        h('h2', { text: 'Join a room' }),
+      h('form', { class: 'card joincard', id: 'join-form' }, [
+        h('h2', { text: 'Got a code? Join a room' }),
         h('p', { class: 'hint', text: 'Type the 5-letter code, or paste the link. Or just scan the QR code on the host\'s screen.' }),
         codeIn,
         h('div', { class: 'row' }, [h('button', { class: 'btn', type: 'submit', text: 'Join' })]),
         msg,
       ]),
-      h('div', { class: 'card' }, [
-        h('h2', { text: 'Run the music' }),
-        h('p', { class: 'hint', text: 'Play from Spotify, your own files, or a music server. Friends join with a QR code on their phones.' }),
-        h('div', { class: 'row' }, [h('button', { class: 'btn primary', id: 'start-room', type: 'button', text: 'Start a room', onclick: async function () {
-          var r = await http('POST', '/api/rooms');
-          if (!r.ok) { msg.textContent = (r.data && r.data.error) || 'Could not start a room. Try again in a moment.'; return; }
-          lsSet('rb-host-' + r.data.code, r.data.hostKey); location.href = '/host/' + r.data.code;
-        } })]),
-      ]),
+      h('div', { id: 'landing-more' }),
     ])]));
 
     async function go(code) {
@@ -422,6 +423,7 @@
         '<a class="btn small" id="jtv" target="_blank" rel="noopener" title="Open a separate join-code display without music playback">QR screen</a>' +
         '<button class="btn small" id="tv-mode" type="button" aria-pressed="false">TV / cast view</button></div></div></div>' +
       '</header>' +
+      '<div id="onboard-mount"></div>' +
       '<div id="sp" class="sp"></div>' +
       '<main class="grid">' +
         '<section class="stage" aria-label="Now playing">' +
@@ -969,6 +971,7 @@
     function render(st) {
       S.st = st;
       if (window.RoomBlendHouse) window.RoomBlendHouse.update(st);
+      if (window.RoomBlendOnboard && S.prov) window.RoomBlendOnboard.update(st, { sourceReady: !!(S.prov.ready() || (S.prov.kind === 'manual' && !!lsGet('rb-source'))), sourceName: S.prov.name });
       refreshIfSafe();
       saveSnap(code, st);
       scheduleRoomSnapshot(st.version);

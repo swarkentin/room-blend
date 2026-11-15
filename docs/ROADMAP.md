@@ -145,6 +145,8 @@ Remembering people brings duties (in Canada, PIPEDA; elsewhere GDPR or similar).
 
 ## Getting hosts on board
 
+**Built (first version):** the landing page opens with the premise, a Start a room button and a live demo (`POST /api/demo/blend`, the real engine on a throwaway room), then how it works and what you need. A new host page opens with a three-step "Get going" checklist (choose music, invite friends, music playing) that hides itself once done. *Next:* a zero-setup way to start (YouTube from the shared catalogue with no Google key, or a no-key house playlist), so "start a room" can be playing within seconds.
+
 - Make the first minute work with no account and no setup beyond a source.
 - The recap (phase 1) is the shareable proof of value: it is what a host shows a friend or a venue owner.
 - Standing rooms and regulars' tastes (phases 3 and 4) are what turns a one-night trick into a reason to come back.
