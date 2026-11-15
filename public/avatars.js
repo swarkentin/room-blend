@@ -263,7 +263,8 @@
     // On a TV nobody can hover, so now and then one guest gets a small card: about 5 seconds every ~20. One guest at a time,
     // never during a duel or while a mouse already shows a card, and never on top of the now-playing text, the QR code or the up-next list
     // (opts.spotAvoid): the card goes on a side with room, and if there is none this round is skipped.
-    function hideSpot() { if (spotRec) { spotRec.el.classList.remove('is-spot'); spotRec = null; } }
+    var spotCheck = null;
+    function hideSpot() { clearInterval(spotCheck); spotCheck = null; if (spotRec) { spotRec.el.classList.remove('is-spot'); spotRec = null; } }
     function spotlight() {
       clearTimeout(spotT);
       hideSpot();
@@ -281,6 +282,8 @@
       }
       if (!rec) { spotT = setTimeout(spotlight, Math.min(gap, 4000)); return; }   // nowhere calm to put a card: skip, try again soon
       spotRec = rec;
+      // The card was placed clear of the music text, but the up-next list can grow or the guest can move while it shows: keep checking, and tuck it away the moment it would cover something.
+      spotCheck = setInterval(function () { if (spotRec && !placeTip(spotRec, true)) hideSpot(); }, 400);
       spotT = setTimeout(function () { hideSpot(); spotT = setTimeout(spotlight, gap); }, show);
     }
 
@@ -289,7 +292,7 @@
       schedule();
       if (!enabled || fight || reduced() || (typeof document !== 'undefined' && document.hidden) || !visible()) return;
       var cands = [], busy = false;
-      recs.forEach(function (r) { if (r.walking) busy = true; else if (r.placed && !r.hovered && r.mood !== 'resting' && !r.dancing) cands.push(r); });
+      recs.forEach(function (r) { if (r.walking) busy = true; else if (r !== spotRec && r.placed && !r.hovered && r.mood !== 'resting' && !r.dancing) cands.push(r); });
       if (busy || !cands.length) return;
       var rec = cands[Math.floor(Math.random() * cands.length)], spans = freeSpans(), k = spanIndex(spans, rec.x);
       if (k < 0) return;
