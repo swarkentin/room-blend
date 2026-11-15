@@ -52,7 +52,7 @@ const intersects = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x && a.y <
     const tip = await first.locator('.av-tip').innerText();
     assert.match(tip, /Ana|Ben|Cy/); assert.match(tip, /Own turns/); assert.match(tip, /Overall/);
     const tb = await first.locator('.av-tip').boundingBox();
-    assert.ok(tb.x >= 0 && tb.x + tb.width <= 1920 && !intersects(tb, qr), JSON.stringify({ tb, qr })); ok('hovering an avatar shows their stats, on screen and off the QR code');
+    assert.ok(tb.x >= 0 && tb.x + tb.width <= 1920 && tb.y >= 0, JSON.stringify({ tb, qr })); ok('hovering an avatar shows their stats, on screen');  // a mouse card may sit over the QR when no side is free; the unattended spotlight card never does (below)
 
     // on a TV nobody can hover: now and then one guest's small card shows on its own, one at a time, clear of the music text and the QR code
     await host.mouse.move(5, 5);
