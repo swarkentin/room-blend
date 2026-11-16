@@ -158,6 +158,7 @@
         if (r.code === here) li.append(el('span', 'acct-here', 'This room'));
         else { var open = el('button', 'btn small', 'Open'); open.type = 'button'; open.setAttribute('aria-label', 'Open room ' + r.code); open.addEventListener('click', function () { reclaim(r.code, status); }); li.append(open); }
         var remote = el('button', 'btn small remote-link', 'Remote'); remote.type = 'button'; remote.setAttribute('aria-label', 'Remote control room ' + r.code); remote.addEventListener('click', function () { location.href = '/remote/' + r.code; }); li.append(remote);
+        var remote = el('button', 'btn small remote-link', 'Remote'); remote.type = 'button'; remote.setAttribute('aria-label', 'Remote control room ' + r.code); remote.addEventListener('click', function () { location.href = '/remote/' + r.code; }); li.append(remote);
         list.append(li);
       });
       var out = el('button', 'btn acct-out', 'Sign out'); out.type = 'button';
