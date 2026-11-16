@@ -549,12 +549,13 @@ async function api(req, res, url) {
       }
       if (m === 'POST') {
         if (!sameOrigin(req)) return sendJson(res, 403, { error: 'Cross-site request refused.' });
-        const command = String(body.action || '');
+        const remoteBody = await readBody(req);
+        const command = String(remoteBody.action || '');
         if (command === 'skip') {
           target.advance();
           target.remoteCommand = null;
         } else if (command === 'request') {
-          const result = target.addRequest('', body.title, body.artist, true);
+          const result = target.addRequest('', remoteBody.title, remoteBody.artist, true);
           if (!result.ok) return sendJson(res, 400, { error: result.error });
         } else if (command === 'pause' || command === 'resume') {
           target.remoteCommand = { id: crypto.randomUUID(), action: command, at: Date.now() };
@@ -871,7 +872,7 @@ function serveStatic(req, res, url) {
   }
   // single-page routes (a bare 5-character code is a short join link)
   const short = /^\/([A-Za-z0-9]{5})$/.exec(p), joinCode = short ? short[1].toUpperCase() : (/^\/r\/([A-Za-z0-9]{5})$/.exec(p) || [])[1];
-  if (p === '/' || p === '/demo' || p.startsWith('/host/') || p.startsWith('/r/') || p.startsWith('/screen/') || p === '/callback' || short) {
+  if (p === '/' || p === '/demo' || p.startsWith('/host/') || p.startsWith('/remote/') || p.startsWith('/r/') || p.startsWith('/screen/') || p === '/callback' || short) {
     const room = joinCode && rooms.get(joinCode.toUpperCase());
     return fs.readFile(path.join(PUBLIC_DIR, 'index.html'), 'utf8', (err, html) => {
       if (err) { res.writeHead(404); return res.end('Not found'); }
