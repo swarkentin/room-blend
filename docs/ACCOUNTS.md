@@ -34,7 +34,7 @@ The ownership logic is tested against a fake provider, and the proxy against a f
 Account controls appear only when the server has accounts on (`AUTH_PROVIDER` set). Guest pages never include them.
 
 - **Header (landing and host page):** a **Sign in** button at top right. It opens a small dialog with the methods in `AUTH_METHODS`. Once signed in it becomes a chip with your first name; its menu lists **My rooms** (**Open** puts that room's host key in this browser and opens it; **Remote** opens the phone-friendly remote without transferring the host key) and **Sign out**.
-- **Host page:** a **Keep this room** toggle beside the room name and Wi-Fi option. Signed out, it opens the sign-in dialog.
+- **Host page:** a **Keep this room** control beside the room name and Wi-Fi option remains available for rooms created before signing in or created anonymously. New rooms created while signed in are already kept automatically.
 - **"This browser did not start room X" page:** a notice with **Sign in to take over**, then **Take over room X** for the owner.
 
 Google sign-in returns to the site with a one-time `neon_auth_session_verifier` that the page exchanges for a session through this server (`GET /api/auth/get-session?neon_auth_session_verifier=...`), then removes from the address bar. Neon's docs describe the verifier only briefly, so **this exchange is the least certain part**: if "Continue with Google" returns signed out, that is where to look. Email and password (only when `AUTH_METHODS` includes `email`) uses documented endpoints (`/sign-up/email`, `/sign-in/email`).
