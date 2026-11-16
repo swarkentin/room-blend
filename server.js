@@ -396,6 +396,10 @@ async function api(req, res, url) {
     if (roomLimited(ip)) { L.count('limits.new_rooms'); L.warn('rate.limited', { kind: 'new_rooms', visitor: L.visitorTag(ip) }); return sendJson(res, 429, { error: 'You have started a lot of rooms. Try again in a while.' }); }
     const code = newCode(), hostKey = rid(16);
     const nr = new Room(code, hostKey);
+    // A room created in an authenticated same-origin browser belongs to that host by default.
+    // Keep anonymous creation unchanged, and never let a cross-site request attach a victim's session.
+    const user = auth.enabled && sameOrigin(req) ? await auth.userFromRequest(req) : null;
+    nr.ownerUserId = user && user.id ? user.id : null;
     nr.netKey = netKeyOf(ip);
     rooms.set(code, nr);
     saveRooms();
