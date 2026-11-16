@@ -131,6 +131,9 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     await K.click('#keep-mount .keep-chip'); await K.waitForSelector(dlg);
     assert.ok(/Sign in to keep this room/.test(await text(K, dlg)));
     ok('signed out, Keep this room opens sign-in with that context');
+    await signInEmail(K, 'keep-on-open@example.test', 'pw', true);
+    await until(async () => (await K.getAttribute('#keep-mount .keep-chip', 'aria-pressed')) === 'true', 8000, 'automatically kept on open/sign in');
+    ok('an authenticated host automatically keeps the existing room already open in this browser');
 
     // ---- default methods: Google only, no email/password inputs anywhere ----
     const P = (await device()).page;

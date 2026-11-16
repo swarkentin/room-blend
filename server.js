@@ -177,6 +177,25 @@ function flushRooms() {
   })();
   return flushing;
 }
+// Ownership and credential changes need a direct durable write. flushRooms coalesces
+// concurrent calls, so a call made during an older flush could otherwise return before
+// that older pass has observed the latest room identity.
+async function persistRoomNow(room) {
+  try {
+    const now = Date.now(), rec = identityOf(room);
+    await store.upsertRoom(rec);
+    written.set(room.code, { fp: JSON.stringify({ ...rec, touchedAt: 0 }), at: now });
+    if (room.recoveryNeeded) return true;
+    if (room.history.length) await store.upsertPlays(Recap.roomHash(room.code, room.createdAt), Recap.playRows(room));
+    const version = room.version;
+    if (await store.saveSnapshot(room.code, getRestorer().encryptSnapshot(room.code, room.hostKey, room.snapshot()), version) === false) return false;
+    checkpointed.set(room.code, version);
+    return true;
+  } catch (e) {
+    L.count('errors.save'); L.error('db.flush_failed', { message: String(e && e.message).slice(0, 160) });
+    return false;
+  }
+}
 let saveTimer = null;
 function saveRooms() {
   clearTimeout(saveTimer);
@@ -536,6 +555,8 @@ async function api(req, res, url) {
         checkpointed.delete(mine.code); // the checkpoint is bound to the key, so it is written again
         mine.version++;
         notify(mine.code); saveRooms();
+        clearTimeout(saveTimer);
+        if (!(await persistRoomNow(mine))) return sendJson(res, 503, { error: 'Could not save this room right now. Please try again.' });
       }
       mine.touchedAt = Date.now();
       return sendJson(res, 200, { code: mine.code, hostKey: mine.hostKey });
@@ -634,7 +655,16 @@ async function api(req, res, url) {
     if (!user) return sendJson(res, 401, { error: 'Sign in first.' });
     if (room.ownerUserId && room.ownerUserId !== user.id) return sendJson(res, 409, { error: 'This room already belongs to another account.' });
     const want = m === 'POST' ? user.id : null;
-    if ((room.ownerUserId || null) !== want) { room.ownerUserId = want; room.version++; notify(code); saveRooms(); }
+    if ((room.ownerUserId || null) !== want) {
+      room.ownerUserId = want; room.version++; notify(code); saveRooms();
+    }
+    // A successful keep/release must mean the ownership change reached durable storage.
+    // The normal room flush is debounced for routine updates, which is too late if the
+    // host closes the page as soon as this request succeeds. Also retry persistence for
+    // idempotent claims so a previous transient database failure can recover.
+    clearTimeout(saveTimer);
+    const saved = USE_DB ? await persistRoomNow(room) : writeRooms();
+    if (!saved) return sendJson(res, 503, { error: 'Could not save this room right now. Please try again.' });
     return sendJson(res, 200, { ok: true, owned: !!room.ownerUserId });
   }
 
