@@ -4,6 +4,8 @@
 process.env.DATABASE_URL = 'memory://accounts-test';
 process.env.SESSION_SECRET = 'test-secret-for-accounts-0123456789abcdef';
 process.env.OWNED_ROOM_DAYS = '30';
+// This suite creates more rooms than the production per-IP hourly limit.
+process.env.ROOMS_PER_IP_HOUR = '50';
 const http = require('http');
 const assert = require('assert');
 const App = require('../server.js');
@@ -23,7 +25,7 @@ function req(method, p, body, headers = {}) {
 }
 const as = (id) => ({ cookie: 'neon-auth=' + id });
 const fakeAuth = { enabled: true, provider: 'fake', async userFromRequest(r) { const m = /neon-auth=([\w-]+)/.exec(r.headers.cookie || ''); return m ? { id: m[1], email: m[1] + '@x.test', name: m[1] } : null; }, async handle() { return false; } };
-const newRoom = async () => { const r = (await req('POST', '/api/rooms')).json; return { code: r.code, H: { 'x-host-key': r.hostKey }, hostKey: r.hostKey }; };
+const newRoom = async (who) => { const r = (await req('POST', '/api/rooms', undefined, who ? as(who) : {})).json; return { code: r.code, H: { 'x-host-key': r.hostKey }, hostKey: r.hostKey }; };
 
 (async () => {
   await new Promise((r) => App.server.listen(0, '127.0.0.1', r));
@@ -44,6 +46,14 @@ const newRoom = async () => { const r = (await req('POST', '/api/rooms')).json; 
   assert.strictEqual((await req('GET', '/api/me', null, as('ann'))).json.user.id, 'ann');
   assert.strictEqual((await req('GET', '/api/me/rooms')).status, 401);
 
+  // ---- automatic ownership on creation ----
+  const automatic = await newRoom('ann');
+  assert.strictEqual(rooms.get(automatic.code).ownerUserId, 'ann');
+  assert.ok((await req('GET', '/api/me/rooms', null, as('ann'))).json.rooms.some((r) => r.code === automatic.code));
+  const crossSite = await req('POST', '/api/rooms', undefined, { ...as('ann'), origin: 'https://evil.example' });
+  assert.strictEqual(rooms.get(crossSite.json.code).ownerUserId, null, 'a cross-site room creation cannot attach the signed-in account');
+  ok('rooms created while signed in are automatically kept; cross-site creation stays anonymous');
+
   // ---- claim ----
   const a = await newRoom();
   const c = (code, H, who, method = 'POST', extra = {}) => req(method, `/api/rooms/${code}/host/claim`, method === 'POST' ? {} : undefined, { ...H, ...(who ? as(who) : {}), ...extra });
@@ -62,7 +72,7 @@ const newRoom = async () => { const r = (await req('POST', '/api/rooms')).json; 
   const a2 = await newRoom(); await c(a2.code, a2.H, 'ann');
   const bobs = await newRoom(); await c(bobs.code, bobs.H, 'bob');
   const mine = (await req('GET', '/api/me/rooms', null, as('ann'))).json.rooms;
-  assert.deepStrictEqual(mine.map((r) => r.code).sort(), [a.code, a2.code].sort());
+  assert.deepStrictEqual(mine.map((r) => r.code).sort(), [a.code, a2.code, automatic.code].sort());
   assert.ok(mine.every((r) => r.expiresAt > Date.now() + 29 * 86400000), 'kept rooms show their longer life');
   ok('"My rooms" lists only the signed-in account\'s rooms');
 

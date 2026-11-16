@@ -36,7 +36,7 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     assert.ok(await A.isVisible('#account-mount >> text=Sign in'));
     await A.click('#account-mount button');
     await A.waitForSelector(dlg);
-    assert.ok(/Optional\. Sign in to keep rooms for 30 days and open them on any device\. Guests never need an account\./.test(await text(A, dlg)));
+    assert.ok(/Sign in to automatically keep the rooms you create for 30 days and open them on any device\. Guests never need an account\./.test(await text(A, dlg)));
     assert.ok(await A.$(dlg + '[aria-labelledby]'));
     assert.ok(/Continue with Google/.test(await text(A, dlg)) && (await A.$(dlg + ' input[type=email]')));
     ok('the header Sign in button opens a labelled dialog with the enabled methods');
@@ -52,10 +52,8 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     await A.click('#start-room'); await A.waitForURL(/\/host\/[A-Z0-9]{5}$/);
     const code = A.url().split('/').pop();
     await A.waitForSelector('#keep-mount .keep-chip');
-    assert.strictEqual(await A.getAttribute('#keep-mount .keep-chip', 'aria-pressed'), 'false');
-    assert.strictEqual((await A.$$('.side #account-mount, .side #account')).length, 0, 'nothing in the right-hand column');
-    await A.click('#keep-mount .keep-chip');
-    await until(async () => (await A.getAttribute('#keep-mount .keep-chip', 'aria-pressed')) === 'true', 8000, 'kept');
+    assert.strictEqual(await A.getAttribute('#keep-mount .keep-chip', 'aria-pressed'), 'true', 'a room created while signed in is kept automatically');
+    assert.strictEqual(await A.locator('.side #account-mount, .side #account').count(), 0, 'nothing in the right-hand column');
     ok('on the host page, the Keep this room toggle keeps it');
     await A.click('#account-mount .chip'); await A.waitForSelector(dlg);
     assert.ok(new RegExp(code).test(await text(A, dlg)) && /This room/.test(await text(A, dlg)), 'the menu marks the current room');
@@ -120,7 +118,7 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     assert.ok(/x=1/.test(G.url()), 'other query parameters are kept');
     ok('"Continue with Google" returns signed in, and the one-time verifier leaves the address bar');
     await G.click('#account-mount .chip'); await G.waitForSelector(dlg);
-    assert.ok(/No kept rooms yet/.test(await text(G, dlg)));
+    assert.ok(/No rooms yet/.test(await text(G, dlg)));
     await G.click(dlg + ' >> text=Sign out');
     await until(async () => (await text(G, '#account-mount')).trim() === 'Sign in', 8000, 'signed out');
     ok('signing out returns to the Sign in button (and My rooms shows an empty state)');
@@ -144,7 +142,7 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     await Gu.goto(APP + '/r/' + code); await Gu.waitForSelector('body');
     await new Promise((r) => setTimeout(r, 800));
     assert.strictEqual((await Gu.$$('#account, #account-mount, #keep-mount')).length, 0); ok('the guest page has no account UI at all');
-  } catch (e) { console.error('FAILED:', e.message); await browser.close(); srv.kill(); srv2.kill(); process.exit(1); }
+  } catch (e) { console.error('FAILED:', e.stack || e.message); console.error('PAGE ERRORS:', errors); await browser.close(); srv.kill(); srv2.kill(); process.exit(1); }
   await browser.close(); srv.kill(); srv2.kill();
   if (errors.length) { console.error('page errors', errors); process.exit(1); }
   console.log('\n' + passed + ' checks passed');
