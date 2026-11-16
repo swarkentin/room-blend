@@ -1020,3 +1020,28 @@ a.btn.primary { color: var(--on-primary, #fff); }
 .onboard-steps li.done .ob-mark { background: var(--good); border-color: var(--good); color: #fff; }
 .onboard-steps li.done .ob-mark::after { content: "\2713"; }
 .onboard-steps li.done p { display: none; }
+
+
+/* Authenticated host remote: designed for a phone held in one hand beside the couch. */
+.remote-wrap { min-height:100vh; background:var(--bg); color:var(--ink); padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom); }
+.remote-head { max-width:620px; margin:0 auto; min-height:64px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--line); }
+.remote-head .brand { color:var(--ink); text-decoration:none; font-weight:700; }
+.remote-code,.remote-eyebrow { color:var(--muted); font:500 11px 'JetBrains Mono',monospace; letter-spacing:.12em; }
+.remote-main { max-width:620px; margin:34px auto 64px; display:grid; gap:18px; }
+.remote-main h1 { font-size:clamp(2rem,8vw,3rem); margin:0; }
+.remote-status { color:var(--muted); margin:0; min-height:1.5em; }
+.remote-now { background:var(--now-bg); color:var(--now-fg); border-radius:22px; padding:24px; box-shadow:0 14px 36px #14171c20; }
+.remote-now .label { color:var(--now-muted); font-size:11px; letter-spacing:.14em; }
+.remote-now h2 { font-size:clamp(1.7rem,7vw,2.5rem); line-height:1.08; margin:18px 0 6px; overflow-wrap:anywhere; }
+.remote-now p { color:var(--now-muted); margin:0; }
+.remote-controls { display:grid; grid-template-columns:1.2fr 1fr; gap:10px; margin-top:26px; }
+.remote-controls .btn { min-height:58px; font-size:1rem; }
+.remote-request,.remote-queue { padding:20px; border-radius:18px; }
+.remote-request h2,.remote-queue h2 { margin:0 0 14px; font-size:1.2rem; }
+.remote-request form { display:grid; gap:8px; }
+.remote-request input { width:100%; box-sizing:border-box; min-height:48px; }
+.remote-request button[type=submit] { min-height:50px; margin-top:6px; }
+.remote-queue .queue { padding-left:22px; }
+.remote-queue .queue li { padding:8px 0; }
+.remote-queue .queue li strong,.remote-queue .queue li span { display:block; }
+@media (min-width:700px) { .remote-main { margin-top:52px; } }

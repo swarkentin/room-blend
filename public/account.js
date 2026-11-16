@@ -133,7 +133,7 @@
   }
   function signInDialog(opener, title) {
     return dialog(opener, 'modal', title || 'Sign in', function (panel) {
-      var why1 = el('p', 'hint acct-why', 'Sign in to automatically keep the rooms you create for ' + DAYS + ' days and open them on any device. Guests never need an account.');
+      var why1 = el('p', 'hint acct-why', 'Optional. Sign in to keep rooms for ' + DAYS + ' days and open them on any device. Guests never need an account.');
       panel.append(why1, methods(title, closeDialog));
     });
   }
@@ -151,12 +151,14 @@
       panel.append(el('h3', 'acct-sub', 'My rooms'));
       var status = el('p', 'hint acct-err'); status.setAttribute('role', 'status');
       var list = el('ul', 'account-rooms');
-      if (!rooms.length) list.append(el('li', 'hint', 'No rooms yet. Create a room while signed in and it will be kept here automatically.'));
+      if (!rooms.length) list.append(el('li', 'hint', 'No kept rooms yet. Open a room and choose “Keep this room”.'));
       rooms.forEach(function (r) {
         var li = el('li'), t = el('span', 'acct-room'); t.append(el('b', null, r.name || 'Room ' + r.code), el('small', null, r.code + ' · used ' + ago(r.touchedAt)));
         li.append(t);
         if (r.code === here) li.append(el('span', 'acct-here', 'This room'));
         else { var open = el('button', 'btn small', 'Open'); open.type = 'button'; open.setAttribute('aria-label', 'Open room ' + r.code); open.addEventListener('click', function () { reclaim(r.code, status); }); li.append(open); }
+        var remote = el('button', 'btn small remote-link', 'Remote'); remote.type = 'button'; remote.setAttribute('aria-label', 'Remote control room ' + r.code); remote.addEventListener('click', function () { location.href = '/remote/' + r.code; }); li.append(remote);
+        var remote = el('button', 'btn small remote-link', 'Remote'); remote.type = 'button'; remote.setAttribute('aria-label', 'Remote control room ' + r.code); remote.addEventListener('click', function () { location.href = '/remote/' + r.code; }); li.append(remote);
         list.append(li);
       });
       var out = el('button', 'btn acct-out', 'Sign out'); out.type = 'button';
@@ -184,7 +186,7 @@
     var kept = !!me && rooms.some(function (r) { return r.code === code; });
     var b = el('button', 'btn small keep-chip', kept ? '✓ Room kept' : 'Keep this room'); b.type = 'button';
     b.setAttribute('aria-pressed', String(kept)); b.setAttribute('aria-label', 'Keep this room'); b.title = 'Kept rooms last ' + DAYS + ' days after their last use, and open on any device you sign in on.';
-    var status = el('span', 'hint keep-hint', kept ? 'Kept for ' + DAYS + ' days after last use.' : 'Sign in and keep this room on your account to open it on any device.'); status.setAttribute('role', 'status');
+    var status = el('span', 'hint keep-hint', kept ? 'Kept for ' + DAYS + ' days after last use.' : 'Kept rooms last ' + DAYS + ' days.'); status.setAttribute('role', 'status');
     b.addEventListener('click', async function () {
       if (!me) { signInDialog(b, 'Sign in to keep this room'); return; }
       if (!H) return;

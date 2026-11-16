@@ -1,12 +1,13 @@
 # Host accounts (optional)
 
-Hosts can sign in to automatically **keep rooms they create**. Guests never sign in. With no account, room creation and hosting work as before; those rooms remain anonymous until the host explicitly keeps one after signing in.
+Hosts can sign in to **keep** a room. Guests never sign in. With no account, everything works as before.
 
 A signed-in host gets:
 
-- **Rooms that last.** Rooms created while signed in are kept automatically and live `OWNED_ROOM_DAYS` (default 30) after their last use, not 24 hours. A room created anonymously can still be claimed later from its host page.
+- **Rooms that last.** A kept room lives `OWNED_ROOM_DAYS` (default 30) after its last use, not 24 hours.
 - **My rooms, on any device.** `GET /api/me/rooms` lists them; `POST /api/me/rooms/:code/reclaim` returns the room's host key so a new browser can take over. `{"rotate": true}` also replaces the key, so a lost or shared device is locked out.
 - **One voice in the shared catalogue.** All of one account's rooms count as a single voter (see DATABASE.md), which stops one person from confirming their own lookups with many rooms.
+- **Remote control.** Open **Remote** beside a kept room in the account menu to skip the current song, pause/resume the playback station, and add jukebox requests from a phone. The playback browser remains responsible for audio and provider credentials; the remote never takes over or starts another player.
 
 ## Provider: Neon Auth (managed Better Auth)
 
@@ -32,7 +33,7 @@ The ownership logic is tested against a fake provider, and the proxy against a f
 
 Account controls appear only when the server has accounts on (`AUTH_PROVIDER` set). Guest pages never include them.
 
-- **Header (landing and host page):** a **Sign in** button at top right. It opens a small dialog with the methods in `AUTH_METHODS`. Once signed in it becomes a chip with your first name; its menu lists **My rooms** (**Open** puts that room's host key in this browser and opens it) and **Sign out**.
+- **Header (landing and host page):** a **Sign in** button at top right. It opens a small dialog with the methods in `AUTH_METHODS`. Once signed in it becomes a chip with your first name; its menu lists **My rooms** (**Open** puts that room's host key in this browser and opens it; **Remote** opens the phone-friendly remote without transferring the host key) and **Sign out**.
 - **Host page:** a **Keep this room** control beside the room name and Wi-Fi option remains available for rooms created before signing in or created anonymously. New rooms created while signed in are already kept automatically.
 - **"This browser did not start room X" page:** a notice with **Sign in to take over**, then **Take over room X** for the owner.
 
@@ -55,7 +56,8 @@ Browser tests use a stand-in provider (`lib/auth-fake.js`), enabled only when bo
 
 ## Safety notes
 
-- Writes that use the session cookie (claim, reclaim) refuse a foreign `Origin`.
+- Writes that use the session cookie (claim, reclaim, remote room actions) refuse a foreign `Origin`.
+- Remote actions are authorized against the kept room's owner on the server. The host key stays on the playback browser; pause/resume is delivered to that browser over its authenticated live room stream.
 - Claiming also needs the room's host key, so a stranger signed in somewhere cannot take a room.
 - A room has at most one owner; another account gets 409 (claim) or 404 (reclaim).
 - If the auth provider is down, hosts are simply treated as signed out; rooms keep working.

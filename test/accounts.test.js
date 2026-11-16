@@ -4,8 +4,6 @@
 process.env.DATABASE_URL = 'memory://accounts-test';
 process.env.SESSION_SECRET = 'test-secret-for-accounts-0123456789abcdef';
 process.env.OWNED_ROOM_DAYS = '30';
-// This suite creates more rooms than the production per-IP hourly limit.
-process.env.ROOMS_PER_IP_HOUR = '50';
 const http = require('http');
 const assert = require('assert');
 const App = require('../server.js');
@@ -25,7 +23,7 @@ function req(method, p, body, headers = {}) {
 }
 const as = (id) => ({ cookie: 'neon-auth=' + id });
 const fakeAuth = { enabled: true, provider: 'fake', async userFromRequest(r) { const m = /neon-auth=([\w-]+)/.exec(r.headers.cookie || ''); return m ? { id: m[1], email: m[1] + '@x.test', name: m[1] } : null; }, async handle() { return false; } };
-const newRoom = async (who) => { const r = (await req('POST', '/api/rooms', undefined, who ? as(who) : {})).json; return { code: r.code, H: { 'x-host-key': r.hostKey }, hostKey: r.hostKey }; };
+const newRoom = async () => { const r = (await req('POST', '/api/rooms')).json; return { code: r.code, H: { 'x-host-key': r.hostKey }, hostKey: r.hostKey }; };
 
 (async () => {
   await new Promise((r) => App.server.listen(0, '127.0.0.1', r));
@@ -75,6 +73,32 @@ const newRoom = async (who) => { const r = (await req('POST', '/api/rooms', unde
   assert.deepStrictEqual(mine.map((r) => r.code).sort(), [a.code, a2.code, automatic.code].sort());
   assert.ok(mine.every((r) => r.expiresAt > Date.now() + 29 * 86400000), 'kept rooms show their longer life');
   ok('"My rooms" lists only the signed-in account\'s rooms');
+
+  // ---- remote host console ----
+  const ownedRoom = rooms.get(a.code);
+  ownedRoom.addGuest('Ann', ['rock'], { immediate: true });
+  const remotePath = '/api/me/rooms/' + a.code + '/remote';
+  assert.strictEqual((await req('GET', remotePath)).status, 401, 'remote state requires a signed-in owner');
+  assert.strictEqual((await req('GET', remotePath, null, as('bob'))).status, 404, 'other accounts cannot see the room remote');
+  const remoteState = await req('GET', remotePath, null, as('ann'));
+  assert.strictEqual(remoteState.status, 200);
+  assert.strictEqual(remoteState.json.connected, false, 'the remote reports when the playback station is offline');
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(remoteState.json.state, 'restoreToken'), false, 'the remote never receives the playback host restore receipt');
+  assert.strictEqual((await req('POST', remotePath, { action: 'skip' }, { ...as('ann'), origin: 'https://evil.example' })).status, 403);
+  const requested = await req('POST', remotePath, { action: 'request', title: 'Remote song', artist: 'Remote artist' }, { ...as('ann'), origin: base });
+  assert.strictEqual(requested.status, 200);
+  assert.ok(ownedRoom.requestQueue.some((q) => q.title === 'Remote song' && q.artist === 'Remote artist'));
+  const beforeRemoteSkip = ownedRoom.version;
+  assert.strictEqual((await req('POST', remotePath, { action: 'skip' }, { ...as('ann'), origin: base })).status, 200);
+  assert.ok(ownedRoom.version > beforeRemoteSkip, 'skip advances the shared room state');
+  const paused = await req('POST', remotePath, { action: 'pause' }, { ...as('ann'), origin: base });
+  assert.strictEqual(paused.status, 200);
+  const command = ownedRoom.remoteCommand;
+  assert.strictEqual(command.action, 'pause');
+  await req('POST', '/api/rooms/' + a.code + '/host/player', { event: 'remote-ack', commandId: command.id, paused: true }, a.H);
+  assert.strictEqual(ownedRoom.remotePaused, true);
+  assert.strictEqual(ownedRoom.remoteCommand, null);
+  ok('the room owner can remotely add songs and pause the playback station, without reclaiming its host key');
 
   // ---- reclaim ----
   const rc = (code, who, body = {}, extra = {}) => req('POST', `/api/me/rooms/${code}/reclaim`, body, { ...(who ? as(who) : {}), ...extra });

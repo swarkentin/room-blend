@@ -27,6 +27,20 @@ Principles that decide the order:
 Sign in to keep a room: attach it to an account, see "My rooms", reclaim a room on another device. Add a nullable `owner_user_id` on rooms so anonymous hosts keep working. The catalogue voter becomes the account, so one person with ten rooms counts once.
 *Needs:* an auth library on the existing Postgres (better-auth is the candidate; Neon Auth is the managed alternative) and a decision on sign-in methods. Both mean a new dependency, so they need a machine with package installs. *Done when:* a host can lose their browser data and still get their room back.
 
+### 2a. Remote host console (phone as the room's remote)
+
+A host may run Room Blend on a PC connected to the speakers and TV, then spend the evening elsewhere. They should not have to walk back to the playback machine to skip a song, manage requests or adjust the room. **The phone is a remote control for the existing playback station, not a second player.**
+
+Add a compact, touch-friendly remote console for authenticated owners of kept rooms. It should be reachable from **My rooms** and show the current song, playback-station connection state and prominent next/skip controls. Add pause/resume only where the active provider supports it, plus the common host actions: review/remove requests, change request limits and reach important room settings. Reuse live room updates so the remote stays in sync, and clearly report when the playback station is offline or reconnecting.
+
+**Authorization is the key architectural requirement.** A signed-in owner on another device must be able to issue host actions without first reclaiming the playback session or copying its host key into that device's local storage. Authorize owner actions on the server against the kept room, validate each command there, and preserve the current host-key path for anonymous hosts. The playback browser remains responsible for provider credentials, audio and the TV view; the remote must never start a second player.
+
+**Casting needs a capability-aware design, not a promise that a phone can operate Chrome's Cast menu remotely.** Chrome's built-in Cast menu is browser/OS UI and is not remotely scriptable from another device. Investigate the Presentation API for supported browsers, including its user-activation and permission constraints. A one-time pairing or explicit setup action on the playback PC may be needed before a remote can observe or manage a supported presentation. Where remote target selection is not possible, show cast status and a clear instruction for the one action that still needs the playback PC.
+
+*Build in slices:* (1) authenticated remote access, live status and skip/next; (2) requests and other common room controls, plus provider-aware pause/resume; (3) cast status and supported Presentation API pairing after real-device tests.
+
+*Needs:* host account ownership, a server-side owner authorization path for room commands, and the existing room live-update channel. *Done when:* an authenticated host can control a kept room from their phone while the playback PC continues playing to the room's speakers and TV, with no second player and no host-key transfer. Tracked in [#81](https://github.com/swarkentin/room-blend/issues/81).
+
 ### 3. Standing rooms
 A venue's room that persists between nights: its name, settings, expected genres and play history kept under the owner's account. Needs phase 2.
 *Done when:* "Friday patio" opens the same way every Friday.
