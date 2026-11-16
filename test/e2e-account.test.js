@@ -142,7 +142,7 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     await Gu.goto(APP + '/r/' + code); await Gu.waitForSelector('body');
     await new Promise((r) => setTimeout(r, 800));
     assert.strictEqual((await Gu.$$('#account, #account-mount, #keep-mount')).length, 0); ok('the guest page has no account UI at all');
-  } catch (e) { console.error('FAILED:', e.message); await browser.close(); srv.kill(); srv2.kill(); process.exit(1); }
+  } catch (e) { console.error('FAILED:', e.stack || e.message); console.error('PAGE ERRORS:', errors); await browser.close(); srv.kill(); srv2.kill(); process.exit(1); }
   await browser.close(); srv.kill(); srv2.kill();
   if (errors.length) { console.error('page errors', errors); process.exit(1); }
   console.log('\n' + passed + ' checks passed');
