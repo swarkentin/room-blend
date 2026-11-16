@@ -24,6 +24,8 @@
   }
   var why = function (r, fallback) { return (r.data && (r.data.message || r.data.error)) || fallback; };
   var ago = function (t) { var m = Math.max(0, Math.round((Date.now() - t) / 60000)); return m < 2 ? 'just now' : m < 120 ? m + ' min ago' : m < 2880 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' days ago'; };
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsDel(k) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } }
 
   // Coming back from "Continue with Google": the provider returns with a one-time verifier that is exchanged for a session
   // here, through this server, so the session cookie belongs to this site. It runs on every page load, whatever the page.
@@ -36,11 +38,27 @@
   })();
 
   // ---- shared state: who is signed in and which rooms they keep; every mount redraws when it changes ----
-  var me = null, rooms = [], mounts = [], ready = false;
+  var me = null, rooms = [], mounts = [], ready = false, autoKeepTried = false;
   async function refresh() {
     await done;
     var r = await call('GET', '/api/me'); me = r.ok && r.data ? r.data.user : null;
     if (me) { var q = await call('GET', '/api/me/rooms'); rooms = q.ok && q.data ? q.data.rooms || [] : []; } else rooms = [];
+    // The host key proves this browser is already running the room. Attach it to the
+    // signed-in host's account on open; the server refuses this if another account owns it.
+    var keepBox = document.getElementById('keep-mount'), H = window.RoomBlendHost;
+    var code = keepBox && keepBox.getAttribute('data-code');
+    var justCreated = code && lsGet('rb-new-room-' + code);
+    if (justCreated) lsDel('rb-new-room-' + code);
+    if (me && code && H && H.code === code && !autoKeepTried) {
+      autoKeepTried = true;
+      if (!justCreated && !rooms.some(function (room) { return room.code === code; })) {
+        var kept = await call('POST', '/api/rooms/' + code + '/host/claim', {}, H.headers);
+        if (kept.ok) {
+          var again = await call('GET', '/api/me/rooms');
+          rooms = again.ok && again.data ? again.data.rooms || [] : rooms;
+        }
+      }
+    }
     ready = true; draw();
   }
   function draw() { mounts.forEach(function (m) { m.box.replaceChildren(); m.draw(m.box); }); }

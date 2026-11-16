@@ -278,7 +278,7 @@
         h('button', { class: 'btn primary big', id: 'start-room', type: 'button', text: 'Start a room', onclick: async function () {
           var r = await http('POST', '/api/rooms');
           if (!r.ok) { msg.textContent = (r.data && r.data.error) || 'Could not start a room. Try again in a moment.'; return; }
-          lsSet('rb-host-' + r.data.code, r.data.hostKey); location.href = '/host/' + r.data.code;
+          lsSet('rb-host-' + r.data.code, r.data.hostKey); lsSet('rb-new-room-' + r.data.code, '1'); location.href = '/host/' + r.data.code;
         } }),
         h('a', { class: 'btn big', href: '/demo', text: 'See how it blends' }),
       ]),
