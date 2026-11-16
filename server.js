@@ -101,6 +101,7 @@ function getRestorer() {
   return restorer;
 }
 const hostViewOf = (room) => Object.assign(room.hostView(), { restoreToken: getRestorer().issue(room.code, room.hostKey), owned: !!room.ownerUserId });
+const remoteViewOf = (room) => Object.assign(room.hostView(), { owned: true });
 
 const rooms = new Map();
 const subs = new Map(); // code -> Set of {res, role, guestId}
@@ -367,7 +368,7 @@ function push(code) {
   const room = rooms.get(code), set = subs.get(code);
   if (!room || !set) return;
   for (const s of set) {
-    const view = s.role === 'host' || s.role === 'remote' ? hostViewOf(room) : s.role === 'screen' ? room.screenView() : room.guestView(s.guestId);
+    const view = s.role === 'host' ? hostViewOf(room) : s.role === 'remote' ? remoteViewOf(room) : s.role === 'screen' ? room.screenView() : room.guestView(s.guestId);
     s.res.write(`data: ${JSON.stringify(view)}\n\n`);
   }
 }
@@ -545,7 +546,7 @@ async function api(req, res, url) {
       if (!target || target.ownerUserId !== user.id) return sendJson(res, 404, { error: 'room not found' });
       if (m === 'GET') {
         const connected = [...(subs.get(target.code) || [])].some((sub) => sub.role === 'host');
-        return sendJson(res, 200, { state: hostViewOf(target), connected, paused: !!target.remotePaused });
+        return sendJson(res, 200, { state: remoteViewOf(target), connected, paused: !!target.remotePaused });
       }
       if (m === 'POST') {
         if (!sameOrigin(req)) return sendJson(res, 403, { error: 'Cross-site request refused.' });
@@ -562,7 +563,7 @@ async function api(req, res, url) {
         } else return sendJson(res, 400, { error: 'Unknown remote action.' });
         target.touchedAt = Date.now();
         notify(target.code); saveRooms();
-        return sendJson(res, 200, { ok: true, state: hostViewOf(target) });
+        return sendJson(res, 200, { ok: true, state: remoteViewOf(target) });
       }
       return sendJson(res, 405, { error: 'Method not allowed.' });
     }
@@ -640,7 +641,7 @@ async function api(req, res, url) {
     if (!subs.has(code)) subs.set(code, new Set());
     subs.get(code).add(sub);
     if (guest) room.setConnected(guest.id, true);
-    res.write(`retry: 2000\ndata: ${JSON.stringify(role === 'host' || role === 'remote' ? hostViewOf(room) : role === 'screen' ? room.screenView() : room.guestView(guest.id))}\n\n`);
+    res.write(`retry: 2000\ndata: ${JSON.stringify(role === 'host' ? hostViewOf(room) : role === 'remote' ? remoteViewOf(room) : role === 'screen' ? room.screenView() : room.guestView(guest.id))}\n\n`);
     const ka = setInterval(() => res.write(': keepalive\n\n'), 15000);
     req.on('close', () => {
       clearInterval(ka); subs.get(code)?.delete(sub);
