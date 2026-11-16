@@ -53,7 +53,7 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     const code = A.url().split('/').pop();
     await A.waitForSelector('#keep-mount .keep-chip');
     assert.strictEqual(await A.getAttribute('#keep-mount .keep-chip', 'aria-pressed'), 'true', 'a room created while signed in is kept automatically');
-    assert.strictEqual((await A.$('.side #account-mount, .side #account')).length, 0, 'nothing in the right-hand column');
+    assert.strictEqual(await A.locator('.side #account-mount, .side #account').count(), 0, 'nothing in the right-hand column');
     ok('on the host page, the Keep this room toggle keeps it');
     await A.click('#account-mount .chip'); await A.waitForSelector(dlg);
     assert.ok(new RegExp(code).test(await text(A, dlg)) && /This room/.test(await text(A, dlg)), 'the menu marks the current room');
