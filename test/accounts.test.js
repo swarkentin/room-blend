@@ -4,6 +4,8 @@
 process.env.DATABASE_URL = 'memory://accounts-test';
 process.env.SESSION_SECRET = 'test-secret-for-accounts-0123456789abcdef';
 process.env.OWNED_ROOM_DAYS = '30';
+// This suite creates more rooms than the production per-IP hourly limit.
+process.env.ROOMS_PER_IP_HOUR = '50';
 const http = require('http');
 const assert = require('assert');
 const App = require('../server.js');
