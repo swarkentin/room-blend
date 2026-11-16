@@ -118,7 +118,7 @@ const until = async (fn, ms = 10000, what = 'x') => { const t0 = Date.now(); for
     assert.ok(/x=1/.test(G.url()), 'other query parameters are kept');
     ok('"Continue with Google" returns signed in, and the one-time verifier leaves the address bar');
     await G.click('#account-mount .chip'); await G.waitForSelector(dlg);
-    assert.ok(/No kept rooms yet/.test(await text(G, dlg)));
+    assert.ok(/No rooms yet/.test(await text(G, dlg)));
     await G.click(dlg + ' >> text=Sign out');
     await until(async () => (await text(G, '#account-mount')).trim() === 'Sign in', 8000, 'signed out');
     ok('signing out returns to the Sign in button (and My rooms shows an empty state)');
