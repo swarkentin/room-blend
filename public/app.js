@@ -614,7 +614,8 @@
     $('host-request-form').addEventListener('submit', async function (e) { e.preventDefault(); var result = await post('requests', { title: $('host-request-title').value, artist: $('host-request-artist').value }); $('host-request-hint').textContent = result.ok ? 'Added to the jukebox.' : (result.data && result.data.error) || 'Could not add that request.'; if (result.ok) { $('host-request-title').value = ''; $('host-request-artist').value = ''; $('host-request-search-status').textContent = ''; $('host-request-form').querySelector('.song-suggestions').hidden = true; } });
     $('btn-next').addEventListener('click', function () { post('advance'); });
     $('btn-pause').addEventListener('click', function () {
-      if (S.paused) { S.prov.resume(); S.paused = false; $('btn-pause').textContent = 'Pause'; } else { S.prov.pause(); S.paused = true; $('btn-pause').textContent = 'Resume'; }
+      if (S.paused) { S.prov.resume(); S.paused = false; $('btn-pause').textContent = 'Pause'; post('player', { event: 'pause-state', paused: false }); }
+      else { S.prov.pause(); S.paused = true; $('btn-pause').textContent = 'Resume'; post('player', { event: 'pause-state', paused: true }); }
     });
     $('host-seek').addEventListener('input', function () { $('host-time').textContent = clock(Number(this.value)); });
     $('host-seek').addEventListener('change', function () { if (S.prov && S.prov.seek) S.prov.seek(Number(this.value)); });
@@ -972,8 +973,21 @@
     }
 
     // ----- rendering -----
+    var lastRemoteCommandId = null;
     function render(st) {
       S.st = st;
+      if (st.remoteCommand && st.remoteCommand.id !== lastRemoteCommandId) {
+        lastRemoteCommandId = st.remoteCommand.id;
+        var command = st.remoteCommand;
+        if (command.action === 'pause') { S.prov.pause(); S.paused = true; }
+        else if (command.action === 'resume') { S.prov.resume(); S.paused = false; }
+        $('btn-pause').textContent = S.paused ? 'Resume' : 'Pause';
+        post('player', { event: 'remote-ack', commandId: command.id, paused: S.paused });
+      }
+      if (typeof st.remotePaused === 'boolean' && !st.remoteCommand) {
+        S.paused = st.remotePaused;
+        $('btn-pause').textContent = S.paused ? 'Resume' : 'Pause';
+      }
       if (window.RoomBlendHouse) window.RoomBlendHouse.update(st);
       if (window.RoomBlendOnboard && S.prov) window.RoomBlendOnboard.update(st, { sourceReady: !!(S.prov.ready() || (S.prov.kind === 'manual' && !!lsGet('rb-source'))), sourceName: S.prov.name });
       refreshIfSafe();
@@ -1687,6 +1701,73 @@
     es.onerror = function () { if (es.readyState === EventSource.CLOSED) { $('tv-title').textContent = 'This room has ended'; } };
   }
 
+  function remoteView(code) {
+    var root = h('div', { class: 'remote-wrap' }, [
+      h('header', { class: 'remote-head' }, [h('a', { class: 'brand', href: '/', text: 'room blend' }), h('span', { class: 'remote-code', text: 'ROOM ' + code })]),
+      h('main', { class: 'remote-main' }, [
+        h('p', { class: 'remote-eyebrow', text: 'HOST REMOTE' }), h('h1', { text: 'Room remote' }),
+        h('p', { class: 'remote-status', id: 'remote-status', role: 'status', text: 'Connecting to your room…' }),
+        h('section', { class: 'remote-now' }, [
+          h('span', { class: 'label', text: 'NOW PLAYING' }), h('h2', { id: 'remote-title', text: 'Loading…' }), h('p', { id: 'remote-artist' }),
+          h('div', { class: 'remote-controls' }, [h('button', { class: 'btn primary', id: 'remote-skip', type: 'button', text: 'Next song' }), h('button', { class: 'btn', id: 'remote-pause', type: 'button', text: 'Pause' })]),
+        ]),
+        h('section', { class: 'panel remote-request' }, [
+          h('h2', { text: 'Add a song' }),
+          h('form', { id: 'remote-request-form', class: 'host-add-song', autocomplete: 'off' }, [
+            h('label', { for: 'remote-request-title', text: 'Song' }), h('input', { id: 'remote-request-title', maxlength: '100', required: 'required', placeholder: 'Song title', autocomplete: 'off' }),
+            h('label', { for: 'remote-request-artist', text: 'Artist' }), h('input', { id: 'remote-request-artist', maxlength: '100', required: 'required', placeholder: 'Artist name', autocomplete: 'off' }),
+            h('p', { class: 'hint', id: 'remote-search-status', role: 'status' }), h('p', { class: 'hint', id: 'remote-request-status', role: 'status' }),
+            h('button', { class: 'btn primary', type: 'submit', text: 'Add to queue' }),
+          ]),
+        ]),
+        h('section', { class: 'panel remote-queue' }, [h('h2', { text: 'Requested songs' }), h('ol', { id: 'remote-requests', class: 'queue' })]),
+      ]),
+    ]);
+    app.replaceChildren(root);
+    var state = null, connected = false, busy = false, paused = false;
+    var endpoint = '/api/me/rooms/' + code + '/remote';
+    async function load() {
+      var r = await http('GET', endpoint);
+      if (!r.ok) {
+        $('remote-status').textContent = r.status === 401 ? 'Sign in to the account that owns this room to use its remote.' : 'This room is not available to your account.';
+        $('remote-skip').disabled = $('remote-pause').disabled = true; return;
+      }
+      connected = !!r.data.connected; paused = !!r.data.paused; update(r.data.state);
+      $('remote-status').textContent = connected ? 'Playback station connected' : 'Playback station offline — open the host page on the music PC';
+    }
+    function update(st) {
+      if (!st) return; state = st;
+      $('remote-title').textContent = st.now ? st.now.track.title : 'Waiting for music';
+      $('remote-artist').textContent = st.now ? st.now.track.artist : 'The room will show its next song here.';
+      paused = !!st.remotePaused;
+      $('remote-pause').textContent = paused ? 'Resume stream' : 'Pause stream';
+      $('remote-pause').disabled = !connected || !st.now; $('remote-skip').disabled = !connected || !st.now;
+      var list = $('remote-requests'); list.replaceChildren();
+      (st.requests || []).forEach(function (q) { list.appendChild(h('li', { class: 'queue-row' }, [h('strong', { text: q.title }), h('span', { text: q.artist })])); });
+      if (!(st.requests || []).length) list.appendChild(h('li', { class: 'hint', text: 'No requests waiting.' }));
+    }
+    async function act(action, data) {
+      if (busy) return null; busy = true;
+      var r = await http('POST', endpoint, Object.assign({ action: action }, data || {})); busy = false;
+      if (!r.ok) $('remote-request-status').textContent = (r.data && r.data.error) || 'Could not control this room.';
+      else if (r.data && r.data.state) update(r.data.state);
+      return r;
+    }
+    $('remote-skip').addEventListener('click', function () { act('skip'); });
+    $('remote-pause').addEventListener('click', function () { act(paused ? 'resume' : 'pause'); });
+    songAutocomplete(code, $('remote-request-title'), $('remote-request-artist'), $('remote-search-status'), {}, function () { $('remote-request-form').requestSubmit(); });
+    $('remote-request-form').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      var title = $('remote-request-title').value.trim(), artist = $('remote-request-artist').value.trim();
+      var r = await act('request', { title: title, artist: artist });
+      if (r && r.ok) { $('remote-request-title').value = ''; $('remote-request-artist').value = ''; $('remote-request-status').textContent = 'Added to the room’s request queue.'; }
+    });
+    var es = new EventSource('/api/rooms/' + code + '/events?remote=1');
+    es.onmessage = function (m) { try { update(JSON.parse(m.data)); } catch (e) { /* ignore malformed update */ } };
+    es.onerror = function () { $('remote-status').textContent = 'Reconnecting to the room…'; };
+    load(); setInterval(load, 10000);
+  }
+
   // ---------- router ----------
   function route() {
     var p = location.pathname, m;
@@ -1695,7 +1776,8 @@
       SP.handleCallback().then(function (to) { location.replace(to); }).catch(function (e) {
         app.replaceChildren(h('div', { class: 'wrap' }, [h('div', { class: 'hero' }, [h('h1', { text: 'Spotify sign-in did not finish' }), h('p', { class: 'lead', text: e.message || 'Try again.' }), h('a', { class: 'btn primary', href: '/', text: 'Back' })])]));
       });
-    } else if ((m = p.match(/^\/host\/([A-Za-z0-9]{5})$/))) hostView(m[1].toUpperCase());
+    } else if ((m = p.match(/^\/remote\/([A-Za-z0-9]{5})$/))) remoteView(m[1].toUpperCase());
+    else if ((m = p.match(/^\/host\/([A-Za-z0-9]{5})$/))) hostView(m[1].toUpperCase());
     else if ((m = p.match(/^\/screen\/([A-Za-z0-9]{5})$/))) screenView(m[1].toUpperCase());
     else if ((m = p.match(/^\/([A-Za-z0-9]{5})$/))) { history.replaceState(null, '', '/r/' + m[1].toUpperCase()); guestView(m[1].toUpperCase()); }
     else if ((m = p.match(/^\/r\/([A-Za-z0-9]{5})$/))) guestView(m[1].toUpperCase());
