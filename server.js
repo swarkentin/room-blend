@@ -367,7 +367,7 @@ function push(code) {
   const room = rooms.get(code), set = subs.get(code);
   if (!room || !set) return;
   for (const s of set) {
-    const view = s.role === 'host' ? hostViewOf(room) : s.role === 'screen' ? room.screenView() : room.guestView(s.guestId);
+    const view = s.role === 'host' || s.role === 'remote' ? hostViewOf(room) : s.role === 'screen' ? room.screenView() : room.guestView(s.guestId);
     s.res.write(`data: ${JSON.stringify(view)}\n\n`);
   }
 }
@@ -540,6 +540,31 @@ async function api(req, res, url) {
       mine.touchedAt = Date.now();
       return sendJson(res, 200, { code: mine.code, hostKey: mine.hostKey });
     }
+    if (parts[1] === 'rooms' && parts[3] === 'remote' && parts.length === 4) {
+      const target = rooms.get(String(parts[2]).toUpperCase());
+      if (!target || target.ownerUserId !== user.id) return sendJson(res, 404, { error: 'room not found' });
+      if (m === 'GET') {
+        const connected = [...(subs.get(target.code) || [])].some((sub) => sub.role === 'host');
+        return sendJson(res, 200, { state: hostViewOf(target), connected, paused: !!target.remotePaused });
+      }
+      if (m === 'POST') {
+        if (!sameOrigin(req)) return sendJson(res, 403, { error: 'Cross-site request refused.' });
+        const command = String(body.action || '');
+        if (command === 'skip') {
+          target.advance();
+          target.remoteCommand = null;
+        } else if (command === 'request') {
+          const result = target.addRequest('', body.title, body.artist, true);
+          if (!result.ok) return sendJson(res, 400, { error: result.error });
+        } else if (command === 'pause' || command === 'resume') {
+          target.remoteCommand = { id: crypto.randomUUID(), action: command, at: Date.now() };
+        } else return sendJson(res, 400, { error: 'Unknown remote action.' });
+        target.touchedAt = Date.now();
+        notify(target.code); saveRooms();
+        return sendJson(res, 200, { ok: true, state: hostViewOf(target) });
+      }
+      return sendJson(res, 405, { error: 'Method not allowed.' });
+    }
     return sendJson(res, 404, { error: 'not found' });
   }
 
@@ -607,19 +632,20 @@ async function api(req, res, url) {
     if (isHost()) role = 'host';
     else if ((guest = guestFor())) role = 'guest';
     else if (url.searchParams.get('screen') === '1') role = 'screen';
+    else if (auth.enabled) { const user = await auth.userFromRequest(req); if (user && room.ownerUserId === user.id) role = 'remote'; }
     if (!role) return sendJson(res, 401, { error: 'unknown key' });
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Accel-Buffering': 'no', ...SECURITY });
     const sub = { res, role, guestId: guest && guest.id };
     if (!subs.has(code)) subs.set(code, new Set());
     subs.get(code).add(sub);
     if (guest) room.setConnected(guest.id, true);
-    res.write(`retry: 2000\ndata: ${JSON.stringify(role === 'host' ? hostViewOf(room) : role === 'screen' ? room.screenView() : room.guestView(guest.id))}\n\n`);
+    res.write(`retry: 2000\ndata: ${JSON.stringify(role === 'host' || role === 'remote' ? hostViewOf(room) : role === 'screen' ? room.screenView() : room.guestView(guest.id))}\n\n`);
     const ka = setInterval(() => res.write(': keepalive\n\n'), 15000);
     req.on('close', () => {
       clearInterval(ka); subs.get(code)?.delete(sub);
       if (guest) { room.setConnected(guest.id, false); notify(code); }
     });
-    if (guest || role === 'host') notify(code);
+    if (guest || role === 'host' || role === 'remote') notify(code);
     return;
   }
 
@@ -816,6 +842,8 @@ async function api(req, res, url) {
         }
         room.advance();
       }
+      else if (body.event === 'remote-ack' && room.remoteCommand && body.commandId === room.remoteCommand.id) { room.remotePaused = body.paused === true; room.remoteCommand = null; }
+      else if (body.event === 'pause-state') room.remotePaused = body.paused === true;
       else if (body.event === 'unplayable') room.skipUnplayable();
     }
     else if (act === 'library' && m === 'POST') {
