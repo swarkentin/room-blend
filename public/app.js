@@ -1776,8 +1776,7 @@
       SP.handleCallback().then(function (to) { location.replace(to); }).catch(function (e) {
         app.replaceChildren(h('div', { class: 'wrap' }, [h('div', { class: 'hero' }, [h('h1', { text: 'Spotify sign-in did not finish' }), h('p', { class: 'lead', text: e.message || 'Try again.' }), h('a', { class: 'btn primary', href: '/', text: 'Back' })])]));
       });
-    } else if ((m = p.match(/^\\/remote\\/([A-Za-z0-9]{5})$/))) remoteView(m[1].toUpperCase());
-    } else if ((m = p.match(/^\/host\/([A-Za-z0-9]{5})$/))) hostView(m[1].toUpperCase());
+    } else if ((m = p.match(/^\/remote\/([A-Za-z0-9]{5})$/))) remoteView(m[1].toUpperCase());\n    else if ((m = p.match(/^\/host\/([A-Za-z0-9]{5})$/))) hostView(m[1].toUpperCase());
     else if ((m = p.match(/^\/screen\/([A-Za-z0-9]{5})$/))) screenView(m[1].toUpperCase());
     else if ((m = p.match(/^\/([A-Za-z0-9]{5})$/))) { history.replaceState(null, '', '/r/' + m[1].toUpperCase()); guestView(m[1].toUpperCase()); }
     else if ((m = p.match(/^\/r\/([A-Za-z0-9]{5})$/))) guestView(m[1].toUpperCase());
