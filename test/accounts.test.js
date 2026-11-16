@@ -23,7 +23,7 @@ function req(method, p, body, headers = {}) {
 }
 const as = (id) => ({ cookie: 'neon-auth=' + id });
 const fakeAuth = { enabled: true, provider: 'fake', async userFromRequest(r) { const m = /neon-auth=([\w-]+)/.exec(r.headers.cookie || ''); return m ? { id: m[1], email: m[1] + '@x.test', name: m[1] } : null; }, async handle() { return false; } };
-const newRoom = async () => { const r = (await req('POST', '/api/rooms')).json; return { code: r.code, H: { 'x-host-key': r.hostKey }, hostKey: r.hostKey }; };
+const newRoom = async (who) => { const r = (await req('POST', '/api/rooms', undefined, who ? as(who) : {})).json; return { code: r.code, H: { 'x-host-key': r.hostKey }, hostKey: r.hostKey }; };
 
 (async () => {
   await new Promise((r) => App.server.listen(0, '127.0.0.1', r));
