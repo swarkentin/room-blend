@@ -66,6 +66,28 @@ const newRoom = async () => { const r = (await req('POST', '/api/rooms')).json; 
   assert.ok(mine.every((r) => r.expiresAt > Date.now() + 29 * 86400000), 'kept rooms show their longer life');
   ok('"My rooms" lists only the signed-in account\'s rooms');
 
+  // ---- remote host console ----
+  const ownedRoom = rooms.get(a.code);
+  ownedRoom.addGuest('Ann', ['rock'], { immediate: true });
+  const remotePath = '/api/me/rooms/' + a.code + '/remote';
+  assert.strictEqual((await req('GET', remotePath)).status, 401, 'remote state requires a signed-in owner');
+  assert.strictEqual((await req('GET', remotePath, null, as('bob'))).status, 404, 'other accounts cannot see the room remote');
+  const remoteState = await req('GET', remotePath, null, as('ann'));
+  assert.strictEqual(remoteState.status, 200);
+  assert.strictEqual(remoteState.json.connected, false, 'the remote reports when the playback station is offline');
+  assert.strictEqual((await req('POST', remotePath, { action: 'skip' }, { ...as('ann'), origin: 'https://evil.example' })).status, 403);
+  const requested = await req('POST', remotePath, { action: 'request', title: 'Remote song', artist: 'Remote artist' }, { ...as('ann'), origin: base });
+  assert.strictEqual(requested.status, 200);
+  assert.ok(ownedRoom.requestQueue.some((q) => q.title === 'Remote song' && q.artist === 'Remote artist'));
+  const paused = await req('POST', remotePath, { action: 'pause' }, { ...as('ann'), origin: base });
+  assert.strictEqual(paused.status, 200);
+  const command = ownedRoom.remoteCommand;
+  assert.strictEqual(command.action, 'pause');
+  await req('POST', '/api/rooms/' + a.code + '/host/player', { event: 'remote-ack', commandId: command.id, paused: true }, a.H);
+  assert.strictEqual(ownedRoom.remotePaused, true);
+  assert.strictEqual(ownedRoom.remoteCommand, null);
+  ok('the room owner can remotely add songs and pause the playback station, without reclaiming its host key');
+
   // ---- reclaim ----
   const rc = (code, who, body = {}, extra = {}) => req('POST', `/api/me/rooms/${code}/reclaim`, body, { ...(who ? as(who) : {}), ...extra });
   assert.strictEqual((await rc(a.code, null)).status, 401);
