@@ -44,6 +44,14 @@ const newRoom = async () => { const r = (await req('POST', '/api/rooms')).json; 
   assert.strictEqual((await req('GET', '/api/me', null, as('ann'))).json.user.id, 'ann');
   assert.strictEqual((await req('GET', '/api/me/rooms')).status, 401);
 
+  // ---- automatic ownership on creation ----
+  const automatic = await newRoom('ann');
+  assert.strictEqual(rooms.get(automatic.code).ownerUserId, 'ann');
+  assert.ok((await req('GET', '/api/me/rooms', null, as('ann'))).json.rooms.some((r) => r.code === automatic.code));
+  const crossSite = await req('POST', '/api/rooms', undefined, { ...as('ann'), origin: 'https://evil.example' });
+  assert.strictEqual(rooms.get(crossSite.json.code).ownerUserId, null, 'a cross-site room creation cannot attach the signed-in account');
+  ok('rooms created while signed in are automatically kept; cross-site creation stays anonymous');
+
   // ---- claim ----
   const a = await newRoom();
   const c = (code, H, who, method = 'POST', extra = {}) => req(method, `/api/rooms/${code}/host/claim`, method === 'POST' ? {} : undefined, { ...H, ...(who ? as(who) : {}), ...extra });
@@ -62,7 +70,7 @@ const newRoom = async () => { const r = (await req('POST', '/api/rooms')).json; 
   const a2 = await newRoom(); await c(a2.code, a2.H, 'ann');
   const bobs = await newRoom(); await c(bobs.code, bobs.H, 'bob');
   const mine = (await req('GET', '/api/me/rooms', null, as('ann'))).json.rooms;
-  assert.deepStrictEqual(mine.map((r) => r.code).sort(), [a.code, a2.code].sort());
+  assert.deepStrictEqual(mine.map((r) => r.code).sort(), [a.code, a2.code, automatic.code].sort());
   assert.ok(mine.every((r) => r.expiresAt > Date.now() + 29 * 86400000), 'kept rooms show their longer life');
   ok('"My rooms" lists only the signed-in account\'s rooms');
 
